@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>TradeGuard 交易風險計算器</title>
+  <title>Prism</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+TC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/style.css">
 </head>
@@ -13,12 +13,12 @@
     <header class="site-header">
       <div class="logo">
         <svg class="logo-icon" viewBox="0 0 28 28" fill="none">
-          <rect x="1" y="17" width="5" height="10" rx="1" fill="#00c853"/>
-          <rect x="8" y="12" width="5" height="15" rx="1" fill="#00b4d8"/>
-          <rect x="15" y="7" width="5" height="20" rx="1" fill="#ffd600"/>
-          <rect x="22" y="2" width="5" height="25" rx="1" fill="#ff1744"/>
+          <polygon points="14,2 26,26 2,26" fill="none" stroke="url(#prism-g)" stroke-width="2.5" stroke-linejoin="round"/>
+          <line x1="14" y1="2" x2="8" y2="26" stroke="#00b4d8" stroke-width="1.5" opacity=".5"/>
+          <line x1="14" y1="2" x2="20" y2="26" stroke="#ffd600" stroke-width="1.5" opacity=".5"/>
+          <defs><linearGradient id="prism-g" x1="0" y1="0" x2="28" y2="28"><stop offset="0%" stop-color="#00b4d8"/><stop offset="50%" stop-color="#ffd600"/><stop offset="100%" stop-color="#ff1744"/></linearGradient></defs>
         </svg>
-        <h1>TradeGuard</h1>
+        <h1>Prism</h1>
       </div>
       <button class="settings-btn" id="btn-settings" title="設定">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -145,7 +145,7 @@
     </main>
 
     <footer class="site-footer">
-      <p>TradeGuard &mdash; 僅供參考，實際規則以各券商/期貨商公告為準</p>
+      <p>Prism &mdash; 僅供參考，實際規則以各券商/期貨商公告為準</p>
     </footer>
   </div>
   <script src="js/app.js"></script>

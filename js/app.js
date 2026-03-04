@@ -1,5 +1,5 @@
 /* ================================================================
-   TradeGuard - Trading Risk Calculator (v3 Live)
+   Prism (v3 Live)
    ================================================================ */
 const $ = (s, c = document) => c.querySelector(s);
 const $$ = (s, c = document) => [...c.querySelectorAll(s)];
