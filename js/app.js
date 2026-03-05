@@ -767,6 +767,18 @@ function buildTickerBar() {
   }).join('');
 }
 
+// 手機版報價欄展開/收合
+function _initTickerToggle() {
+  const btn = $('#btn-ticker-toggle');
+  if (!btn) return;
+  btn.addEventListener('click', () => {
+    const bar = btn.closest('.ticker-bar');
+    if (!bar) return;
+    const expanded = bar.classList.toggle('expanded');
+    btn.setAttribute('aria-label', expanded ? '收合報價' : '展開報價');
+  });
+}
+
 // 計算台指期 vs 加權指數的正逆價差
 function _updateBasis(results) {
   const el = $('#ticker-basis');
@@ -1186,6 +1198,7 @@ function _restoreIndicesFromCache() {
 // ================================================================
 function init() {
   buildTickerBar();
+  _initTickerToggle();
 
   // Main tabs
   $$('.main-tab').forEach(b => b.addEventListener('click', () => {

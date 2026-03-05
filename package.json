@@ -1,0 +1,10 @@
+{
+  "name": "prism",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler pages dev . --port 3000"
+  },
+  "devDependencies": {
+    "wrangler": "^4"
+  }
+}
