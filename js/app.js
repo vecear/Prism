@@ -25,6 +25,7 @@ const INDEX_DEFS = {
   kospi:    { name: 'KOSPI',     placeholder: '2500',  market: 'kr', region: '亞洲', chart: 'KRX:KOSPI' },
   shanghai: { name: '上證指數',  placeholder: '3200',  market: 'cn', region: '亞洲', chart: 'SSE:000001' },
   hsi:      { name: '恆生指數',  placeholder: '20000', market: 'hk', region: '亞洲', chart: 'TVC:HSI' },
+  vix:      { name: 'VIX',      placeholder: '20',    market: 'us', region: '美國', chart: 'TVC:VIX' },
 };
 
 // ================================================================
@@ -62,7 +63,7 @@ const PriceService = {
 
   // ── Yahoo Finance ──
   yahoo: {
-    INDEX_MAP: { taiex: '^TWII', sp500: '^GSPC', nasdaq: '^IXIC', dow: '^DJI', sox: '^SOX', nikkei: '^N225', kospi: '^KS11', shanghai: '000001.SS', hsi: '^HSI' },
+    INDEX_MAP: { taiex: '^TWII', sp500: '^GSPC', nasdaq: '^IXIC', dow: '^DJI', sox: '^SOX', nikkei: '^N225', kospi: '^KS11', shanghai: '000001.SS', hsi: '^HSI', vix: '^VIX' },
     async fetchQuote(symbol) {
       const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=1d`;
       const r = await PriceService._proxyFetch(url);
@@ -193,6 +194,26 @@ const PriceService = {
     if (!q || q.error) return '';
     const s = q.change >= 0 ? '+' : '';
     return `${s}${q.change.toFixed(2)} (${s}${q.changePct.toFixed(2)}%)`;
+  },
+
+  // ── Fear & Greed Index (CNN) ──
+  async fetchFearGreed() {
+    const url = 'https://production.dataviz.cnn.io/index/fearandgreed/graphdata';
+    try {
+      // CNN API 需要 Referer header 才能通過（瀏覽器自帶 UA 和 Accept）
+      const r = await this._fetchTimeout(url, 8000, {
+        headers: { 'Referer': 'https://edition.cnn.com/' }
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const d = await r.json();
+      const fg = d?.fear_and_greed;
+      if (!fg) throw new Error('No F&G data');
+      const score = Math.round(fg.score);
+      const prev = fg.previous_close ? Math.round(fg.previous_close) : null;
+      return { score, previousClose: prev, timestamp: fg.timestamp };
+    } catch (e) {
+      throw new Error('F&G 無法取得');
+    }
   },
 
   // ── Yahoo Finance symbol search (autocomplete) ──
@@ -407,6 +428,12 @@ const _quoteCache = {
     for (const [k, v] of Object.entries(d)) { if (v?.data) out[k] = v.data; }
     return out;
   },
+  // Fear & Greed cache (30 min TTL)
+  getFearGreed() {
+    const c = this._load().fearGreed;
+    return (c && Date.now() - c.time < 1800000) ? c.data : null;
+  },
+  setFearGreed(data) { this._load().fearGreed = { data, time: Date.now() }; this._save(); },
 };
 
 // ── TAIFEX margin fetch handler (指數 + 股期保證金) ──
@@ -600,7 +627,7 @@ function wrapNumberInputs(container) {
 const DEFAULT_SETTINGS = {
   autoFetch: true,
   refreshInterval: 10,
-  indices: { taiex: true, txf: true, sp500: true, nasdaq: true, dow: true, sox: true, nikkei: true, kospi: true, shanghai: true, hsi: true },
+  indices: { taiex: true, txf: true, sp500: true, nasdaq: true, dow: true, sox: true, nikkei: true, kospi: true, shanghai: true, hsi: true, vix: true },
   defaultMarket: 'tw',
   twSource: 'twse',        // 'yahoo' | 'twse' | 'tpex'
   usSource: 'yahoo',       // 'yahoo' | 'finnhub'
@@ -773,6 +800,83 @@ function _updateTickerTime(results) {
     const fetchT = lastT ? new Date(lastT).toLocaleTimeString('zh-TW', tFmt) : now;
     timeEl.innerHTML = `<span>抓取 ${fetchT}</span>`;
   }
+}
+
+// ================================================================
+//  SENTIMENT STRIP — VIX Gauge + Fear & Greed
+// ================================================================
+function _vixLevel(v) {
+  if (v <= 12) return { label: '極低波動', cls: 'sent-low', color: 'var(--green)' };
+  if (v <= 20) return { label: '正常', cls: 'sent-normal', color: 'var(--accent)' };
+  if (v <= 30) return { label: '偏高', cls: 'sent-elevated', color: 'var(--yellow)' };
+  if (v <= 40) return { label: '高波動', cls: 'sent-high', color: 'var(--orange)' };
+  return { label: '極度恐慌', cls: 'sent-extreme', color: 'var(--red)' };
+}
+
+function _fgLevel(score) {
+  if (score <= 25) return { label: '極度恐懼', cls: 'sent-extreme', color: 'var(--red)' };
+  if (score <= 44) return { label: '恐懼', cls: 'sent-high', color: 'var(--orange)' };
+  if (score <= 55) return { label: '中立', cls: 'sent-normal', color: 'var(--accent)' };
+  if (score <= 74) return { label: '貪婪', cls: 'sent-elevated', color: 'var(--yellow)' };
+  return { label: '極度貪婪', cls: 'sent-low', color: 'var(--green)' };
+}
+
+function _renderSentimentStrip() {
+  const strip = $('#sentiment-strip');
+  if (!strip) return;
+
+  // VIX from cache or ticker
+  const vixQ = _quoteCache.getIndex('vix');
+  const vixVal = vixQ?.price;
+
+  // Fear & Greed from cache
+  const fgData = _quoteCache.getFearGreed();
+
+  if (!vixVal && !fgData) {
+    strip.style.display = 'none';
+    return;
+  }
+  strip.style.display = '';
+
+  let html = '';
+
+  // VIX gauge
+  if (vixVal) {
+    const lv = _vixLevel(vixVal);
+    const pct = Math.min(vixVal / 80 * 100, 100);
+    const vixChg = vixQ.change != null ? vixQ.change : null;
+    const vixChgHtml = vixChg != null ? `<span class="sent-chg ${vixChg <= 0 ? 'up' : 'down'}">${vixChg >= 0 ? '+' : ''}${vixChg.toFixed(2)}</span>` : '';
+    html += `<div class="sent-gauge">
+      <div class="sent-label">VIX 恐慌指數</div>
+      <div class="sent-value" style="color:${lv.color}">${vixVal.toFixed(2)} ${vixChgHtml}</div>
+      <div class="sent-track sent-vix-track"><div class="sent-fill" style="width:${pct}%"></div></div>
+      <div class="sent-tag" style="color:${lv.color}">${lv.label}</div>
+    </div>`;
+  }
+
+  // Fear & Greed gauge
+  if (fgData) {
+    const lv = _fgLevel(fgData.score);
+    const pct = fgData.score;
+    const chg = fgData.previousClose != null ? fgData.score - fgData.previousClose : null;
+    const chgHtml = chg != null ? `<span class="sent-chg ${chg >= 0 ? 'up' : 'down'}">${chg >= 0 ? '+' : ''}${chg}</span>` : '';
+    html += `<div class="sent-gauge">
+      <div class="sent-label">恐懼與貪婪指數</div>
+      <div class="sent-value" style="color:${lv.color}">${fgData.score} ${chgHtml}</div>
+      <div class="sent-track sent-fg-track"><div class="sent-fill" style="width:${pct}%;background:${lv.color}"></div></div>
+      <div class="sent-tag" style="color:${lv.color}">${lv.label}</div>
+    </div>`;
+  }
+
+  strip.innerHTML = html;
+}
+
+async function _fetchFearGreed() {
+  try {
+    const fg = await PriceService.fetchFearGreed();
+    _quoteCache.setFearGreed(fg);
+    _renderSentimentStrip();
+  } catch {}
 }
 
 // ================================================================
@@ -1055,6 +1159,7 @@ function _restoreIndicesFromCache() {
   if (ok > 0) {
     _updateBasis(cached);
     _updateTickerTime(cached);
+    _renderSentimentStrip();
     if ($('#f-entry')) fillFromTicker('f-entry');
     if ($('#f-current')) fillFromTicker('f-current');
     if ($('#o-ul')) fillOptFromTicker();
@@ -1314,11 +1419,13 @@ function applySettings() {
 
     // 3) Only fetch indices if no cache or cache expired
     if (CFG.autoFetch && (!hasCache || stale)) {
-      handleFetchIndices(true);  // 初次載入帶入表單
+      handleFetchIndices(true);  // 初次載入帶入表單（也會觸發 F&G fetch）
       fetchTaifexMarginBtn();
     } else if (hasCache && !stale) {
       // Cache is fresh — also auto-fetch TAIFEX margins from cache/API
       fetchTaifexMarginBtn();
+      // Restore F&G from cache, or fetch if stale
+      if (!_quoteCache.getFearGreed()) _fetchFearGreed();
     }
   }
 
@@ -1356,6 +1463,8 @@ async function handleFetchIndices(updateForms) {
     }
     _updateBasis(results);
     _updateTickerTime(results);
+    _renderSentimentStrip();
+    _fetchFearGreed();
   } catch (e) {}
   btn.classList.remove('loading');
 }
@@ -1378,11 +1487,21 @@ function _renderTickerChip(key, q) {
       dispEl.classList.add(cls);
     }
   }
-  if (chgEl) { chgEl.textContent = PriceService.fmtChg(q); chgEl.className = `tc-chg ${q.change >= 0 ? 'up' : 'down'}`; }
+  if (chgEl) {
+    chgEl.textContent = PriceService.fmtChg(q);
+    // VIX 漲=恐慌加劇(red), 跌=恐慌減少(green) — 反向配色
+    const chgDir = key === 'vix' ? (q.change >= 0 ? 'down' : 'up') : (q.change >= 0 ? 'up' : 'down');
+    chgEl.className = `tc-chg ${chgDir}`;
+  }
   // 台指期顯示盤別標示
   if (key === 'txf' && q.session) {
     const nameEl = $(`.ticker-chip[data-idx="txf"] .tc-name`);
     if (nameEl) nameEl.textContent = `台指期 ${q.session}`;
+  }
+  // VIX 依波動程度上色
+  if (key === 'vix' && dispEl) {
+    const lv = _vixLevel(q.price);
+    dispEl.style.color = lv.color;
   }
 }
 

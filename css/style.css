@@ -129,6 +129,21 @@ body{font-family:var(--sans);background:var(--bg0);color:var(--t1);line-height:1
 .ticker-fill-btn{display:inline-block;padding:3px 8px;background:var(--bg1);border:1px solid var(--bdr);border-radius:5px;color:var(--t2);font-family:var(--sans);font-size:.72rem;font-weight:500;cursor:pointer;transition:all .15s;margin-top:2px;min-height:22px}
 .ticker-fill-btn:hover{color:var(--accent);border-color:var(--accent);background:var(--accent-d)}
 
+/* ========== Sentiment Strip ========== */
+.sentiment-strip{display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--bdr)}
+.sent-gauge{flex:1;display:flex;align-items:center;gap:8px;padding:4px 10px;background:var(--bg1);border:1px solid var(--bdr);border-radius:6px;min-width:0}
+.sent-label{font-size:.68rem;color:var(--t3);font-weight:600;white-space:nowrap;min-width:fit-content}
+.sent-value{font-family:var(--mono);font-size:1.05rem;font-weight:700;white-space:nowrap;display:flex;align-items:baseline;gap:4px}
+.sent-chg{font-size:.65rem;font-weight:600}
+.sent-chg.up{color:var(--green)}.sent-chg.down{color:var(--red)}
+.sent-track{flex:1;height:6px;background:var(--bg0);border-radius:3px;position:relative;overflow:hidden;min-width:40px}
+.sent-vix-track{background:linear-gradient(90deg,var(--green) 0%,var(--accent) 25%,var(--yellow) 40%,var(--orange) 55%,var(--red) 80%);opacity:.2}
+.sent-vix-track .sent-fill{background:transparent!important;border-right:3px solid #fff;border-radius:0}
+.sent-fg-track{background:linear-gradient(90deg,var(--red) 0%,var(--orange) 25%,var(--accent) 50%,var(--yellow) 75%,var(--green) 100%);opacity:.35}
+.sent-fill{height:100%;border-radius:3px;transition:width .6s ease}
+.sent-fg-track .sent-fill{background:transparent!important;border-right:3px solid #fff;border-radius:0}
+.sent-tag{font-size:.68rem;font-weight:600;white-space:nowrap}
+
 /* ========== Main Tabs ========== */
 .main-tabs{display:flex;gap:2px;border-bottom:1px solid var(--bdr);padding-top:4px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
 .main-tabs::-webkit-scrollbar{display:none}
@@ -357,6 +372,13 @@ input[type="number"]{-moz-appearance:textfield}
   .tc-price{font-size:.72rem}
   .tc-chg{font-size:.58rem}
   .ticker-chip+.ticker-chip::before{margin:0 5px}
+
+  /* Sentiment strip */
+  .sentiment-strip{flex-direction:column;gap:6px;padding:6px 0}
+  .sent-gauge{padding:5px 8px;gap:6px}
+  .sent-label{font-size:.62rem}
+  .sent-value{font-size:.92rem}
+  .sent-tag{font-size:.62rem}
 
   /* Main tabs: horizontal scroll, never wrap */
   .main-tabs{gap:0;padding-top:4px;flex-wrap:nowrap}
