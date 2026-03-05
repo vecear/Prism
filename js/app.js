@@ -17,15 +17,14 @@ const PLACEHOLDER = '<div class="results-placeholder"><p>輸入參數即可即�
 const INDEX_DEFS = {
   taiex:    { name: '加權指數',  placeholder: '22000', market: 'tw', region: '台灣', chart: 'TWSE:TAIEX' },
   txf:      { name: '台指期',    placeholder: '22000', market: 'tw', region: '台灣', chart: 'TXF1!' },
-  sp500:    { name: 'S&P 500',   placeholder: '5800',  market: 'us', region: '美國', chart: 'SP:SPX' },
-  nasdaq:   { name: 'Nasdaq',    placeholder: '18000', market: 'us', region: '美國', chart: 'NASDAQ:NDX' },
-  dow:      { name: '道瓊',      placeholder: '42000', market: 'us', region: '美國', chart: 'DJ:DJI' },
+  es:       { name: 'S&P 期貨',  placeholder: '5800',  market: 'us', region: '美國', chart: 'CME_MINI:ES1!' },
+  nq:       { name: '那指期貨',  placeholder: '20000', market: 'us', region: '美國', chart: 'CME_MINI:NQ1!' },
+  ym:       { name: '道瓊期貨',  placeholder: '42000', market: 'us', region: '美國', chart: 'CBOT_MINI:YM1!' },
   sox:      { name: '費半',      placeholder: '5000',  market: 'us', region: '美國', chart: 'NASDAQ:SOX' },
-  nikkei:   { name: '日經225',   placeholder: '38000', market: 'jp', region: '亞洲', chart: 'TVC:NI225' },
+  nkd:      { name: '日經期貨',  placeholder: '38000', market: 'jp', region: '亞洲', chart: 'CME:NKD1!' },
   kospi:    { name: 'KOSPI',     placeholder: '2500',  market: 'kr', region: '亞洲', chart: 'KRX:KOSPI' },
   shanghai: { name: '上證指數',  placeholder: '3200',  market: 'cn', region: '亞洲', chart: 'SSE:000001' },
   hsi:      { name: '恆生指數',  placeholder: '20000', market: 'hk', region: '亞洲', chart: 'TVC:HSI' },
-  vix:      { name: 'VIX',      placeholder: '20',    market: 'us', region: '美國', chart: 'TVC:VIX' },
 };
 
 // ================================================================
@@ -63,7 +62,7 @@ const PriceService = {
 
   // ── Yahoo Finance ──
   yahoo: {
-    INDEX_MAP: { taiex: '^TWII', sp500: '^GSPC', nasdaq: '^IXIC', dow: '^DJI', sox: '^SOX', nikkei: '^N225', kospi: '^KS11', shanghai: '000001.SS', hsi: '^HSI', vix: '^VIX' },
+    INDEX_MAP: { taiex: '^TWII', es: 'ES=F', nq: 'NQ=F', ym: 'YM=F', sox: '^SOX', nkd: 'NKD=F', kospi: '^KS11', shanghai: '000001.SS', hsi: '^HSI', vix: '^VIX' },
     async fetchQuote(symbol) {
       const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=1d`;
       const r = await PriceService._proxyFetch(url);
@@ -127,7 +126,7 @@ const PriceService = {
 
   // ── Finnhub ──
   finnhub: {
-    INDEX_MAP: { sp500: 'SPY', nasdaq: 'QQQ', dow: 'DIA', sox: 'SOXX' },
+    INDEX_MAP: { es: 'ES=F', nq: 'NQ=F', ym: 'YM=F', sox: 'SOXX' },
     async fetchQuote(symbol) {
       const key = CFG.finnhubKey;
       if (!key) throw new Error('需要 Finnhub API Key (請至設定填入)');
@@ -627,7 +626,7 @@ function wrapNumberInputs(container) {
 const DEFAULT_SETTINGS = {
   autoFetch: true,
   refreshInterval: 10,
-  indices: { taiex: true, txf: true, sp500: true, nasdaq: true, dow: true, sox: true, nikkei: true, kospi: true, shanghai: true, hsi: true, vix: true },
+  indices: { taiex: true, txf: true, es: true, nq: true, ym: true, sox: true, nkd: true, kospi: true, shanghai: true, hsi: true, vix: true },
   defaultMarket: 'tw',
   twSource: 'twse',        // 'yahoo' | 'twse' | 'tpex'
   usSource: 'yahoo',       // 'yahoo' | 'finnhub'
@@ -693,20 +692,20 @@ const ETF_PRESETS = {
     { code: '006208', name: '富邦台50', leverage: 1, index: 'taiex' },
     { code: '00631L', name: '元大台灣50正2', leverage: 2, index: 'taiex' },
     { code: '00632R', name: '元大台灣50反1', leverage: -1, index: 'taiex' },
-    { code: '00675L', name: 'S&P500正2', leverage: 2, index: 'sp500' },
-    { code: '00670L', name: '美國道瓊正2', leverage: 2, index: 'dow' },
+    { code: '00675L', name: 'S&P500正2', leverage: 2, index: 'es' },
+    { code: '00670L', name: '美國道瓊正2', leverage: 2, index: 'ym' },
   ],
   us: [
-    { code: 'SPY', name: 'SPDR S&P 500', leverage: 1, index: 'sp500' },
-    { code: 'QQQ', name: 'Invesco Nasdaq', leverage: 1, index: 'nasdaq' },
-    { code: 'TQQQ', name: 'ProShares 3x QQQ', leverage: 3, index: 'nasdaq' },
-    { code: 'SQQQ', name: 'ProShares -3x QQQ', leverage: -3, index: 'nasdaq' },
-    { code: 'SPXL', name: 'Direxion 3x S&P', leverage: 3, index: 'sp500' },
-    { code: 'UPRO', name: 'ProShares 3x S&P', leverage: 3, index: 'sp500' },
+    { code: 'SPY', name: 'SPDR S&P 500', leverage: 1, index: 'es' },
+    { code: 'QQQ', name: 'Invesco Nasdaq', leverage: 1, index: 'nq' },
+    { code: 'TQQQ', name: 'ProShares 3x QQQ', leverage: 3, index: 'nq' },
+    { code: 'SQQQ', name: 'ProShares -3x QQQ', leverage: -3, index: 'nq' },
+    { code: 'SPXL', name: 'Direxion 3x S&P', leverage: 3, index: 'es' },
+    { code: 'UPRO', name: 'ProShares 3x S&P', leverage: 3, index: 'es' },
     { code: 'SOXL', name: 'Direxion 3x 費半', leverage: 3, index: 'sox' },
     { code: 'SOXS', name: 'Direxion -3x 費半', leverage: -3, index: 'sox' },
-    { code: 'DIA', name: 'SPDR Dow Jones', leverage: 1, index: 'dow' },
-    { code: 'UDOW', name: 'ProShares 3x Dow', leverage: 3, index: 'dow' },
+    { code: 'DIA', name: 'SPDR Dow Jones', leverage: 1, index: 'ym' },
+    { code: 'UDOW', name: 'ProShares 3x Dow', leverage: 3, index: 'ym' },
   ]
 };
 
@@ -840,18 +839,26 @@ function _renderSentimentStrip() {
 
   let html = '';
 
+  const tFmt = { hour: '2-digit', minute: '2-digit', second: '2-digit' };
+
   // VIX gauge
   if (vixVal) {
     const lv = _vixLevel(vixVal);
     const pct = Math.min(vixVal / 80 * 100, 100);
     const vixChg = vixQ.change != null ? vixQ.change : null;
     const vixChgHtml = vixChg != null ? `<span class="sent-chg ${vixChg <= 0 ? 'up' : 'down'}">${vixChg >= 0 ? '+' : ''}${vixChg.toFixed(2)}</span>` : '';
-    html += `<div class="sent-gauge">
+    const vixCache = _quoteCache._load().indices.vix;
+    const vixFetchStr = vixCache?.time ? new Date(vixCache.time).toLocaleTimeString('zh-TW', tFmt) : '';
+    const vixSrcStr = vixQ.sourceTime ? new Date(vixQ.sourceTime).toLocaleTimeString('zh-TW', tFmt) : '';
+    const vixTip = vixSrcStr
+      ? `來源報價時間：${vixSrcStr}\n本地抓取時間：${vixFetchStr}`
+      : (vixFetchStr ? `本地抓取時間：${vixFetchStr}` : '');
+    html += `<a class="sent-gauge" title="${vixTip}" href="https://www.tradingview.com/chart/?symbol=CBOE%3AVIX" target="_blank" rel="noopener">
       <div class="sent-label">VIX 恐慌指數</div>
       <div class="sent-value" style="color:${lv.color}">${vixVal.toFixed(2)} ${vixChgHtml}</div>
       <div class="sent-track sent-vix-track"><div class="sent-fill" style="width:${pct}%"></div></div>
       <div class="sent-tag" style="color:${lv.color}">${lv.label}</div>
-    </div>`;
+    </a>`;
   }
 
   // Fear & Greed gauge
@@ -860,12 +867,18 @@ function _renderSentimentStrip() {
     const pct = fgData.score;
     const chg = fgData.previousClose != null ? fgData.score - fgData.previousClose : null;
     const chgHtml = chg != null ? `<span class="sent-chg ${chg >= 0 ? 'up' : 'down'}">${chg >= 0 ? '+' : ''}${chg}</span>` : '';
-    html += `<div class="sent-gauge">
+    const fgCache = _quoteCache._load().fearGreed;
+    const fgFetchStr = fgCache?.time ? new Date(fgCache.time).toLocaleTimeString('zh-TW', tFmt) : '';
+    const fgSrcStr = fgData.timestamp ? new Date(fgData.timestamp).toLocaleTimeString('zh-TW', tFmt) : '';
+    const fgTip = fgSrcStr
+      ? `來源報價時間：${fgSrcStr}\n本地抓取時間：${fgFetchStr}`
+      : (fgFetchStr ? `本地抓取時間：${fgFetchStr}` : '');
+    html += `<a class="sent-gauge" title="${fgTip}" href="https://edition.cnn.com/markets/fear-and-greed" target="_blank" rel="noopener">
       <div class="sent-label">恐懼與貪婪指數</div>
       <div class="sent-value" style="color:${lv.color}">${fgData.score} ${chgHtml}</div>
       <div class="sent-track sent-fg-track"><div class="sent-fill" style="width:${pct}%;background:${lv.color}"></div></div>
       <div class="sent-tag" style="color:${lv.color}">${lv.label}</div>
-    </div>`;
+    </a>`;
   }
 
   strip.innerHTML = html;
@@ -1502,6 +1515,16 @@ function _renderTickerChip(key, q) {
   if (key === 'vix' && dispEl) {
     const lv = _vixLevel(q.price);
     dispEl.style.color = lv.color;
+  }
+  // 設定 tooltip：來源報價時間 + 本地抓取時間
+  const chip = $(`.ticker-chip[data-idx="${key}"]`);
+  if (chip) {
+    const tFmt = { hour: '2-digit', minute: '2-digit', second: '2-digit' };
+    const fetchStr = new Date().toLocaleTimeString('zh-TW', tFmt);
+    const srcStr = q.sourceTime ? new Date(q.sourceTime).toLocaleTimeString('zh-TW', tFmt) : null;
+    chip.title = srcStr
+      ? `來源報價時間：${srcStr}\n本地抓取時間：${fetchStr}`
+      : `本地抓取時間：${fetchStr}`;
   }
 }
 
@@ -2476,7 +2499,7 @@ window.refreshFuturesPrice = async function() {
   const contract = $('#f-contract')?.value || '';
   const indexKeyMap = {
     tw: { TX: 'txf', MTX: 'txf', MXF: 'txf', TE: 'taiex', TF: 'taiex', STK: '' },
-    us: { ES: 'sp500', MES: 'sp500', NQ: 'nasdaq', MNQ: 'nasdaq', YM: 'dow', MYM: 'dow' }
+    us: { ES: 'es', MES: 'es', NQ: 'nq', MNQ: 'nq', YM: 'ym', MYM: 'ym' }
   };
   const idxKey = indexKeyMap[mk]?.[contract];
   if (!idxKey) return;
@@ -2539,10 +2562,10 @@ window.fillFromTicker = function(targetId, force) {
     }
   } else {
     const prov = PriceService.PROVIDER_INFO[CFG.usSource]?.name || '';
-    if (['ES', 'MES'].includes(contract)) { idxId = 'idx-sp500'; srcLabel = prov || 'S&P 500'; }
-    else if (['NQ', 'MNQ'].includes(contract)) { idxId = 'idx-nasdaq'; srcLabel = prov || 'Nasdaq'; }
-    else if (['YM', 'MYM'].includes(contract)) { idxId = 'idx-dow'; srcLabel = prov || '道瓊'; }
-    else { idxId = 'idx-sp500'; srcLabel = prov || 'S&P 500'; }
+    if (['ES', 'MES'].includes(contract)) { idxId = 'idx-es'; srcLabel = prov || 'S&P 期貨'; }
+    else if (['NQ', 'MNQ'].includes(contract)) { idxId = 'idx-nq'; srcLabel = prov || '那指期貨'; }
+    else if (['YM', 'MYM'].includes(contract)) { idxId = 'idx-ym'; srcLabel = prov || '道瓊期貨'; }
+    else { idxId = 'idx-es'; srcLabel = prov || 'S&P 期貨'; }
   }
   const v = gV(idxId);
   if (v) {
@@ -2812,7 +2835,7 @@ async function _fetchOptionsStockPrice(code) {
 
 window.fetchOptPrice = async function() {
   const mk = S.options.market;
-  const idxKey = mk === 'tw' ? 'taiex' : 'sp500';
+  const idxKey = mk === 'tw' ? 'taiex' : 'es';
   const el = document.getElementById('o-ul');
   if (!el) return;
   el.placeholder = '查詢中…';
@@ -2834,7 +2857,7 @@ window.fetchOptPrice = async function() {
 // 更新報價：先嘗試快取，沒有則發 API
 window.refreshOptPrice = function() {
   const tw = S.options.market === 'tw';
-  const cacheKey = tw ? 'taiex' : 'sp500';
+  const cacheKey = tw ? 'taiex' : 'es';
   const cached = _quoteCache.getIndex(cacheKey);
   if (cached) {
     const el = document.getElementById('o-ul');
@@ -2843,7 +2866,7 @@ window.refreshOptPrice = function() {
       el.dispatchEvent(new Event('input', { bubbles: true }));
       const cacheEntry = _quoteCache._load().indices[cacheKey];
       const provName = tw ? PriceService.PROVIDER_INFO[CFG.twSource]?.name : PriceService.PROVIDER_INFO[CFG.usSource]?.name;
-      stampTime('o-ul', provName || (tw ? '加權指數' : 'S&P 500'), cacheEntry?.data?.sourceTime, cacheEntry?.time);
+      stampTime('o-ul', provName || (tw ? '加權指數' : 'S&P 期貨'), cacheEntry?.data?.sourceTime, cacheEntry?.time);
     }
     calcOptions();
     return;
@@ -2857,15 +2880,15 @@ window.fillOptFromTicker = function(force) {
   // 非手動觸發時，若欄位已有值則不覆蓋
   if (!force && ulEl.value) return;
   const tw = S.options.market === 'tw';
-  const id = tw ? 'idx-taiex' : 'idx-sp500';
+  const id = tw ? 'idx-taiex' : 'idx-es';
   const v = gV(id);
   if (v) {
     ulEl.value = v;
     ulEl.dispatchEvent(new Event('input', { bubbles: true }));
-    const cacheKey = tw ? 'taiex' : 'sp500';
+    const cacheKey = tw ? 'taiex' : 'es';
     const cacheEntry = _quoteCache._load().indices[cacheKey];
     const provName = tw ? PriceService.PROVIDER_INFO[CFG.twSource]?.name : PriceService.PROVIDER_INFO[CFG.usSource]?.name;
-    stampTime('o-ul', provName || (tw ? '加權指數' : 'S&P 500'), cacheEntry?.data?.sourceTime, cacheEntry?.time);
+    stampTime('o-ul', provName || (tw ? '加權指數' : 'S&P 期貨'), cacheEntry?.data?.sourceTime, cacheEntry?.time);
   }
 };
 

@@ -131,7 +131,8 @@ body{font-family:var(--sans);background:var(--bg0);color:var(--t1);line-height:1
 
 /* ========== Sentiment Strip ========== */
 .sentiment-strip{display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--bdr)}
-.sent-gauge{flex:1;display:flex;align-items:center;gap:8px;padding:4px 10px;background:var(--bg1);border:1px solid var(--bdr);border-radius:6px;min-width:0}
+.sent-gauge{flex:1;display:flex;align-items:center;gap:8px;padding:4px 10px;background:var(--bg1);border:1px solid var(--bdr);border-radius:6px;min-width:0;text-decoration:none;color:inherit;cursor:pointer;transition:border-color .15s}
+.sent-gauge:hover{border-color:var(--accent)}
 .sent-label{font-size:.68rem;color:var(--t3);font-weight:600;white-space:nowrap;min-width:fit-content}
 .sent-value{font-family:var(--mono);font-size:1.05rem;font-weight:700;white-space:nowrap;display:flex;align-items:baseline;gap:4px}
 .sent-chg{font-size:.65rem;font-weight:600}
