@@ -94,25 +94,22 @@
 
       <!-- MARGIN TAB -->
       <section id="tab-margin" class="tab-content active">
-        <div class="controls-bar">
-          <div class="toggle-group" data-group="margin-market">
-            <button class="toggle-btn active" data-value="tw">台灣</button>
-            <button class="toggle-btn" data-value="us">美國</button>
-          </div>
-          <div class="toggle-group direction-toggle" data-group="margin-direction">
-            <button class="toggle-btn active" data-value="cash">現股</button>
-            <button class="toggle-btn" data-value="long">融資 Long</button>
-            <button class="toggle-btn" data-value="short">融券 Short</button>
-          </div>
-          <div class="toggle-group" data-group="margin-product">
-            <button class="toggle-btn active" data-value="stock">個股</button>
-            <button class="toggle-btn" data-value="etf">指數ETF</button>
-            <button class="toggle-btn" data-value="letf">槓桿ETF</button>
-          </div>
-        </div>
         <div class="calc-layout">
-          <div class="input-panel card">
-            <div id="margin-inputs"></div>
+          <div class="calc-left">
+            <div class="controls-bar">
+              <div class="toggle-group" data-group="margin-market">
+                <button class="toggle-btn active" data-value="tw">台灣</button>
+                <button class="toggle-btn" data-value="us">美國</button>
+              </div>
+              <div class="toggle-group direction-toggle" data-group="margin-direction">
+                <button class="toggle-btn active" data-value="cash">現股</button>
+                <button class="toggle-btn" data-value="long">融資 Long</button>
+                <button class="toggle-btn" data-value="short">融券 Short</button>
+              </div>
+            </div>
+            <div class="input-panel card">
+              <div id="margin-inputs"></div>
+            </div>
           </div>
           <div class="result-panel">
             <div id="margin-results"></div>
@@ -122,23 +119,25 @@
 
       <!-- FUTURES TAB -->
       <section id="tab-futures" class="tab-content">
-        <div class="controls-bar">
-          <div class="toggle-group" data-group="futures-market">
-            <button class="toggle-btn active" data-value="tw">台灣</button>
-            <button class="toggle-btn" data-value="us">美國</button>
-          </div>
-          <div class="toggle-group direction-toggle" data-group="futures-direction">
-            <button class="toggle-btn active" data-value="long">做多 Buy</button>
-            <button class="toggle-btn" data-value="short">做空 Sell</button>
-          </div>
-          <div class="toggle-group" data-group="futures-product">
-            <button class="toggle-btn active" data-value="index">指數</button>
-            <button class="toggle-btn" data-value="stock">股票</button>
-          </div>
-        </div>
         <div class="calc-layout">
-          <div class="input-panel card">
-            <div id="futures-inputs"></div>
+          <div class="calc-left">
+            <div class="controls-bar">
+              <div class="toggle-group" data-group="futures-market">
+                <button class="toggle-btn active" data-value="tw">台灣</button>
+                <button class="toggle-btn" data-value="us">美國</button>
+              </div>
+              <div class="toggle-group direction-toggle" data-group="futures-direction">
+                <button class="toggle-btn active" data-value="long">做多 Buy</button>
+                <button class="toggle-btn" data-value="short">做空 Sell</button>
+              </div>
+              <div class="toggle-group" data-group="futures-product">
+                <button class="toggle-btn active" data-value="index">指數</button>
+                <button class="toggle-btn" data-value="stock">個股期</button>
+              </div>
+            </div>
+            <div class="input-panel card">
+              <div id="futures-inputs"></div>
+            </div>
           </div>
           <div class="result-panel">
             <div id="futures-results"></div>
@@ -148,23 +147,25 @@
 
       <!-- OPTIONS TAB -->
       <section id="tab-options" class="tab-content">
-        <div class="controls-bar">
-          <div class="toggle-group" data-group="options-market">
-            <button class="toggle-btn active" data-value="tw">台灣</button>
-            <button class="toggle-btn" data-value="us">美國</button>
-          </div>
-          <div class="toggle-group direction-toggle" data-group="options-side">
-            <button class="toggle-btn active" data-value="buyer">買方 Buyer</button>
-            <button class="toggle-btn" data-value="seller">賣方 Seller</button>
-          </div>
-          <div class="toggle-group" data-group="options-product">
-            <button class="toggle-btn active" data-value="index">指數</button>
-            <button class="toggle-btn" data-value="stock">個股</button>
-          </div>
-        </div>
         <div class="calc-layout">
-          <div class="input-panel card">
-            <div id="options-inputs"></div>
+          <div class="calc-left">
+            <div class="controls-bar">
+              <div class="toggle-group" data-group="options-market">
+                <button class="toggle-btn active" data-value="tw">台灣</button>
+                <button class="toggle-btn" data-value="us">美國</button>
+              </div>
+              <div class="toggle-group direction-toggle" data-group="options-side">
+                <button class="toggle-btn active" data-value="buyer">買方 Buyer</button>
+                <button class="toggle-btn" data-value="seller">賣方 Seller</button>
+              </div>
+              <div class="toggle-group" data-group="options-product">
+                <button class="toggle-btn active" data-value="index">指數</button>
+                <button class="toggle-btn" data-value="stock">個股</button>
+              </div>
+            </div>
+            <div class="input-panel card">
+              <div id="options-inputs"></div>
+            </div>
           </div>
           <div class="result-panel">
             <div id="options-results"></div>

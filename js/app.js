@@ -29,7 +29,6 @@ const INDEX_DEFS = {
   kospi:    { name: 'KOSPI',     placeholder: '2500',  market: 'kr', region: '亞洲', chart: 'KRX:KOSPI' },
   shanghai: { name: '上證指數',  placeholder: '3200',  market: 'cn', region: '亞洲', chart: 'SSE:000001' },
   hsi:      { name: '恆生指數',  placeholder: '20000', market: 'hk', region: '亞洲', chart: 'TVC:HSI' },
-  vix:      { name: 'VIX',      placeholder: '20',    market: 'us', region: '美國', chart: 'CBOE:VIX' },
 };
 
 // ================================================================
@@ -162,6 +161,8 @@ const PriceService = {
   async fetchAllIndices() {
     const results = {};
     const keys = Object.keys(CFG.indices).filter(k => CFG.indices[k]);
+    // Fetch VIX for sentiment strip (not in INDEX_DEFS / ticker)
+    if (CFG.showVix) keys.push('vix');
     await Promise.all(keys.map(async key => {
       try { results[key] = await this.fetchIndex(key); }
       catch (e) { results[key] = { error: e.message }; }
@@ -494,7 +495,7 @@ function stampTime(fieldId, source, sourceTime, fetchTime) {
 }
 
 // ── Symbol Autocomplete ──
-function setupAutocomplete(inputId, listId, onSelect) {
+function setupAutocomplete(inputId, listId, onSelect, market) {
   const input = $(`#${inputId}`);
   const list = $(`#${listId}`);
   if (!input || !list) return;
@@ -503,15 +504,22 @@ function setupAutocomplete(inputId, listId, onSelect) {
   const search = debounce(async () => {
     const q = input.value.trim();
     if (q.length < 1) { list.classList.remove('open'); items = []; return; }
-    const results = await PriceService.searchSymbol(q);
-    items = results;
+    // Try local StockDB first
+    const mk = market || (S.options?.market) || (S.futures?.market) || 'us';
+    const local = StockDB.search(mk, q);
+    if (local.length > 0) {
+      items = local.map(r => ({ symbol: r.code, name: r.name, exchange: r.leverage ? `${r.leverage}x` : '', type: 'local' }));
+    } else {
+      // Fallback to Yahoo search
+      items = await PriceService.searchSymbol(q);
+    }
     focusIdx = -1;
-    if (results.length === 0) { list.classList.remove('open'); return; }
-    list.innerHTML = results.map((r, i) =>
+    if (items.length === 0) { list.classList.remove('open'); return; }
+    list.innerHTML = items.map((r, i) =>
       `<div class="sym-ac-item" data-i="${i}"><span class="sym-code">${r.symbol}</span><span class="sym-name">${r.name}</span><span class="sym-exch">${r.exchange}</span></div>`
     ).join('');
     list.classList.add('open');
-  }, 300);
+  }, 200);
 
   input.addEventListener('input', search);
   input.addEventListener('focus', () => { if (items.length > 0) list.classList.add('open'); });
@@ -619,7 +627,9 @@ function wrapNumberInputs(container) {
 const DEFAULT_SETTINGS = {
   autoFetch: true,
   refreshInterval: 10,
-  indices: { taiex: true, txf: true, es: true, nq: true, ym: true, sox: true, nkd: true, kospi: true, shanghai: true, hsi: true, vix: true },
+  indices: { taiex: true, txf: true, es: true, nq: true, ym: true, sox: true, nkd: true, kospi: true, shanghai: true, hsi: true },
+  showVix: true,
+  showFearGreed: true,
   defaultMarket: 'tw',
   twSource: 'twse',        // 'yahoo' | 'twse' | 'tpex'
   usSource: 'yahoo',       // 'yahoo' | 'finnhub'
@@ -689,7 +699,7 @@ let _refreshTimer = null;
 // ── State ──
 const _savedS = (() => { try { return JSON.parse(localStorage.getItem('prism_state')); } catch { return null; } })();
 const S = _savedS || {
-  margin: { market: 'tw', direction: 'cash', product: 'stock' },
+  margin: { market: 'tw', direction: 'cash' },
   futures: { market: 'tw', direction: 'long', product: 'index' },
   options: { market: 'tw', side: 'buyer', product: 'index' },
   activeTab: 'margin'
@@ -755,6 +765,158 @@ const ETF_PRESETS = {
   ]
 };
 
+// ── Stock Database (local autocomplete) ──
+const StockDB = {
+  _key: 'prism_stock_db',
+  _get() { try { return JSON.parse(localStorage.getItem(this._key)) || {}; } catch { return {}; } },
+  _set(data) { localStorage.setItem(this._key, JSON.stringify(data)); },
+  getList(market) { return this._get()[market]?.list || []; },
+  getTime(market) { return this._get()[market]?.time || 0; },
+
+  async fetchTW() {
+    // TWSE listed stocks (證交所上市)
+    const url1 = 'https://openapi.twse.com.tw/v1/opendata/t187ap03_L';
+    // TPEX OTC stocks (櫃買中心上櫃)
+    const url2 = 'https://www.tpex.org.tw/openapi/v1/tpex_mainboard_peratio_analysis';
+    const list = [];
+    try {
+      const r1 = await PriceService._proxyFetch(url1, 10000);
+      const d1 = await r1.json();
+      for (const s of d1) {
+        if (s['公司代號'] && s['公司簡稱']) list.push({ code: s['公司代號'].trim(), name: s['公司簡稱'].trim() });
+      }
+    } catch {}
+    try {
+      const r2 = await PriceService._proxyFetch(url2, 10000);
+      const d2 = await r2.json();
+      for (const s of d2) {
+        if (s['SecuritiesCompanyCode'] && s['CompanyName']) list.push({ code: s['SecuritiesCompanyCode'].trim(), name: s['CompanyName'].trim() });
+      }
+    } catch {}
+    // Add ETF presets that may not be in the API
+    for (const p of (ETF_PRESETS.tw || [])) {
+      if (!list.find(s => s.code === p.code)) list.push({ code: p.code, name: p.name });
+    }
+    // Add stock futures underlyings (from hardcoded presets)
+    for (const [, v] of Object.entries(STOCK_FUTURES)) {
+      if (!list.find(s => s.code === v.stock)) list.push({ code: v.stock, name: v.name });
+    }
+    const db = this._get();
+    db.tw = { list, time: Date.now() };
+    this._set(db);
+
+    // Fetch stock futures list from TAIFEX (期交所) in background
+    this._fetchTaifexStockFutures();
+
+    return list.length;
+  },
+
+  async _fetchTaifexStockFutures() {
+    try {
+      const url = 'https://www.taifex.com.tw/cht/5/stockMargining';
+      const r = await PriceService._proxyFetch(url, 15000);
+      const html = await r.text();
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const tables = doc.querySelectorAll('table');
+      let tbl = null;
+      for (const t of tables) {
+        if (t.textContent.includes('股票期貨英文代碼') && t.textContent.includes('原始保證金適用比例')) { tbl = t; break; }
+      }
+      if (!tbl) return;
+      const futures = [];
+      const rows = tbl.querySelectorAll('tr');
+      for (const row of rows) {
+        const cells = row.querySelectorAll('td');
+        if (cells.length < 9) continue;
+        const cid = cells[1].textContent.trim().toUpperCase();
+        const stockCode = cells[2].textContent.trim();
+        const name = cells[3].textContent.trim();
+        if (!cid || /[^A-Z0-9]/.test(cid) || !stockCode) continue;
+        const imRate = parseFloat(cells[8].textContent.replace(/[%\s]/g, '')) / 100 || 0;
+        const mmRate = parseFloat(cells[7].textContent.replace(/[%\s]/g, '')) / 100 || 0;
+        // Determine multiplier: 小型 prefix → mul=100, else mul=2000
+        const mul = cid.startsWith('Q') || cid.startsWith('R') || /^[A-Z]{2}F$/.test(cid) ? 2000 : 2000;
+        futures.push({ code: cid, stock: stockCode, name, imRate, mmRate, mul: STOCK_FUTURES[cid]?.mul || 2000, kind: STOCK_FUTURES[cid]?.kind || '4' });
+      }
+      if (futures.length === 0) return;
+      const db = this._get();
+      db.twFutures = { list: futures, time: Date.now() };
+      this._set(db);
+    } catch {}
+  },
+
+  getTaifexFutures() {
+    return this._get().twFutures?.list || [];
+  },
+  getTaifexFuturesTime() {
+    return this._get().twFutures?.time || 0;
+  },
+
+  async fetchUS() {
+    // Fetch US stock list from SEC EDGAR company tickers (lightweight JSON)
+    const url = 'https://www.sec.gov/files/company_tickers.json';
+    const list = [];
+    try {
+      const r = await PriceService._proxyFetch(url, 15000);
+      const d = await r.json();
+      for (const v of Object.values(d)) {
+        if (v.ticker && v.title) list.push({ code: v.ticker.toUpperCase(), name: v.title });
+      }
+    } catch {}
+    // Add ETF presets
+    for (const p of (ETF_PRESETS.us || [])) {
+      if (!list.find(s => s.code === p.code)) list.push({ code: p.code, name: p.name });
+    }
+    const db = this._get();
+    db.us = { list, time: Date.now() };
+    this._set(db);
+    return list.length;
+  },
+
+  search(market, query) {
+    if (!query) return [];
+    const q = query.toUpperCase();
+    const list = this.getList(market);
+    // ETF_PRESETS first (have leverage info)
+    const presets = (ETF_PRESETS[market] || []).filter(p =>
+      p.code.toUpperCase().includes(q) || p.name.toUpperCase().includes(q)
+    ).map(p => ({ code: p.code, name: p.name, leverage: p.leverage, source: 'preset' }));
+    // Then local DB
+    const local = list.filter(s =>
+      s.code.toUpperCase().includes(q) || s.name.toUpperCase().includes(q)
+    ).filter(s => !presets.find(p => p.code === s.code))
+    .slice(0, 15)
+    .map(s => ({ code: s.code, name: s.name, source: 'db' }));
+    return [...presets, ...local].slice(0, 12);
+  },
+
+  // Search stock futures by stock code or name (presets + TAIFEX DB)
+  searchStockFutures(query) {
+    if (!query) return [];
+    const q = query.toUpperCase();
+    // Start with hardcoded presets
+    const results = Object.entries(STOCK_FUTURES).filter(([k, v]) =>
+      k.toUpperCase().includes(q) || v.name.includes(query) || v.stock.includes(query)
+    ).map(([k, v]) => ({ code: k, name: `${v.name} (${v.stock})`, mul: v.mul, stock: v.stock }));
+    // Add from TAIFEX database (skip duplicates)
+    const taifex = this.getTaifexFutures();
+    for (const f of taifex) {
+      if (results.find(r => r.code === f.code)) continue;
+      if (f.code.toUpperCase().includes(q) || f.name.includes(query) || f.stock.includes(query)) {
+        results.push({ code: f.code, name: `${f.name} (${f.stock})`, mul: f.mul, stock: f.stock });
+      }
+    }
+    return results.slice(0, 12);
+  },
+
+  // Detect ETF leverage from presets
+  detectLeverage(market, code) {
+    const p = (ETF_PRESETS[market] || []).find(e => e.code.toUpperCase() === code.toUpperCase());
+    return p ? p.leverage : null;
+  }
+};
+window.StockDB = StockDB;
+
 // ── Builders ──
 function subTabs(prefix, tabs, contents) {
   let h = '<div class="sub-tabs">';
@@ -797,13 +959,31 @@ function costTable(items, total, netPL) {
 // ================================================================
 //  BUILD TICKER BAR (dynamic from INDEX_DEFS)
 // ================================================================
+function _getTickerOrder() {
+  return CFG.tickerOrder || null;
+}
+function _saveTickerOrder() {
+  const chips = document.querySelectorAll('.ticker-chip[data-idx]');
+  CFG.tickerOrder = [...chips].map(c => c.dataset.idx);
+  saveSettings(CFG);
+}
+
 function buildTickerBar() {
   const container = $('#ticker-inputs');
   if (!container) return;
-  container.innerHTML = Object.entries(INDEX_DEFS).map(([key, def]) => {
+  const saved = _getTickerOrder();
+  let keys = Object.keys(INDEX_DEFS);
+  if (saved && saved.length) {
+    const set = new Set(keys);
+    const ordered = saved.filter(k => set.has(k));
+    keys.forEach(k => { if (!ordered.includes(k)) ordered.push(k); });
+    keys = ordered;
+  }
+  container.innerHTML = keys.map(key => {
+    const def = INDEX_DEFS[key];
     const show = CFG.indices[key] !== false;
     const tvUrl = `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(def.chart)}`;
-    return `<a class="ticker-chip" data-idx="${key}" style="${show ? '' : 'display:none'}" href="${tvUrl}" target="_blank" rel="noopener" title="在 TradingView 開啟 ${def.name}">
+    return `<a class="ticker-chip" data-idx="${key}" style="${show ? '' : 'display:none'}" href="${tvUrl}" target="_blank" rel="noopener" title="在 TradingView 開啟 ${def.name}" draggable="true">
       <span class="tc-name">${def.name}</span>
       <span class="tc-price stale" id="disp-${key}">—</span>
       <span class="tc-chg" id="chg-${key}"></span>
@@ -811,6 +991,92 @@ function buildTickerBar() {
       <input type="hidden" id="idx-${key}">
     </a>`;
   }).join('');
+  _initTickerDrag(container);
+}
+
+// 報價卡片拖曳排序（桌面 drag & 手機 touch）
+function _initTickerDrag(container) {
+  let dragEl = null, placeholder = null, touchStartY = 0, touchStartX = 0, isDragging = false;
+
+  // ── Desktop drag ──
+  container.addEventListener('dragstart', e => {
+    const chip = e.target.closest('.ticker-chip');
+    if (!chip) return;
+    dragEl = chip;
+    chip.classList.add('ticker-dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', '');
+  });
+  container.addEventListener('dragover', e => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const target = e.target.closest('.ticker-chip');
+    if (!target || target === dragEl) return;
+    const rect = target.getBoundingClientRect();
+    const mid = rect.left + rect.width / 2;
+    if (e.clientX < mid) container.insertBefore(dragEl, target);
+    else container.insertBefore(dragEl, target.nextSibling);
+  });
+  container.addEventListener('dragend', () => {
+    if (dragEl) { dragEl.classList.remove('ticker-dragging'); dragEl = null; }
+    _saveTickerOrder();
+    _remeasureTickerRow();
+  });
+
+  // ── Mobile touch ──
+  container.addEventListener('touchstart', e => {
+    const chip = e.target.closest('.ticker-chip');
+    if (!chip) return;
+    const t = e.touches[0];
+    touchStartX = t.clientX; touchStartY = t.clientY;
+    isDragging = false;
+    dragEl = chip;
+  }, { passive: true });
+
+  container.addEventListener('touchmove', e => {
+    if (!dragEl) return;
+    const t = e.touches[0];
+    if (!isDragging) {
+      const dx = Math.abs(t.clientX - touchStartX), dy = Math.abs(t.clientY - touchStartY);
+      if (dx < 8 && dy < 8) return; // threshold
+      isDragging = true;
+      dragEl.classList.add('ticker-dragging');
+      e.preventDefault(); // prevent scroll once dragging
+    }
+    if (isDragging) {
+      e.preventDefault();
+      const el = document.elementFromPoint(t.clientX, t.clientY)?.closest('.ticker-chip');
+      if (el && el !== dragEl) {
+        const rect = el.getBoundingClientRect();
+        const mid = rect.left + rect.width / 2;
+        if (t.clientX < mid) container.insertBefore(dragEl, el);
+        else container.insertBefore(dragEl, el.nextSibling);
+      }
+    }
+  }, { passive: false });
+
+  container.addEventListener('touchend', e => {
+    if (dragEl) {
+      if (isDragging) {
+        e.preventDefault(); // prevent click/navigation after drag
+        dragEl.classList.remove('ticker-dragging');
+        _saveTickerOrder();
+        _remeasureTickerRow();
+      }
+      dragEl = null;
+      isDragging = false;
+    }
+  });
+}
+
+function _remeasureTickerRow() {
+  requestAnimationFrame(() => {
+    const chips = document.querySelectorAll('.ticker-chip');
+    if (chips.length) {
+      const maxH = Math.max(...[...chips].map(c => c.offsetHeight));
+      document.querySelector('.ticker-strip')?.style.setProperty('--ticker-row-h', (maxH + 4) + 'px');
+    }
+  });
 }
 
 // 手機版報價欄展開/收合
@@ -823,14 +1089,7 @@ function _initTickerToggle() {
     const expanded = bar.classList.toggle('expanded');
     btn.setAttribute('aria-label', expanded ? '收合報價' : '展開報價');
   });
-  // Measure tallest chip for collapsed row height
-  requestAnimationFrame(() => {
-    const chips = document.querySelectorAll('.ticker-chip');
-    if (chips.length) {
-      const maxH = Math.max(...[...chips].map(c => c.offsetHeight));
-      document.querySelector('.ticker-strip')?.style.setProperty('--ticker-row-h', (maxH + 4) + 'px');
-    }
-  });
+  _remeasureTickerRow();
 }
 
 // 計算台指期 vs 加權指數的正逆價差
@@ -844,14 +1103,7 @@ function _updateBasis(results) {
   const label = basis >= 0 ? '正價差' : '逆價差';
   el.textContent = `${label} ${basis >= 0 ? '+' : ''}${basis.toFixed(0)}`;
   el.className = `ticker-basis ${basis >= 0 ? 'up' : 'down'}`;
-  // Re-measure row height after basis text changes card height
-  requestAnimationFrame(() => {
-    const chips = document.querySelectorAll('.ticker-chip');
-    if (chips.length) {
-      const maxH = Math.max(...[...chips].map(c => c.offsetHeight));
-      document.querySelector('.ticker-strip')?.style.setProperty('--ticker-row-h', (maxH + 4) + 'px');
-    }
-  });
+  _remeasureTickerRow();
 }
 
 // 更新 ticker 時間顯示（抓取時間 + 來源最後報價時間）
@@ -905,7 +1157,9 @@ function _renderSentimentStrip() {
   // Fear & Greed from cache
   const fgData = _quoteCache.getFearGreed();
 
-  if (!vixVal && !fgData) {
+  const showVix = vixVal && CFG.showVix !== false;
+  const showFg = fgData && CFG.showFearGreed !== false;
+  if (!showVix && !showFg) {
     strip.style.display = 'none';
     return;
   }
@@ -916,7 +1170,7 @@ function _renderSentimentStrip() {
   const tFmt = { hour: '2-digit', minute: '2-digit', second: '2-digit' };
 
   // VIX gauge
-  if (vixVal) {
+  if (vixVal && CFG.showVix !== false) {
     const lv = _vixLevel(vixVal);
     const pct = Math.min(vixVal / 80 * 100, 100);
     const vixChg = vixQ.change != null ? vixQ.change : null;
@@ -936,7 +1190,7 @@ function _renderSentimentStrip() {
   }
 
   // Fear & Greed gauge
-  if (fgData) {
+  if (fgData && CFG.showFearGreed !== false) {
     const lv = _fgLevel(fgData.score);
     const pct = fgData.score;
     const chg = fgData.previousClose != null ? fgData.score - fgData.previousClose : null;
@@ -959,6 +1213,7 @@ function _renderSentimentStrip() {
 }
 
 async function _fetchFearGreed() {
+  if (CFG.showFearGreed === false) return;
   try {
     const fg = await PriceService.fetchFearGreed();
     _quoteCache.setFearGreed(fg);
@@ -1281,7 +1536,6 @@ function init() {
       const gn = g.dataset.group, v = b.dataset.value;
       if (gn === 'margin-market')    { S.margin.market = v;    renderMarginForm(); }
       if (gn === 'margin-direction') { S.margin.direction = v; renderMarginForm(); }
-      if (gn === 'margin-product')   { S.margin.product = v;   renderMarginForm(); }
       if (gn === 'futures-market')   { S.futures.market = v;   renderFuturesForm(); }
       if (gn === 'futures-direction'){ S.futures.direction = v; renderFuturesForm(); }
       if (gn === 'futures-product')  { S.futures.product = v;  renderFuturesForm(); }
@@ -1320,7 +1574,7 @@ function init() {
   // Sync all toggle buttons to match S state
   const _syncToggles = () => {
     const map = {
-      'margin-market': S.margin.market, 'margin-direction': S.margin.direction, 'margin-product': S.margin.product,
+      'margin-market': S.margin.market, 'margin-direction': S.margin.direction,
       'futures-market': S.futures.market, 'futures-direction': S.futures.direction, 'futures-product': S.futures.product,
       'options-market': S.options.market, 'options-side': S.options.side, 'options-product': S.options.product,
     };
@@ -1492,6 +1746,27 @@ function renderSettings() {
       <div class="stg-cb-group">${cbHtml}</div>
     </div>
     <div class="stg-section">
+      <h4><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M18 9l-5 5-2-2-4 4"/></svg>行情指標 Bar</h4>
+      <div class="stg-cb-group">
+        <label class="stg-cb"><input type="checkbox" id="stg-show-vix" ${CFG.showVix !== false ? 'checked' : ''}>VIX 恐慌指數</label>
+        <label class="stg-cb"><input type="checkbox" id="stg-show-fg" ${CFG.showFearGreed !== false ? 'checked' : ''}>恐懼與貪婪指數</label>
+      </div>
+    </div>
+    <div class="stg-section">
+      <h4><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>股票資料庫</h4>
+      <p class="stg-hint" style="margin:0 0 8px;padding:0">下載清單後，輸入代號時可即時搜尋提示</p>
+      <div class="stg-row" style="flex-wrap:wrap">
+        <label style="flex:1 1 100%">台灣股票 <span class="stg-hint" style="display:inline;margin:0;font-size:.72rem">證交所 + 櫃買中心</span></label>
+        <span class="stg-hint" id="stg-stockdb-tw-info" style="flex:1;margin-top:0">${(() => { const t = StockDB.getTime('tw'); const n = StockDB.getList('tw').length; const ft = StockDB.getTaifexFuturesTime(); const fn = StockDB.getTaifexFutures().length; const parts = []; if (n) parts.push(`股票 ${n} 檔`); if (fn) parts.push(`股期 ${fn} 檔`); return parts.length ? parts.join(' · ') + ` · ${new Date(t || ft).toLocaleDateString('zh-TW')}` : '尚未下載'; })()}</span>
+        <button class="stg-save-btn" id="stg-stockdb-tw-fetch" style="min-width:auto;padding:6px 14px">更新</button>
+      </div>
+      <div class="stg-row" style="flex-wrap:wrap">
+        <label style="flex:1 1 100%">美國股票 <span class="stg-hint" style="display:inline;margin:0;font-size:.72rem">SEC EDGAR</span></label>
+        <span class="stg-hint" id="stg-stockdb-us-info" style="flex:1;margin-top:0">${(() => { const t = StockDB.getTime('us'); const n = StockDB.getList('us').length; return t ? `${n} 檔 · ${new Date(t).toLocaleDateString('zh-TW')}` : '尚未下載'; })()}</span>
+        <button class="stg-save-btn" id="stg-stockdb-us-fetch" style="min-width:auto;padding:6px 14px">更新</button>
+      </div>
+    </div>
+    <div class="stg-section">
       <h4><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>預設市場</h4>
       <div class="stg-row">
         <label>開啟頁面時的預設市場</label>
@@ -1620,8 +1895,11 @@ function renderSettings() {
     CFG.defaultFee = $('#stg-default-fee')?.value || '';
     CFG.defaultTax = $('#stg-default-tax')?.value || '';
     $$('[data-idx]', body).forEach(cb => { CFG.indices[cb.dataset.idx] = cb.checked; });
+    CFG.showVix = $('#stg-show-vix')?.checked ?? true;
+    CFG.showFearGreed = $('#stg-show-fg')?.checked ?? true;
     saveSettings(CFG);
     applySettings();
+    _renderSentimentStrip();
   };
   body.addEventListener('change', save);
   $('#stg-finnhub-key')?.addEventListener('input', debounce(save, 500));
@@ -1633,11 +1911,59 @@ function renderSettings() {
     btn.classList.add('saved');
     setTimeout(() => { btn.textContent = '儲存'; btn.classList.remove('saved'); }, 1500);
   });
+
+  // Stock DB fetch helpers
+  const _stockDBFetch = async (btnId, infoId, fetchFn) => {
+    const btn = $(`#${btnId}`);
+    const info = $(`#${infoId}`);
+    btn.disabled = true; btn.textContent = '下載中…';
+    try {
+      const count = await fetchFn();
+      if (info) info.textContent = `${count} 檔 · ${new Date().toLocaleDateString('zh-TW')}`;
+      btn.textContent = '完成';
+      setTimeout(() => { btn.textContent = '更新'; btn.disabled = false; }, 1500);
+    } catch {
+      btn.textContent = '失敗';
+      setTimeout(() => { btn.textContent = '更新'; btn.disabled = false; }, 1500);
+    }
+  };
+  $('#stg-stockdb-tw-fetch')?.addEventListener('click', async () => {
+    const btn = $('#stg-stockdb-tw-fetch');
+    const info = $('#stg-stockdb-tw-info');
+    btn.disabled = true; btn.textContent = '下載中…';
+    try {
+      const stockCount = await StockDB.fetchTW();
+      // Wait a bit for TAIFEX background fetch
+      await new Promise(r => setTimeout(r, 2000));
+      const fn = StockDB.getTaifexFutures().length;
+      const parts = [`股票 ${stockCount} 檔`];
+      if (fn) parts.push(`股期 ${fn} 檔`);
+      if (info) info.textContent = parts.join(' · ') + ` · ${new Date().toLocaleDateString('zh-TW')}`;
+      btn.textContent = '完成';
+      setTimeout(() => { btn.textContent = '更新'; btn.disabled = false; }, 1500);
+    } catch {
+      btn.textContent = '失敗';
+      setTimeout(() => { btn.textContent = '更新'; btn.disabled = false; }, 1500);
+    }
+  });
+  $('#stg-stockdb-us-fetch')?.addEventListener('click', () => _stockDBFetch('stg-stockdb-us-fetch', 'stg-stockdb-us-info', () => StockDB.fetchUS()));
 }
 
 function applySettings() {
   // Apply font scale
   document.documentElement.setAttribute('data-font-scale', CFG.fontScale || 'm');
+
+  // Rebuild ticker bar if order changed (e.g. synced from server)
+  if (CFG.tickerOrder) {
+    const container = $('#ticker-inputs');
+    if (container) {
+      const current = [...container.querySelectorAll('.ticker-chip[data-idx]')].map(c => c.dataset.idx);
+      if (JSON.stringify(current) !== JSON.stringify(CFG.tickerOrder)) {
+        buildTickerBar();
+        _restoreIndicesFromCache();
+      }
+    }
+  }
 
   // Show/hide ticker items based on settings
   Object.entries(CFG.indices).forEach(([k, show]) => {
@@ -1825,40 +2151,162 @@ function _restoreStockFromCache() {
   const infoEl = $('#m-stock-info');
   _displayStockInfo(q, code, market, infoEl);
   _fillStockPrice(q);
+  // Restore ETF leverage detection
+  _autoDetectETF(code, market);
+}
+
+// ── Stock Autocomplete ──
+function _setupMarginAutocomplete(input, market) {
+  const list = $('#m-sym-ac');
+  if (!input || !list) return;
+  let focusIdx = -1;
+  let items = [];
+
+  const close = () => { list.classList.remove('open'); list.innerHTML = ''; items = []; focusIdx = -1; };
+
+  const selectItem = (code, name) => {
+    input.value = code;
+    close();
+    _autoDetectETF(code, market);
+    handleFetchStock();
+  };
+
+  const render = (results) => {
+    if (!results.length) { close(); return; }
+    items = results;
+    focusIdx = -1;
+    list.innerHTML = results.map((r, i) =>
+      `<div class="sym-ac-item" data-i="${i}"><span class="sym-code">${r.code}</span><span class="sym-name">${r.name}</span>${r.leverage ? `<span class="sym-exch">${r.leverage > 0 ? '' : ''}${Math.abs(r.leverage)}x</span>` : ''}</div>`
+    ).join('');
+    list.classList.add('open');
+  };
+
+  const doSearch = debounce(() => {
+    const q = input.value.trim();
+    if (!q || q.length < 1) { close(); return; }
+    const results = StockDB.search(market, q);
+    render(results);
+  }, 150);
+
+  input.addEventListener('input', doSearch);
+
+  input.addEventListener('keydown', e => {
+    if (!list.classList.contains('open') || !items.length) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); focusIdx = Math.min(focusIdx + 1, items.length - 1); _highlightAC(list, focusIdx); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); focusIdx = Math.max(focusIdx - 1, 0); _highlightAC(list, focusIdx); }
+    else if (e.key === 'Enter' && focusIdx >= 0) { e.preventDefault(); e.stopPropagation(); selectItem(items[focusIdx].code, items[focusIdx].name); }
+    else if (e.key === 'Escape') { close(); }
+  });
+
+  list.addEventListener('click', e => {
+    const el = e.target.closest('.sym-ac-item');
+    if (!el) return;
+    const i = parseInt(el.dataset.i);
+    if (items[i]) selectItem(items[i].code, items[i].name);
+  });
+
+  document.addEventListener('click', e => {
+    if (!e.target.closest('.sym-ac-wrap')) close();
+  });
+}
+
+function _highlightAC(list, idx) {
+  $$('.sym-ac-item', list).forEach((el, i) => el.classList.toggle('focused', i === idx));
+}
+
+function _autoDetectETF(code, market) {
+  const lev = StockDB.detectLeverage(market, code);
+  const wrap = $('#m-etf-lev-wrap');
+  const levInput = $('#m-etf-lev');
+  const taxSel = $('#m-tax-rate');
+  if (lev !== null && Math.abs(lev) !== 1) {
+    // It's a leveraged ETF
+    if (wrap) wrap.style.display = '';
+    if (levInput) levInput.value = lev;
+    if (taxSel && market === 'tw') taxSel.value = '0.001';
+  } else if (lev !== null) {
+    // Regular ETF (1x)
+    if (wrap) wrap.style.display = 'none';
+    if (levInput) levInput.value = 1;
+    if (taxSel && market === 'tw') taxSel.value = '0.001';
+  } else {
+    // Regular stock
+    if (wrap) wrap.style.display = 'none';
+    if (levInput) levInput.value = 1;
+    if (taxSel && market === 'tw') taxSel.value = '0.003';
+  }
+}
+
+// ── Stock Futures Autocomplete (TW) ──
+function _setupFuturesAC(input) {
+  const list = $('#f-stk-ac');
+  if (!input || !list) return;
+  let focusIdx = -1, items = [];
+
+  const close = () => { list.classList.remove('open'); list.innerHTML = ''; items = []; focusIdx = -1; };
+
+  const selectItem = (code) => {
+    input.value = code;
+    close();
+    // Update mul
+    const sf = STOCK_FUTURES[code] || StockDB.getTaifexFutures().find(f => f.code === code);
+    if (sf) { $('#f-mul').value = sf.mul; const d = $('#f-mul-display'); if (d) d.textContent = 'NT$ ' + fmt(sf.mul); }
+    // Clear stale data and fetch
+    const _clr = id => { const e = $(`#${id}`); if (e) e.value = ''; };
+    ['f-entry', 'f-current', 'f-live-price', 'f-im-input', 'f-mm-input'].forEach(_clr);
+    _fetchTaifexStockFutures(code);
+  };
+
+  const doSearch = debounce(() => {
+    const q = input.value.trim();
+    if (!q) { close(); return; }
+    items = StockDB.searchStockFutures(q);
+    if (!items.length) { close(); return; }
+    focusIdx = -1;
+    list.innerHTML = items.map((r, i) =>
+      `<div class="sym-ac-item" data-i="${i}"><span class="sym-code">${r.code}</span><span class="sym-name">${r.name}</span></div>`
+    ).join('');
+    list.classList.add('open');
+  }, 150);
+
+  input.addEventListener('input', doSearch);
+  input.addEventListener('keydown', e => {
+    if (!list.classList.contains('open') || !items.length) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); focusIdx = Math.min(focusIdx + 1, items.length - 1); _highlightAC(list, focusIdx); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); focusIdx = Math.max(focusIdx - 1, 0); _highlightAC(list, focusIdx); }
+    else if (e.key === 'Enter' && focusIdx >= 0) { e.preventDefault(); e.stopPropagation(); selectItem(items[focusIdx].code); }
+    else if (e.key === 'Escape') { close(); }
+  });
+  list.addEventListener('click', e => {
+    const el = e.target.closest('.sym-ac-item');
+    if (el && items[el.dataset.i]) selectItem(items[el.dataset.i].code);
+  });
+  document.addEventListener('click', e => { if (!e.target.closest('.sym-ac-wrap')) close(); });
 }
 
 // ================================================================
 //  MARGIN FORM
 // ================================================================
 function renderMarginForm() {
-  const { market, direction, product } = S.margin;
+  const { market, direction } = S.margin;
   const tw = market === 'tw', long = direction === 'long', cash = direction === 'cash';
   const cur = tw ? 'NT$' : 'USD';
   const su = tw ? '張 (1張=1000股)' : '股';
-
-  let extra = '';
-  if (product === 'etf') {
-    const presets = ETF_PRESETS[market] || [];
-    const etfOpts = presets.filter(p => Math.abs(p.leverage) === 1).map(p => `<option value="${p.code}">${p.code} ${p.name}</option>`).join('');
-    extra = `<div class="fg"><label>指數ETF</label><select id="m-etf-select"><option value="">-- 選擇ETF --</option>${etfOpts}</select></div>`;
-  } else if (product === 'letf') {
-    const presets = ETF_PRESETS[market] || [];
-    const letfOpts = presets.filter(p => Math.abs(p.leverage) > 1).map(p => `<option value="${p.code}" data-lev="${p.leverage}">${p.code} ${p.name} (${p.leverage}x)</option>`).join('');
-    extra = `
-      <div class="fg"><label>槓桿ETF</label><select id="m-etf-select"><option value="">-- 選擇槓桿ETF --</option>${letfOpts}</select></div>
-      <div class="fg"><label>ETF槓桿倍數 <span class="hint">(含ETF本身的槓桿)</span></label><input type="number" id="m-etf-lev" value="2" step="any"></div>
-    `;
-  }
-
   const symbolHint = tw ? '例: 2330、0050' : '例: AAPL、MSFT';
 
-  // ── 共用區塊：股票代號 + 價格 + 數量 ──
+  // ── 共用區塊：股票代號(含autocomplete) + 價格 + 數量 ──
   let h = `
     <div class="fg"><label>股票代號 <span class="hint">${symbolHint}</span></label>
-      <div class="stock-search-row"><input type="text" id="m-symbol" placeholder="${tw ? '代號 (如 2330)' : 'Symbol (AAPL)'}" autocomplete="off"><button type="button" class="mini-fetch-btn" id="m-fetch-stock">查詢</button></div>
+      <div class="stock-search-row">
+        <div class="sym-ac-wrap" style="flex:1;position:relative">
+          <input type="text" id="m-symbol" placeholder="${tw ? '輸入代號或名稱' : 'Symbol or name'}" autocomplete="off">
+          <div class="sym-ac-list" id="m-sym-ac"></div>
+        </div>
+        <button type="button" class="mini-fetch-btn" id="m-fetch-stock">查詢</button>
+      </div>
       <div class="stock-info" id="m-stock-info"></div>
     </div>
-    ${extra}
+    <div class="fg" id="m-etf-lev-wrap" style="display:none"><label>ETF 槓桿倍數 <span class="hint">(自動偵測)</span></label><input type="number" id="m-etf-lev" value="1" step="any"></div>
     <div class="fr">
       <div class="fg"><label>買進價格 <span class="hint">(${cur})</span></label><input type="number" id="m-buy-price" placeholder="${tw ? '市價' : 'Market'}" step="any"></div>
       <div class="fg"><label>${cash ? '賣出價格' : '目前價格'} <span class="hint">(留空=同買進)</span></label><input type="number" id="m-current-price" placeholder="即時價格" step="any"></div>
@@ -1868,7 +2316,7 @@ function renderMarginForm() {
     // ── 現股模式：只需數量 + 費用 ──
     h += `
     <div class="fg"><label>數量 <span class="hint">${su}</span></label><input type="number" id="m-qty" value="1" min="1" step="1"></div>
-    ${tw ? (() => { const defTax = product === 'stock' ? '0.003' : '0.001'; const t = CFG.twTaxRate === '0.0015' ? '0.0015' : defTax; return `<div class="fr">
+    ${tw ? (() => { const t = CFG.twTaxRate || '0.003'; return `<div class="fr">
       <div class="fg"><label>手續費折扣</label><select id="m-fee-disc">
         <option value="1" ${CFG.twFeeDisc==='1'?'selected':''}>全額 0.1425%</option><option value="0.6" ${CFG.twFeeDisc==='0.6'?'selected':''}>6折 0.0855%</option>
         <option value="0.5" ${CFG.twFeeDisc==='0.5'?'selected':''}>5折 0.07125%</option><option value="0.38" ${CFG.twFeeDisc==='0.38'?'selected':''}>3.8折</option>
@@ -1897,10 +2345,16 @@ function renderMarginForm() {
     if (!long) {
       h = `
     <div class="fg"><label>股票代號 <span class="hint">${symbolHint}</span></label>
-      <div class="stock-search-row"><input type="text" id="m-symbol" placeholder="${tw ? '代號 (如 2330)' : 'Symbol (AAPL)'}" autocomplete="off"><button type="button" class="mini-fetch-btn" id="m-fetch-stock">查詢</button></div>
+      <div class="stock-search-row">
+        <div class="sym-ac-wrap" style="flex:1;position:relative">
+          <input type="text" id="m-symbol" placeholder="${tw ? '輸入代號或名稱' : 'Symbol or name'}" autocomplete="off">
+          <div class="sym-ac-list" id="m-sym-ac"></div>
+        </div>
+        <button type="button" class="mini-fetch-btn" id="m-fetch-stock">查詢</button>
+      </div>
       <div class="stock-info" id="m-stock-info"></div>
     </div>
-    ${extra}
+    <div class="fg" id="m-etf-lev-wrap" style="display:none"><label>ETF 槓桿倍數 <span class="hint">(自動偵測)</span></label><input type="number" id="m-etf-lev" value="1" step="any"></div>
     <div class="fr">
       <div class="fg"><label>${priceLabel} <span class="hint">(${cur})</span></label><input type="number" id="${priceId}" placeholder="${tw ? '市價' : 'Market'}" step="any"></div>
       <div class="fg"><label>目前價格 <span class="hint">(留空=以進場價計算)</span></label><input type="number" id="m-current-price" placeholder="即時價格" step="any"></div>
@@ -1916,7 +2370,7 @@ function renderMarginForm() {
       <div class="fg"><label>追繳線</label><div class="isuf"><input type="number" id="m-call-rate" value="${defCall}" step="any"><span class="suf">%</span></div></div>
       <div class="fg"><label>斷頭線</label><div class="isuf"><input type="number" id="m-forced-rate" value="${defForced}" step="any"><span class="suf">%</span></div></div>
     </div>
-    ${tw ? (() => { const defTax = product === 'stock' ? '0.003' : '0.001'; const t = CFG.twTaxRate === '0.0015' ? '0.0015' : defTax; return `<div class="fr">
+    ${tw ? (() => { const t = CFG.twTaxRate || '0.003'; return `<div class="fr">
       <div class="fg"><label>手續費折扣</label><select id="m-fee-disc">
         <option value="1" ${CFG.twFeeDisc==='1'?'selected':''}>全額 0.1425%</option><option value="0.6" ${CFG.twFeeDisc==='0.6'?'selected':''}>6折 0.0855%</option>
         <option value="0.5" ${CFG.twFeeDisc==='0.5'?'selected':''}>5折 0.07125%</option><option value="0.38" ${CFG.twFeeDisc==='0.38'?'selected':''}>3.8折</option>
@@ -1949,25 +2403,14 @@ function renderMarginForm() {
   const usCommEl = $('#m-comm');
   if (usCommEl) usCommEl.addEventListener('change', () => { CFG.usComm = usCommEl.value; saveSettings(CFG); });
 
-  // ETF / 槓桿 ETF 選擇時自動帶入代號並查詢
-  if (product === 'etf' || product === 'letf') {
-    const sel = $('#m-etf-select');
-    if (sel) sel.addEventListener('change', () => {
-      const opt = sel.selectedOptions[0];
-      const code = opt?.value;
-      if (product === 'letf' && opt?.dataset.lev) $('#m-etf-lev').value = opt.dataset.lev;
-      if (code) {
-        const symEl = $('#m-symbol');
-        if (symEl) { symEl.value = code; handleFetchStock(); }
-      }
-    });
-  }
-
-  // Wire stock search
+  // Wire stock search + autocomplete
   const fetchStockBtn = $('#m-fetch-stock');
   if (fetchStockBtn) fetchStockBtn.addEventListener('click', handleFetchStock);
   const symbolInput = $('#m-symbol');
-  if (symbolInput) symbolInput.addEventListener('keydown', e => { if (e.key === 'Enter') handleFetchStock(); });
+  if (symbolInput) {
+    symbolInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); handleFetchStock(); } });
+    _setupMarginAutocomplete(symbolInput, market);
+  }
 
   // Pre-fill default stock code
   const defStock = tw ? '2330' : 'NVDA';
@@ -2007,12 +2450,13 @@ async function autoFillMarginPrice() {
 //  MARGIN CALC
 // ================================================================
 function calcMargin() {
-  const { market, direction, product } = S.margin;
+  const { market, direction } = S.margin;
   const tw = market === 'tw', long = direction === 'long', cash = direction === 'cash';
   const cur = tw ? 'NT$' : 'USD';
   const spu = tw ? 1000 : 1;
   const qty = gV('m-qty'), ts = qty * spu;
-  const etfLev = product === 'letf' ? (gV('m-etf-lev') || 1) : 1;
+  const etfLev = gV('m-etf-lev') || 1;
+  const isETF = Math.abs(etfLev) !== 1;
 
   // ── CASH MODE (現股) ──
   if (cash) {
@@ -2042,7 +2486,7 @@ function calcMargin() {
         ${mgLabel('部位資訊')}
         ${mc('投入金額', fM(tc, cur), `${fM(bp, cur, 2)} × ${fmt(ts)}股`)}
         ${mc('目前市值', fM(cv, cur), `${fM(cp, cur, 2)} × ${fmt(ts)}股`)}
-        ${product !== 'stock' ? mc('ETF槓桿', effectiveLev.toFixed(1) + 'x', `指數±1% → ETF±${effectiveLev.toFixed(1)}%`, 'h-accent') : ''}
+        ${isETF ? mc('ETF槓桿', effectiveLev.toFixed(1) + 'x', `指數±1% → ETF±${effectiveLev.toFixed(1)}%`, 'h-accent') : ''}
         ${mgLabel('損益')}
         ${mc('未實現損益(税前)', plS + fM(upl, cur), `每股 ${plS}${fM(cp - bp, cur, 2)}`, plH)}
         ${mc('投資報酬率', (netPL >= 0 ? '+' : '') + roi.toFixed(2) + '%', `淨損益 ${(netPL >= 0 ? '+' : '')}${fM(netPL, cur)}`, netPL >= 0 ? 'h-green' : 'h-red')}
@@ -2163,7 +2607,7 @@ function calcMargin() {
         ${mgLabel('部位資訊')}
         ${mc(tw ? '融資金額' : 'Loan', fM(tl, cur), `每股 ${fM(lps, cur, 2)}`)}
         ${mc(tw ? '自備款' : 'Equity', fM(te, cur), `每股 ${fM(eps, cur, 2)}`)}
-        ${mc('槓桿倍數', effectiveLev.toFixed(2) + 'x', product === 'letf' ? `融資${lev.toFixed(1)}x × ETF${etfLev}x` : `±1% → 權益±${lev.toFixed(1)}%`, 'h-accent')}
+        ${mc('槓桿倍數', effectiveLev.toFixed(2) + 'x', isETF ? `融資${lev.toFixed(1)}x × ETF${etfLev}x` : `±1% → 權益±${lev.toFixed(1)}%`, 'h-accent')}
         ${mc('目前市值', fM(cv, cur), `成本 ${fM(tc, cur)}`)}
         ${mgLabel('損益')}
         ${mc('未實現損益(税前)', plS + fM(upl, cur), `權益 ${fM(ce, cur)} (${eqRet}%)`, plH)}
@@ -2215,7 +2659,7 @@ function calcMargin() {
       </div>
       <div class="fb"><h4>2. 槓桿倍數</h4>
         <span class="fl"><span class="v">槓桿</span> <span class="o">=</span> 總成本(<span class="n">${fM(tc,cur)}</span>) <span class="o">÷</span> 自備款(<span class="n">${fM(te,cur)}</span>) <span class="o">=</span> <span class="r">${lev.toFixed(2)}x</span></span>
-        ${product !== 'stock' ? `<span class="fl"><span class="v">有效槓桿</span> <span class="o">=</span> 融資槓桿(<span class="n">${lev.toFixed(2)}x</span>) <span class="o">×</span> ETF槓桿(<span class="n">${etfLev}x</span>) <span class="o">=</span> <span class="r">${effectiveLev.toFixed(2)}x</span></span>
+        ${isETF ? `<span class="fl"><span class="v">有效槓桿</span> <span class="o">=</span> 融資槓桿(<span class="n">${lev.toFixed(2)}x</span>) <span class="o">×</span> ETF槓桿(<span class="n">${etfLev}x</span>) <span class="o">=</span> <span class="r">${effectiveLev.toFixed(2)}x</span></span>
         <div class="fn">指數跌1% → ETF跌${Math.abs(etfLev)}% → 權益跌${effectiveLev.toFixed(1)}%</div>` : `<div class="fn">每漲跌1%，權益變動${lev.toFixed(1)}%</div>`}
       </div>
       <div class="fb"><h4>3. 擔保維持率</h4>
@@ -2411,15 +2855,13 @@ function renderFuturesForm() {
   // 指數期貨：合約下拉；股票期貨：代號搜尋
   let contractRow;
   if (isStock && tw) {
-    // 台灣股票期貨：TAIFEX 商品代碼下拉 + 手動輸入
-    const sfOpts = Object.entries(STOCK_FUTURES).map(([k, v]) => `<option value="${k}">${k} ${v.name} (${v.stock})</option>`).join('');
+    // 台灣股票期貨：輸入框 + autocomplete
     const defSF = STOCK_FUTURES.CDF;
     contractRow = `
-      <div class="fg"><label>股期代號</label>
-        <div class="stock-search-row">
-          <select id="f-stk-select">${sfOpts}<option value="_custom">其他 (手動輸入)</option></select>
-          <input type="text" id="f-stk-custom" placeholder="輸入 TAIFEX 代碼" autocomplete="off" style="display:none;flex:1">
-          <button type="button" class="mini-fetch-btn" id="f-sym-fetch">查詢</button>
+      <div class="fg"><label>股期代號 <span class="hint">輸入代號或股票名稱</span></label>
+        <div class="sym-ac-wrap">
+          <div class="stock-search-row"><input type="text" id="f-stk-input" value="CDF" placeholder="如 CDF、2330、台積電" autocomplete="off"><button type="button" class="mini-fetch-btn" id="f-sym-fetch">查詢</button></div>
+          <div class="sym-ac-list" id="f-stk-ac"></div>
         </div>
         <div class="stock-info" id="f-stock-info"></div>
       </div>
@@ -2507,31 +2949,17 @@ function renderFuturesForm() {
   $('#futures-results').innerHTML = PLACEHOLDER;
 
   if (isStock && tw) {
-    // 台灣股票期貨：TAIFEX 下拉 + 查詢
-    const stkSelect = $('#f-stk-select');
-    const stkCustom = $('#f-stk-custom');
+    // 台灣股票期貨：autocomplete + 查詢
+    const stkInput = $('#f-stk-input');
     const fetchStk = () => {
-      const cid = stkSelect.value === '_custom' ? stkCustom.value.trim().toUpperCase() : stkSelect.value;
-      if (cid && cid !== '_custom') _fetchTaifexStockFutures(cid);
+      const cid = stkInput?.value?.trim().toUpperCase();
+      if (cid) _fetchTaifexStockFutures(cid);
     };
-    stkSelect?.addEventListener('change', () => {
-      if (stkSelect.value === '_custom') {
-        stkCustom.style.display = '';
-        stkCustom.focus();
-      } else {
-        stkCustom.style.display = 'none';
-        // 更新乘數
-        const sf = STOCK_FUTURES[stkSelect.value];
-        if (sf) { $('#f-mul').value = sf.mul; const d = $('#f-mul-display'); if (d) d.textContent = cur + ' ' + fmt(sf.mul); }
-        // 切換商品時清空價格與保證金，讓新查詢結果能正確帶入
-        const _clr = id => { const e = $(`#${id}`); if (e) e.value = ''; };
-        ['f-entry', 'f-current', 'f-live-price', 'f-im-input', 'f-mm-input'].forEach(_clr);
-        fetchStk();
-      }
-    });
+    // Autocomplete for stock futures
+    _setupFuturesAC(stkInput);
+    stkInput?.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); fetchStk(); } });
     $('#f-sym-fetch')?.addEventListener('click', fetchStk);
     $('#f-stk-price-btn')?.addEventListener('click', () => {
-      // 更新報價時清空欄位，讓新報價帶入進場價格與保證金
       const _clr = id => { const e = $(`#${id}`); if (e) e.value = ''; };
       ['f-entry', 'f-current', 'f-live-price', 'f-im-input', 'f-mm-input'].forEach(_clr);
       fetchStk();
@@ -2559,7 +2987,7 @@ function renderFuturesForm() {
     // 美國股票期貨：Yahoo autocomplete + fetch
     setupAutocomplete('f-sym', 'f-sym-ac', async (r) => {
       _fetchFuturesStockPrice(r.symbol);
-    });
+    }, S.futures.market);
     $('#f-sym-fetch')?.addEventListener('click', () => {
       const code = $('#f-sym')?.value?.trim();
       if (code) _fetchFuturesStockPrice(code);
@@ -2633,7 +3061,7 @@ async function _fetchTaifexStockFutures(cid) {
   }
   try {
     // 查期貨報價 (一般股期 KindID=4, 小型股期 KindID=8)
-    const sf = STOCK_FUTURES[cid];
+    const sf = STOCK_FUTURES[cid] || StockDB.getTaifexFutures().find(f => f.code === cid);
     let q;
     if (sf?.kind) {
       q = await PriceService.fetchStockFuturesQuote(cid, sf.kind);
@@ -3042,7 +3470,7 @@ function renderOptionsForm() {
   if (isStock) {
     setupAutocomplete('o-sym', 'o-sym-ac', async (r) => {
       _fetchOptionsStockPrice(r.symbol);
-    });
+    }, S.options.market);
     $('#o-sym-fetch')?.addEventListener('click', () => {
       const code = $('#o-sym')?.value?.trim();
       if (code) _fetchOptionsStockPrice(code);

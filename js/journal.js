@@ -374,24 +374,84 @@ function renderJournal() {
 // ================================================================
 //  Filters
 // ================================================================
+function _dateRangeValue() {
+  const {dateFrom, dateTo} = filterState;
+  if (!dateFrom && !dateTo) return 'all';
+  // Check preset matches
+  const today = new Date(), y = today.getFullYear(), m = today.getMonth(), d = today.getDate();
+  const fmt = dt => dt.toISOString().slice(0,10);
+  const presets = {
+    '7d':  [fmt(new Date(y,m,d-6)), fmt(today)],
+    '30d': [fmt(new Date(y,m,d-29)), fmt(today)],
+    '90d': [fmt(new Date(y,m,d-89)), fmt(today)],
+    'month': [fmt(new Date(y,m,1)), fmt(today)],
+    'year': [fmt(new Date(y,0,1)), fmt(today)],
+  };
+  for (const [k,[f,t]] of Object.entries(presets)) {
+    if (dateFrom === f && dateTo === t) return k;
+  }
+  return 'custom';
+}
+function _applyDatePreset(val) {
+  const today = new Date(), y = today.getFullYear(), m = today.getMonth(), d = today.getDate();
+  const fmt = dt => dt.toISOString().slice(0,10);
+  if (val === 'all')   { filterState.dateFrom = ''; filterState.dateTo = ''; }
+  else if (val === '7d')  { filterState.dateFrom = fmt(new Date(y,m,d-6)); filterState.dateTo = fmt(today); }
+  else if (val === '30d') { filterState.dateFrom = fmt(new Date(y,m,d-29)); filterState.dateTo = fmt(today); }
+  else if (val === '90d') { filterState.dateFrom = fmt(new Date(y,m,d-89)); filterState.dateTo = fmt(today); }
+  else if (val === 'month') { filterState.dateFrom = fmt(new Date(y,m,1)); filterState.dateTo = fmt(today); }
+  else if (val === 'year')  { filterState.dateFrom = fmt(new Date(y,0,1)); filterState.dateTo = fmt(today); }
+}
+
 function renderFilters() {
   const el = $('#j-filters'); if (!el) return;
   const allTags = [...new Set(trades.flatMap(t => t.tags || []))].sort();
+  const drv = _dateRangeValue();
+  const customActive = drv === 'custom';
   el.innerHTML = `<div class="j-filter-row">
     <div class="j-filter-group">
       <select id="jf-market" class="j-filter-select"><option value="all">全部市場</option><option value="tw" ${filterState.market==='tw'?'selected':''}>台灣</option><option value="us" ${filterState.market==='us'?'selected':''}>美國</option></select>
       <select id="jf-type" class="j-filter-select"><option value="all">全部類型</option><option value="stock" ${filterState.type==='stock'?'selected':''}>股票</option><option value="futures" ${filterState.type==='futures'?'selected':''}>期貨</option><option value="options" ${filterState.type==='options'?'selected':''}>選擇權</option><option value="etf" ${filterState.type==='etf'?'selected':''}>ETF</option></select>
       ${allTags.length?`<select id="jf-tag" class="j-filter-select"><option value="all">全部標籤</option>${allTags.map(t=>`<option value="${esc(t)}" ${filterState.tag===t?'selected':''}>${esc(t)}</option>`).join('')}</select>`:''}
     </div>
-    <div class="j-filter-group"><input type="date" id="jf-from" class="j-filter-date" value="${filterState.dateFrom}"><span class="j-filter-sep">~</span><input type="date" id="jf-to" class="j-filter-date" value="${filterState.dateTo}"></div>
+    <div class="j-filter-group">
+      <select id="jf-date-range" class="j-filter-select">
+        <option value="all" ${drv==='all'?'selected':''}>全部日期</option>
+        <option value="7d" ${drv==='7d'?'selected':''}>近 7 天</option>
+        <option value="30d" ${drv==='30d'?'selected':''}>近 30 天</option>
+        <option value="90d" ${drv==='90d'?'selected':''}>近 90 天</option>
+        <option value="month" ${drv==='month'?'selected':''}>本月</option>
+        <option value="year" ${drv==='year'?'selected':''}>今年</option>
+        <option value="custom" ${drv==='custom'?'selected':''}>自訂範圍</option>
+      </select>
+    </div>
+    <div class="j-filter-custom-date" id="jf-custom-date" style="${customActive?'':'display:none'}">
+      <input type="date" id="jf-from" class="j-filter-date" value="${filterState.dateFrom}">
+      <span class="j-filter-sep">~</span>
+      <input type="date" id="jf-to" class="j-filter-date" value="${filterState.dateTo}">
+    </div>
     <div class="j-filter-search-wrap"><input type="text" id="jf-search" class="j-filter-search" placeholder="搜尋代號/名稱/備註..." value="${filterState.search}"></div>
   </div>`;
+  const refresh = () => { viewMode==='list'?renderTradeList():renderStats(); };
   const update = () => {
     filterState.market=$('#jf-market')?.value||'all'; filterState.type=$('#jf-type')?.value||'all'; filterState.tag=$('#jf-tag')?.value||'all';
-    filterState.dateFrom=$('#jf-from')?.value||''; filterState.dateTo=$('#jf-to')?.value||''; filterState.search=$('#jf-search')?.value||'';
-    viewMode==='list'?renderTradeList():renderStats();
+    filterState.search=$('#jf-search')?.value||'';
+    refresh();
   };
-  $$('#j-filters select,#j-filters input').forEach(e=>e.addEventListener('change',update));
+  $('#jf-date-range')?.addEventListener('change', e => {
+    const v = e.target.value;
+    if (v === 'custom') {
+      $('#jf-custom-date').style.display = '';
+      // Don't clear — let user pick
+    } else {
+      $('#jf-custom-date').style.display = 'none';
+      _applyDatePreset(v);
+      refresh();
+    }
+  });
+  $('#jf-from')?.addEventListener('change', () => { filterState.dateFrom=$('#jf-from')?.value||''; refresh(); });
+  $('#jf-to')?.addEventListener('change', () => { filterState.dateTo=$('#jf-to')?.value||''; refresh(); });
+  $$('#j-filters select:not(#jf-date-range),#jf-search').forEach(e=>e.addEventListener('change',update));
   $('#jf-search')?.addEventListener('input',update);
 }
 
