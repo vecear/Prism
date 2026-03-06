@@ -823,12 +823,12 @@ function _initTickerToggle() {
     const expanded = bar.classList.toggle('expanded');
     btn.setAttribute('aria-label', expanded ? '收合報價' : '展開報價');
   });
-  // Measure first row height for collapsed state
+  // Measure tallest chip for collapsed row height
   requestAnimationFrame(() => {
-    const chip = document.querySelector('.ticker-chip');
-    if (chip) {
-      const h = chip.offsetHeight + 4; // card height + grid gap
-      document.querySelector('.ticker-strip')?.style.setProperty('--ticker-row-h', h + 'px');
+    const chips = document.querySelectorAll('.ticker-chip');
+    if (chips.length) {
+      const maxH = Math.max(...[...chips].map(c => c.offsetHeight));
+      document.querySelector('.ticker-strip')?.style.setProperty('--ticker-row-h', (maxH + 4) + 'px');
     }
   });
 }
@@ -844,6 +844,14 @@ function _updateBasis(results) {
   const label = basis >= 0 ? '正價差' : '逆價差';
   el.textContent = `${label} ${basis >= 0 ? '+' : ''}${basis.toFixed(0)}`;
   el.className = `ticker-basis ${basis >= 0 ? 'up' : 'down'}`;
+  // Re-measure row height after basis text changes card height
+  requestAnimationFrame(() => {
+    const chips = document.querySelectorAll('.ticker-chip');
+    if (chips.length) {
+      const maxH = Math.max(...[...chips].map(c => c.offsetHeight));
+      document.querySelector('.ticker-strip')?.style.setProperty('--ticker-row-h', (maxH + 4) + 'px');
+    }
+  });
 }
 
 // 更新 ticker 時間顯示（抓取時間 + 來源最後報價時間）
