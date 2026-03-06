@@ -563,6 +563,13 @@ function debounce(fn, ms) {
 function wrapNumberInputs(container) {
   container.querySelectorAll('input[type="number"]').forEach(input => {
     if (input.closest('.num-wrap')) return;
+    const isQty = /qty/i.test(input.id);
+    // Non-qty fields: add inputmode for mobile numeric keyboard, hide native spinners
+    if (!isQty) {
+      input.setAttribute('inputmode', 'decimal');
+      return;
+    }
+    // Qty fields: wrap with +/- buttons
     const isuf = input.closest('.isuf');
     const target = isuf || input;
     const parent = target.parentElement;
@@ -588,25 +595,20 @@ function wrapNumberInputs(container) {
     const getStep = () => {
       const s = parseFloat(input.step);
       if (!isNaN(s) && s > 0 && input.step !== 'any') return s;
-      const v = Math.abs(parseFloat(input.value) || 0);
-      if (v >= 10000) return 100;
-      if (v >= 1000) return 10;
-      if (v >= 10) return 1;
-      return 0.5;
+      return 1;
     };
 
     const adjust = (dir) => {
       const step = getStep();
       const cur = parseFloat(input.value) || 0;
-      input.value = parseFloat((cur + step * dir).toFixed(4));
+      const next = Math.max(parseFloat(input.min) || 0, cur + step * dir);
+      input.value = next;
       input.dispatchEvent(new Event('input', { bubbles: true }));
     };
 
-    // Click
     minus.addEventListener('click', () => adjust(-1));
     plus.addEventListener('click', () => adjust(1));
 
-    // Long-press: repeat while held
     let _holdTimer = null, _holdInterval = null;
     const startHold = (dir) => {
       _holdTimer = setTimeout(() => {

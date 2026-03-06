@@ -440,35 +440,39 @@ input[type="number"]{-moz-appearance:textfield}
   .main-content{padding-bottom:72px;min-height:calc(100dvh - 120px)}
   .site-footer{padding-bottom:72px}
 
-  /* Controls: wrap layout, market+product side by side, direction full row */
-  .controls-bar{flex-direction:row;flex-wrap:wrap;gap:6px;padding:6px 0}
-  .toggle-group{flex:1 1 calc(50% - 3px);flex-wrap:wrap}
-  .direction-toggle{flex-basis:100%}
-  .toggle-btn{flex:1;text-align:center;padding:10px 6px;font-size:.82rem;min-height:44px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* Controls: compact toggle buttons */
+  .controls-bar{flex-direction:row;flex-wrap:wrap;gap:4px;padding:4px 0}
+  .toggle-group{flex:1 1 auto;flex-wrap:nowrap;padding:1px}
+  .direction-toggle{flex-basis:auto}
+  .toggle-btn{flex:1;text-align:center;padding:7px 4px;font-size:.78rem;min-height:36px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
   /* Layout: single column */
-  .calc-layout{grid-template-columns:1fr;gap:10px}
+  .calc-layout{grid-template-columns:1fr;gap:8px}
   .calc-left{position:static;max-width:none}
 
-  /* Form */
-  .fg{margin-bottom:6px}
-  .fg label{margin-bottom:3px}
-  .fg input,.fg select{padding:8px 10px;min-height:44px}
-  .fg select{padding-right:32px}
+  /* Form: compact spacing */
+  .fg{margin-bottom:4px}
+  .fg label{margin-bottom:2px;font-size:.8rem}
+  .fg input,.fg select{padding:6px 8px;min-height:38px;font-size:.85rem}
+  .fg select{padding-right:28px}
 
-  /* +/- buttons: touch targets */
-  .num-btn{width:40px;font-size:1.15rem;border-radius:8px;min-height:44px}
+  /* +/- buttons: compact */
+  .num-btn{width:34px;font-size:1rem;border-radius:6px;min-height:38px}
 
-  /* Stock search */
-  .stock-search-row{gap:5px;flex-wrap:wrap}
-  .stock-search-row input[type="text"]{flex:1 1 60%;min-width:0;padding:11px 12px;font-size:.9rem;min-height:44px}
-  .mini-fetch-btn{padding:10px 14px;font-size:.85rem;min-height:44px;flex-shrink:0}
+  /* Stock search: compact */
+  .stock-search-row{gap:4px;flex-wrap:nowrap}
+  .stock-search-row input[type="text"]{flex:1;min-width:0;padding:7px 10px;font-size:.85rem;min-height:38px}
+  .mini-fetch-btn{padding:7px 12px;font-size:.8rem;min-height:38px;flex-shrink:0}
 
   /* Equity multiplier */
-  .eq-multi-btn{padding:6px 0;font-size:.8rem;min-height:34px}
+  .eq-multi-btn{padding:5px 0;font-size:.76rem;min-height:30px}
+
+  /* Card & form row compact */
+  .card{padding:8px}
+  .fr{gap:4px}
 
   /* Margin info */
-  .margin-info{padding:5px 8px;gap:4px 8px}
+  .margin-info{padding:4px 6px;gap:3px 6px}
   .mi-label{font-size:.65rem}
   .mi-val{font-size:.8rem}
 
@@ -555,11 +559,11 @@ input[type="number"]{-moz-appearance:textfield}
   .main-tab .tab-label{font-size:.55rem}
 
   /* Toggle: smaller padding */
-  .toggle-btn{padding:9px 4px;font-size:.78rem}
+  .toggle-btn{padding:6px 3px;font-size:.74rem;min-height:32px}
 
   /* Small phone: 1-column form */
   .fr{grid-template-columns:1fr}
-  .num-btn{width:40px;font-size:1.15rem}
+  .num-btn{width:32px;font-size:1rem;min-height:34px}
 
   /* Metrics: single column */
   .mg{grid-template-columns:1fr}
