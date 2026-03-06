@@ -805,44 +805,38 @@ const StockDB = {
     db.tw = { list, time: Date.now() };
     this._set(db);
 
-    // Fetch stock futures list from TAIFEX (期交所) in background
-    this._fetchTaifexStockFutures();
-
     return list.length;
   },
 
-  async _fetchTaifexStockFutures() {
-    try {
-      const url = 'https://www.taifex.com.tw/cht/5/stockMargining';
-      const r = await PriceService._proxyFetch(url, 15000);
-      const html = await r.text();
-      const doc = new DOMParser().parseFromString(html, 'text/html');
-      const tables = doc.querySelectorAll('table');
-      let tbl = null;
-      for (const t of tables) {
-        if (t.textContent.includes('股票期貨英文代碼') && t.textContent.includes('原始保證金適用比例')) { tbl = t; break; }
-      }
-      if (!tbl) return;
-      const futures = [];
-      const rows = tbl.querySelectorAll('tr');
-      for (const row of rows) {
-        const cells = row.querySelectorAll('td');
-        if (cells.length < 9) continue;
-        const cid = cells[1].textContent.trim().toUpperCase();
-        const stockCode = cells[2].textContent.trim();
-        const name = cells[3].textContent.trim();
-        if (!cid || /[^A-Z0-9]/.test(cid) || !stockCode) continue;
-        const imRate = parseFloat(cells[8].textContent.replace(/[%\s]/g, '')) / 100 || 0;
-        const mmRate = parseFloat(cells[7].textContent.replace(/[%\s]/g, '')) / 100 || 0;
-        // Determine multiplier: 小型 prefix → mul=100, else mul=2000
-        const mul = cid.startsWith('Q') || cid.startsWith('R') || /^[A-Z]{2}F$/.test(cid) ? 2000 : 2000;
-        futures.push({ code: cid, stock: stockCode, name, imRate, mmRate, mul: STOCK_FUTURES[cid]?.mul || 2000, kind: STOCK_FUTURES[cid]?.kind || '4' });
-      }
-      if (futures.length === 0) return;
-      const db = this._get();
-      db.twFutures = { list: futures, time: Date.now() };
-      this._set(db);
-    } catch {}
+  async fetchTaifexOnly() {
+    const url = 'https://www.taifex.com.tw/cht/5/stockMargining';
+    const r = await PriceService._proxyFetch(url, 15000);
+    const html = await r.text();
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const tables = doc.querySelectorAll('table');
+    let tbl = null;
+    for (const t of tables) {
+      if (t.textContent.includes('股票期貨英文代碼') && t.textContent.includes('原始保證金適用比例')) { tbl = t; break; }
+    }
+    if (!tbl) throw new Error('無法解析股期表格');
+    const futures = [];
+    const rows = tbl.querySelectorAll('tr');
+    for (const row of rows) {
+      const cells = row.querySelectorAll('td');
+      if (cells.length < 9) continue;
+      const cid = cells[1].textContent.trim().toUpperCase();
+      const stockCode = cells[2].textContent.trim();
+      const name = cells[3].textContent.trim();
+      if (!cid || /[^A-Z0-9]/.test(cid) || !stockCode) continue;
+      const imRate = parseFloat(cells[8].textContent.replace(/[%\s]/g, '')) / 100 || 0;
+      const mmRate = parseFloat(cells[7].textContent.replace(/[%\s]/g, '')) / 100 || 0;
+      futures.push({ code: cid, stock: stockCode, name, imRate, mmRate, mul: STOCK_FUTURES[cid]?.mul || 2000, kind: STOCK_FUTURES[cid]?.kind || '4' });
+    }
+    if (futures.length === 0) throw new Error('無資料');
+    const db = this._get();
+    db.twFutures = { list: futures, time: Date.now() };
+    this._set(db);
+    return futures.length;
   },
 
   getTaifexFutures() {
@@ -853,16 +847,34 @@ const StockDB = {
   },
 
   async fetchUS() {
-    // Fetch US stock list from SEC EDGAR company tickers (lightweight JSON)
-    const url = 'https://www.sec.gov/files/company_tickers.json';
     const list = [];
-    try {
-      const r = await PriceService._proxyFetch(url, 15000);
-      const d = await r.json();
-      for (const v of Object.values(d)) {
-        if (v.ticker && v.title) list.push({ code: v.ticker.toUpperCase(), name: v.title });
-      }
-    } catch {}
+    // Try multiple sources for US stock list
+    const sources = [
+      // 1. SEC EDGAR
+      async () => {
+        const r = await PriceService._proxyFetch('https://www.sec.gov/files/company_tickers.json', 15000);
+        const d = await r.json();
+        for (const v of Object.values(d)) {
+          if (v.ticker && v.title) list.push({ code: v.ticker.toUpperCase(), name: v.title });
+        }
+      },
+      // 2. Nasdaq screener CSV (NYSE + NASDAQ)
+      async () => {
+        for (const ex of ['nasdaq', 'nyse']) {
+          const r = await PriceService._proxyFetch(`https://api.nasdaq.com/api/screener/stocks?tableType=earnings&limit=5000&exchange=${ex}`, 15000);
+          const d = await r.json();
+          for (const row of (d?.data?.table?.rows || [])) {
+            if (row.symbol && row.name) {
+              const code = row.symbol.trim().toUpperCase();
+              if (!list.find(s => s.code === code)) list.push({ code, name: row.name.trim() });
+            }
+          }
+        }
+      },
+    ];
+    for (const src of sources) {
+      try { await src(); if (list.length > 100) break; } catch {}
+    }
     // Add ETF presets
     for (const p of (ETF_PRESETS.us || [])) {
       if (!list.find(s => s.code === p.code)) list.push({ code: p.code, name: p.name });
@@ -1757,12 +1769,17 @@ function renderSettings() {
       <p class="stg-hint" style="margin:0 0 8px;padding:0">下載清單後，輸入代號時可即時搜尋提示</p>
       <div class="stg-row" style="flex-wrap:wrap">
         <label style="flex:1 1 100%">台灣股票 <span class="stg-hint" style="display:inline;margin:0;font-size:.72rem">證交所 + 櫃買中心</span></label>
-        <span class="stg-hint" id="stg-stockdb-tw-info" style="flex:1;margin-top:0">${(() => { const t = StockDB.getTime('tw'); const n = StockDB.getList('tw').length; const ft = StockDB.getTaifexFuturesTime(); const fn = StockDB.getTaifexFutures().length; const parts = []; if (n) parts.push(`股票 ${n} 檔`); if (fn) parts.push(`股期 ${fn} 檔`); return parts.length ? parts.join(' · ') + ` · ${new Date(t || ft).toLocaleDateString('zh-TW')}` : '尚未下載'; })()}</span>
+        <span class="stg-hint" id="stg-stockdb-tw-info" style="flex:1;margin-top:0">${(() => { const t = StockDB.getTime('tw'); const n = StockDB.getList('tw').length; return n ? `${n} 檔 · ${new Date(t).toLocaleDateString('zh-TW')}` : '尚未下載'; })()}</span>
         <button class="stg-save-btn" id="stg-stockdb-tw-fetch" style="min-width:auto;padding:6px 14px">更新</button>
       </div>
       <div class="stg-row" style="flex-wrap:wrap">
-        <label style="flex:1 1 100%">美國股票 <span class="stg-hint" style="display:inline;margin:0;font-size:.72rem">SEC EDGAR</span></label>
-        <span class="stg-hint" id="stg-stockdb-us-info" style="flex:1;margin-top:0">${(() => { const t = StockDB.getTime('us'); const n = StockDB.getList('us').length; return t ? `${n} 檔 · ${new Date(t).toLocaleDateString('zh-TW')}` : '尚未下載'; })()}</span>
+        <label style="flex:1 1 100%">台灣股期 <span class="stg-hint" style="display:inline;margin:0;font-size:.72rem">期交所 TAIFEX</span></label>
+        <span class="stg-hint" id="stg-stockdb-fut-info" style="flex:1;margin-top:0">${(() => { const t = StockDB.getTaifexFuturesTime(); const n = StockDB.getTaifexFutures().length; return n ? `${n} 檔 · ${new Date(t).toLocaleDateString('zh-TW')}` : '尚未下載'; })()}</span>
+        <button class="stg-save-btn" id="stg-stockdb-fut-fetch" style="min-width:auto;padding:6px 14px">更新</button>
+      </div>
+      <div class="stg-row" style="flex-wrap:wrap">
+        <label style="flex:1 1 100%">美國股票 <span class="stg-hint" style="display:inline;margin:0;font-size:.72rem">SEC / NASDAQ</span></label>
+        <span class="stg-hint" id="stg-stockdb-us-info" style="flex:1;margin-top:0">${(() => { const t = StockDB.getTime('us'); const n = StockDB.getList('us').length; return n ? `${n} 檔 · ${new Date(t).toLocaleDateString('zh-TW')}` : '尚未下載'; })()}</span>
         <button class="stg-save-btn" id="stg-stockdb-us-fetch" style="min-width:auto;padding:6px 14px">更新</button>
       </div>
     </div>
@@ -1927,25 +1944,8 @@ function renderSettings() {
       setTimeout(() => { btn.textContent = '更新'; btn.disabled = false; }, 1500);
     }
   };
-  $('#stg-stockdb-tw-fetch')?.addEventListener('click', async () => {
-    const btn = $('#stg-stockdb-tw-fetch');
-    const info = $('#stg-stockdb-tw-info');
-    btn.disabled = true; btn.textContent = '下載中…';
-    try {
-      const stockCount = await StockDB.fetchTW();
-      // Wait a bit for TAIFEX background fetch
-      await new Promise(r => setTimeout(r, 2000));
-      const fn = StockDB.getTaifexFutures().length;
-      const parts = [`股票 ${stockCount} 檔`];
-      if (fn) parts.push(`股期 ${fn} 檔`);
-      if (info) info.textContent = parts.join(' · ') + ` · ${new Date().toLocaleDateString('zh-TW')}`;
-      btn.textContent = '完成';
-      setTimeout(() => { btn.textContent = '更新'; btn.disabled = false; }, 1500);
-    } catch {
-      btn.textContent = '失敗';
-      setTimeout(() => { btn.textContent = '更新'; btn.disabled = false; }, 1500);
-    }
-  });
+  $('#stg-stockdb-tw-fetch')?.addEventListener('click', () => _stockDBFetch('stg-stockdb-tw-fetch', 'stg-stockdb-tw-info', () => StockDB.fetchTW()));
+  $('#stg-stockdb-fut-fetch')?.addEventListener('click', () => _stockDBFetch('stg-stockdb-fut-fetch', 'stg-stockdb-fut-info', () => StockDB.fetchTaifexOnly()));
   $('#stg-stockdb-us-fetch')?.addEventListener('click', () => _stockDBFetch('stg-stockdb-us-fetch', 'stg-stockdb-us-info', () => StockDB.fetchUS()));
 }
 
