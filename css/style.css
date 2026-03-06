@@ -50,13 +50,13 @@ body{font-family:var(--sans);background:var(--bg0);color:var(--t1);line-height:1
 /* ========== Settings Panel ========== */
 .settings-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:90;opacity:0;pointer-events:none;transition:opacity .25s}
 .settings-overlay.open{opacity:1;pointer-events:auto}
-.settings-panel{position:fixed;top:0;right:0;width:400px;max-width:92vw;height:100vh;background:var(--bg1);border-left:1px solid var(--bdr2);z-index:100;display:flex;flex-direction:column;transition:transform .3s var(--ease-out);box-shadow:-8px 0 32px rgba(0,0,0,.4);will-change:transform;transform:translateX(100%)}
+.settings-panel{position:fixed;top:0;right:0;width:400px;max-width:92vw;height:100%;height:100dvh;background:var(--bg1);border-left:1px solid var(--bdr2);z-index:100;display:flex;flex-direction:column;transition:transform .3s var(--ease-out);box-shadow:-8px 0 32px rgba(0,0,0,.4);will-change:transform;transform:translateX(100%)}
 .settings-panel.open{transform:translateX(0)}
 .settings-header{display:flex;align-items:center;justify-content:space-between;padding:18px 20px;border-bottom:1px solid var(--bdr);background:var(--bg2)}
 .settings-header h3{font-size:1.05rem;font-weight:700;color:var(--t1);display:flex;align-items:center;gap:8px}
 .settings-close{background:none;border:none;color:var(--t2);font-size:1.8rem;cursor:pointer;padding:4px 8px;line-height:1;transition:color .15s;border-radius:6px;min-width:44px;min-height:44px;display:flex;align-items:center;justify-content:center}
 .settings-close:hover{color:var(--t1);background:var(--bg3)}
-.settings-body{flex:1;overflow-y:auto;padding:16px 20px}
+.settings-body{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:16px 20px}
 .stg-section{margin-bottom:20px;background:var(--bg2);border:1px solid var(--bdr);border-radius:10px;padding:14px 16px;transition:border-color .15s}
 .stg-section:hover{border-color:var(--bdr2)}
 .stg-section h4{font-size:.85rem;color:var(--accent);font-weight:700;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--bdr);display:flex;align-items:center;gap:6px}
@@ -87,6 +87,17 @@ body{font-family:var(--sans);background:var(--bg0);color:var(--t1);line-height:1
 .stg-input::placeholder{color:var(--t3);font-family:var(--sans);font-size:.82rem}
 .stg-sub-label{font-size:.75rem;font-weight:600;color:var(--t2);padding:8px 0 2px;margin-top:4px;border-top:1px dashed var(--bdr);letter-spacing:.3px}
 .stg-sub-label:first-of-type{border-top:none;margin-top:0;padding-top:2px}
+.stg-account-info{display:flex;align-items:center;gap:10px;padding:10px 0}
+.stg-account-info .stg-avatar{width:36px;height:36px;border-radius:50%;background:var(--accent-d);border:1.5px solid var(--accent);display:flex;align-items:center;justify-content:center;color:var(--accent);flex-shrink:0}
+.stg-account-info .stg-username{font-size:.95rem;font-weight:600;color:var(--t1)}
+.stg-account-info .stg-uid{font-size:.72rem;color:var(--t3)}
+.stg-account-actions{display:flex;gap:8px;padding-top:8px;border-top:1px solid rgba(30,50,71,.4)}
+.stg-account-actions button{flex:1;padding:9px 0;border:1px solid var(--bdr);border-radius:6px;background:none;color:var(--t2);font-family:var(--sans);font-size:.82rem;font-weight:500;cursor:pointer;transition:color .15s,border-color .15s,background .15s}
+.stg-account-actions button:hover{color:var(--t1);border-color:var(--bdr2);background:var(--bg3)}
+.stg-account-actions .stg-logout-btn{color:var(--red);border-color:var(--red-d)}
+.stg-account-actions .stg-logout-btn:hover{background:var(--red-d);border-color:var(--red)}
+.stg-login-prompt{padding:6px 0}
+.stg-login-prompt p{font-size:.82rem;color:var(--t3);margin-bottom:10px}
 
 /* ========== Ticker Strip ========== */
 .ticker-bar{display:flex;align-items:flex-start;gap:0;padding:4px 0;border-bottom:1px solid var(--bdr);min-height:28px}
@@ -483,8 +494,9 @@ input[type="number"]{-moz-appearance:textfield}
   .fn{font-size:.68rem}
 
   /* Settings panel: full-screen on mobile */
-  .settings-panel{width:100vw;max-width:100vw;border-left:none;padding-bottom:env(safe-area-inset-bottom)}
-  .settings-body{padding:14px 16px;padding-left:calc(16px + env(safe-area-inset-left));padding-right:calc(16px + env(safe-area-inset-right))}
+  .settings-panel{width:100vw;max-width:100vw;height:100%;height:100dvh;border-left:none}
+  .settings-header{padding-top:calc(12px + env(safe-area-inset-top))}
+  .settings-body{padding:14px 16px calc(16px + env(safe-area-inset-bottom));padding-left:calc(16px + env(safe-area-inset-left));padding-right:calc(16px + env(safe-area-inset-right))}
   .settings-close{width:44px;height:44px;display:flex;align-items:center;justify-content:center;font-size:1.8rem}
 
   /* Stress table: sticky first column */
@@ -718,16 +730,8 @@ input[type="number"]{-moz-appearance:textfield}
 /* ── Header Auth ── */
 .header-right{display:flex;align-items:center;gap:8px}
 #header-auth{display:flex;align-items:center;gap:6px}
-.ha-refresh{background:none;border:1px solid var(--bdr);border-radius:8px;color:var(--t2);cursor:pointer;padding:5px 7px;display:flex;align-items:center;justify-content:center;transition:color .15s,border-color .15s}
-.ha-refresh:hover{color:var(--accent);border-color:var(--accent)}
-.ha-spinning svg{animation:ha-spin .5s ease}
-@keyframes ha-spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
 .ha-user{display:flex;align-items:center;gap:6px;padding:5px 10px;background:var(--bg2);border:1px solid var(--bdr);border-radius:16px;font-size:.8rem;font-weight:500;color:var(--accent)}
 .ha-user svg{flex-shrink:0}
-.ha-logout{background:none;border:none;color:var(--t3);font-size:1.1rem;cursor:pointer;padding:0 2px;line-height:1;transition:color .15s}
-.ha-logout:hover{color:var(--red)}
-.ha-login-btn{display:flex;align-items:center;gap:5px;padding:6px 14px;background:var(--accent);border:none;border-radius:6px;color:#fff;font-size:.82rem;font-weight:600;cursor:pointer;transition:box-shadow .15s}
-.ha-login-btn:hover{box-shadow:0 2px 8px rgba(0,180,216,.35)}
 
 /* ── Record Trade Button (in calc tabs) ── */
 .j-record-btn{display:flex;align-items:center;gap:6px;margin:12px auto 0;padding:10px 24px;background:linear-gradient(135deg,var(--accent),#7c4dff);border:none;border-radius:8px;color:#fff;font-size:.88rem;font-weight:600;cursor:pointer;transition:transform .2s,box-shadow .2s;box-shadow:0 2px 8px rgba(0,180,216,.2)}

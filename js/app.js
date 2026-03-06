@@ -1356,8 +1356,8 @@ function initSettings() {
   const overlay = $('#settings-overlay');
   const panel = $('#settings-panel');
   const closeBtn = $('#btn-settings-close');
-  let rendered = false;
-  const open = () => { if (!rendered) { renderSettings(); rendered = true; } panel.classList.add('open'); overlay.classList.add('open'); };
+  window._stgRendered = false;
+  const open = () => { if (!window._stgRendered) { renderSettings(); window._stgRendered = true; } panel.classList.add('open'); overlay.classList.add('open'); };
   const close = () => { panel.classList.remove('open'); overlay.classList.remove('open'); };
   if (btn) btn.addEventListener('click', open);
   if (overlay) overlay.addEventListener('click', close);
@@ -1390,7 +1390,28 @@ function renderSettings() {
   const usOpts = Object.entries(P).filter(([,v]) => v.markets.includes('us')).map(([id, v]) =>
     `<option value="${id}" ${CFG.usSource === id ? 'selected' : ''}>${v.name}</option>`).join('');
 
+  // Account section
+  const loggedIn = !!(window.PrismJournal && PrismJournal.isLoggedIn());
+  const userInfo = loggedIn ? JSON.parse(localStorage.getItem('prism_user_info') || '{}') : null;
+  const accountHTML = loggedIn
+    ? `<div class="stg-account-info">
+        <div class="stg-avatar"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>
+        <div><div class="stg-username">${userInfo?.username || '使用者'}</div><div class="stg-uid">已登入 · 資料同步中</div></div>
+      </div>
+      <div class="stg-account-actions">
+        <button id="stg-reload"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M1 4v6h6"/><path d="M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg> 重新整理</button>
+        <button class="stg-logout-btn" id="stg-logout">登出</button>
+      </div>`
+    : `<div class="stg-login-prompt">
+        <p>登入後可在不同裝置同步設定與交易紀錄</p>
+        <button class="stg-save-btn" id="stg-login">登入 / 註冊</button>
+      </div>`;
+
   body.innerHTML = `
+    <div class="stg-section">
+      <h4><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>帳號</h4>
+      ${accountHTML}
+    </div>
     <div class="stg-section">
       <h4><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>報價來源</h4>
       <div class="stg-row">
@@ -1514,6 +1535,17 @@ function renderSettings() {
       </div>
       <button class="stg-save-btn" id="stg-fee-save">儲存</button>
     </div>`;
+
+  // Account actions
+  $('#stg-login')?.addEventListener('click', () => {
+    if (window.PrismJournal) { PrismJournal.showLogin(); }
+  });
+  $('#stg-logout')?.addEventListener('click', () => {
+    if (window.PrismJournal) { PrismJournal.doLogout(); window._stgRendered = false; renderSettings(); window._stgRendered = true; }
+  });
+  $('#stg-reload')?.addEventListener('click', () => {
+    if (confirm('確定要重新載入頁面嗎？未儲存的輸入內容將會消失。')) location.reload();
+  });
 
   // Update descriptions & show/hide Finnhub key row on source change
   const syncUI = () => {
