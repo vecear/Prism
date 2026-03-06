@@ -96,11 +96,14 @@ function renderHeaderAuth() {
   const el = $('#header-auth');
   if (!el) return;
   if (authToken && currentUser) {
-    el.innerHTML = `<div class="ha-user">
+    el.innerHTML = `<button class="ha-refresh" id="ha-refresh" title="重新整理資料">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 4v6h6"/><path d="M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
+      </button><div class="ha-user">
       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
       <span>${esc(currentUser.username)}</span>
       <button class="ha-logout" id="ha-logout" title="登出">&times;</button>
     </div>`;
+    $('#ha-refresh')?.addEventListener('click', () => location.reload());
     $('#ha-logout')?.addEventListener('click', handleLogout);
   } else {
     el.innerHTML = `<button class="ha-login-btn" id="ha-login-btn">
