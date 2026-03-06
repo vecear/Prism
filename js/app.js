@@ -1,6 +1,10 @@
 /* ================================================================
    Prism (v3 Live)
    ================================================================ */
+// API base: local file / localhost → cloud; deployed → same origin
+const CLOUD_ORIGIN = 'https://prism-7t8.pages.dev';
+const API_BASE = (location.protocol === 'file:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+  ? CLOUD_ORIGIN : '';
 const $ = (s, c = document) => c.querySelector(s);
 const $$ = (s, c = document) => [...c.querySelectorAll(s)];
 const fmt = (n, d = 0) => n == null || isNaN(n) ? '—' : Number(n).toLocaleString('zh-TW', { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -33,7 +37,7 @@ const INDEX_DEFS = {
 // ================================================================
 const PriceService = {
   PROXIES: [
-    url => `/api/proxy?url=${encodeURIComponent(url)}`,
+    url => `${API_BASE}/api/proxy?url=${encodeURIComponent(url)}`,
     url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
     url => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
   ],
@@ -330,7 +334,7 @@ const PriceService = {
 
     let data;
     try { const r = await this._fetchTimeout(url, 4000, postOpts); if (r.ok) data = await r.json(); } catch {}
-    if (!data) { try { const r = await this._fetchTimeout(`/api/proxy?url=${encodeURIComponent(url)}`, 8000, postOpts); if (r.ok) data = await r.json(); } catch {} }
+    if (!data) { try { const r = await this._fetchTimeout(`${API_BASE}/api/proxy?url=${encodeURIComponent(url)}`, 8000, postOpts); if (r.ok) data = await r.json(); } catch {} }
     if (!data) { try { const r = await this._fetchTimeout(`https://corsproxy.io/?url=${encodeURIComponent(url)}`, 10000, postOpts); if (r.ok) data = await r.json(); } catch {} }
     if (!data) { const getUrl = url + '?' + new URLSearchParams(payload).toString(); const r = await this._proxyFetch(getUrl, 10000); data = await r.json(); }
 
@@ -654,7 +658,7 @@ function saveSettings(s) {
   // Sync to server if logged in (fire-and-forget)
   const token = localStorage.getItem('prism_token');
   if (token) {
-    fetch('/api/settings', {
+    fetch(`${API_BASE}/api/settings`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
       body: JSON.stringify({ settings: s }),
@@ -666,7 +670,7 @@ async function loadSettingsFromServer() {
   const token = localStorage.getItem('prism_token');
   if (!token) return;
   try {
-    const res = await fetch('/api/settings', {
+    const res = await fetch(`${API_BASE}/api/settings`, {
       headers: { 'Authorization': `Bearer ${token}` },
     });
     if (!res.ok) return;

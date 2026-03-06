@@ -8,7 +8,8 @@
 (() => {
 'use strict';
 
-const API = '/api';
+const API = (location.protocol === 'file:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+  ? 'https://prism-7t8.pages.dev/api' : '/api';
 const TOKEN_KEY = 'prism_token';
 const USER_KEY = 'prism_user_info';
 const $ = (s, c = document) => c.querySelector(s);
@@ -316,8 +317,6 @@ function renderJournal() {
     </div>
     <div class="j-filters" id="j-filters"></div>
     <div class="j-body" id="j-body"></div>
-    <div class="j-modal-overlay" id="j-modal-overlay"></div>
-    <div class="j-modal" id="j-modal"></div>
   `;
   $('#j-add').addEventListener('click', () => openTradeForm(null));
   $$('.j-vt-btn').forEach(b => b.addEventListener('click', () => { viewMode = b.dataset.view; renderJournal(); }));
@@ -432,9 +431,9 @@ function openTradeForm(id, prefill) {
   const t = id ? trades.find(x => x.id === id) : (prefill || newTrade());
   if (!t) return;
 
-  // Use journal tab's modal if on journal, else global modal
-  let overlay = $('#j-modal-overlay') || (() => { const o = document.createElement('div'); o.id='j-global-modal-overlay'; o.className='j-modal-overlay'; document.body.appendChild(o); return o; })();
-  let modal = $('#j-modal') || (() => { const m = document.createElement('div'); m.id='j-global-modal'; m.className='j-modal'; document.body.appendChild(m); return m; })();
+  // Always use global modal on document.body to avoid z-index / hidden tab issues
+  let overlay = $('#j-global-modal-overlay') || (() => { const o = document.createElement('div'); o.id='j-global-modal-overlay'; o.className='j-modal-overlay'; document.body.appendChild(o); return o; })();
+  let modal = $('#j-global-modal') || (() => { const m = document.createElement('div'); m.id='j-global-modal'; m.className='j-modal'; document.body.appendChild(m); return m; })();
 
   modal.innerHTML = `
     <div class="j-modal-header"><h3>${id ? '編輯交易' : '新增交易'}</h3><button class="j-modal-close" id="jf-close">&times;</button></div>
@@ -554,7 +553,8 @@ async function saveTrade() {
 // ================================================================
 function openTradeDetail(id) {
   const t=trades.find(x=>x.id===id);if(!t)return;
-  const overlay=$('#j-modal-overlay'),modal=$('#j-modal');if(!overlay||!modal)return;
+  let overlay = $('#j-global-modal-overlay') || (() => { const o = document.createElement('div'); o.id='j-global-modal-overlay'; o.className='j-modal-overlay'; document.body.appendChild(o); return o; })();
+  let modal = $('#j-global-modal') || (() => { const m = document.createElement('div'); m.id='j-global-modal'; m.className='j-modal'; document.body.appendChild(m); return m; })();
   const pl=calcPL(t),ML={tw:'台灣',us:'美國'},TL={stock:'股票',futures:'期貨',options:'選擇權',etf:'ETF'},DL={long:'做多',short:'做空'},SL={open:'持倉中',closed:'已平倉'};
   const en=parseFloat(t.entryPrice),sl=parseFloat(t.stopLoss),tp=parseFloat(t.takeProfit);
   const rp=(!isNaN(en)&&!isNaN(sl)&&en)?((Math.abs(en-sl)/en)*100).toFixed(2):null;

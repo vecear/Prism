@@ -164,8 +164,9 @@ async function handleRegister(request, env) {
   if (existing) return jsonErr(409, '此使用者名稱已被註冊');
 
   const { hash, salt } = await hashPassword(password);
-  const result = await db.prepare('INSERT INTO users (username, password_hash, salt) VALUES (?, ?, ?)').bind(username, hash, salt).run();
-  const userId = result.meta.last_row_id;
+  await db.prepare('INSERT INTO users (username, password_hash, salt) VALUES (?, ?, ?)').bind(username, hash, salt).run();
+  const newUser = await db.prepare('SELECT id FROM users WHERE username = ?').bind(username).first();
+  const userId = newUser.id;
   const secret = getJwtSecret(env);
   const token = await signJWT({ sub: userId, username }, secret);
   return jsonRes({ token, user: { id: userId, username } }, 201);
