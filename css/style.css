@@ -118,6 +118,7 @@ body{font-family:var(--sans);background:var(--bg0);color:var(--t1);line-height:1
 .ticker-basis{font-size:.6rem;font-weight:600;white-space:nowrap;padding:1px 4px;border-radius:3px}
 .ticker-basis:empty{display:none}
 .ticker-basis.up{color:var(--green);background:var(--green-d)}.ticker-basis.down{color:var(--red);background:var(--red-d)}
+.ticker-bar-actions{display:flex;align-items:center;gap:4px;flex-shrink:0}
 .ticker-toggle{display:none;align-items:center;justify-content:center;background:none;border:none;color:var(--t3);cursor:pointer;padding:2px 4px;flex-shrink:0;transition:color .15s}
 .ticker-toggle:hover{color:var(--accent)}
 .ticker-toggle svg{transition:transform .2s}
@@ -400,16 +401,16 @@ input[type="number"]{-moz-appearance:textfield}
 
   /* Ticker bar — card grid on mobile */
   .ticker-bar{padding:6px 0;flex-direction:column;gap:6px;align-items:stretch}
-  .ticker-strip{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;overflow:hidden;max-height:0;transition:max-height .35s ease;flex:none}
+  .ticker-strip{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;overflow:hidden;max-height:var(--ticker-row-h,52px);transition:max-height .35s ease;flex:none}
   .ticker-bar.expanded .ticker-strip{max-height:600px}
-  .ticker-chip{display:flex;flex-direction:column;align-items:flex-start;gap:1px;padding:6px 8px;background:var(--bg1);border:1px solid var(--bdr);border-radius:6px;white-space:nowrap}
+  .ticker-chip{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;padding:6px 4px;background:var(--bg1);border:1px solid var(--bdr);border-radius:6px;white-space:nowrap;min-height:42px;box-sizing:border-box}
   .ticker-chip+.ticker-chip::before{display:none}
   .ticker-chip:hover{background:var(--bg2)}
   .tc-name{font-size:.58rem;color:var(--t3);font-weight:600;line-height:1}
   .tc-price{font-size:.78rem;font-weight:700;line-height:1.2}
   .tc-chg{font-size:.58rem;line-height:1}
   .ticker-basis{font-size:.52rem;margin-top:1px}
-  .ticker-bar-actions{display:flex;align-items:center;justify-content:space-between}
+  .ticker-bar-actions{justify-content:space-between}
   .ticker-toggle{display:flex;border:1px solid var(--bdr);border-radius:6px;padding:5px 12px;gap:4px;font-size:.7rem;color:var(--t2);font-family:var(--sans);min-height:32px;align-items:center}
   .ticker-toggle::after{content:'展開報價';font-size:.68rem}
   .ticker-bar.expanded .ticker-toggle::after{content:'收合報價'}
@@ -536,11 +537,12 @@ input[type="number"]{-moz-appearance:textfield}
   #app{padding:0 6px}
   .card{padding:8px}
 
-  /* Ticker: tighter spacing, hide less-important data */
-  .ticker-chip+.ticker-chip::before{margin:0 3px}
-  .tc-chg,.ticker-basis{display:none}
+  /* Ticker: smaller cards on small phones */
+  .ticker-chip{padding:4px 2px;min-height:38px}
   .tc-name{font-size:.56rem}
   .tc-price{font-size:.66rem}
+  .tc-chg{font-size:.52rem}
+  .ticker-basis{font-size:.48rem}
   .ticker-time{font-size:.58rem!important}
 
   /* Tabs: even smaller in bottom bar */
@@ -617,6 +619,8 @@ input[type="number"]{-moz-appearance:textfield}
 .j-summary-bar strong{font-weight:600;color:var(--t1)}
 
 /* ── Trade Table ── */
+/* Card list — hidden on desktop, shown on mobile */
+.j-card-list{display:none}
 .j-table-wrap{overflow-x:auto;border:1px solid var(--bdr);border-radius:6px}
 .j-table{width:100%;border-collapse:collapse;font-size:.84rem}
 .j-table thead th{padding:9px 10px;background:var(--bg1);color:var(--t2);font-weight:600;text-align:left;border-bottom:1px solid var(--bdr);white-space:nowrap;position:sticky;top:0;z-index:1}
@@ -774,9 +778,34 @@ input[type="number"]{-moz-appearance:textfield}
   .j-filter-row{flex-direction:column;gap:6px}
   .j-filter-group{flex-wrap:wrap}
   .j-filter-date{width:auto;flex:1}
-  .j-table{font-size:.72rem}
-  .j-table thead th{padding:6px 6px;font-size:.68rem}
-  .j-table tbody td{padding:5px 6px}
+  /* Hide table, show card list on mobile */
+  .j-table-wrap{display:none}
+  .j-card-list{display:flex;flex-direction:column;gap:8px}
+
+  .j-card{background:var(--bg1);border:1px solid var(--bdr);border-radius:8px;overflow:hidden}
+  .j-card-head{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;cursor:pointer;gap:8px}
+  .j-card-left{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0}
+  .j-card-symbol{font-family:var(--mono);font-weight:700;font-size:.92rem;color:var(--accent)}
+  .j-card-dir{font-size:.72rem}
+  .j-card-right{display:flex;align-items:center;gap:6px;flex-shrink:0}
+  .j-card-pl{font-family:var(--mono);font-weight:700;font-size:.92rem}
+  .j-card-chevron{transition:transform .2s;opacity:.4;flex-shrink:0}
+  .j-card.expanded .j-card-chevron{transform:rotate(180deg)}
+
+  .j-card-sub{display:flex;align-items:center;gap:8px;padding:0 12px 8px;font-size:.72rem;color:var(--t3)}
+  .j-card-date{font-family:var(--mono)}
+  .j-card-price{font-family:var(--mono);color:var(--t2)}
+
+  .j-card-detail{max-height:0;overflow:hidden;transition:max-height .25s ease}
+  .j-card.expanded .j-card-detail{max-height:400px}
+  .j-card-detail-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:1px;background:var(--bdr);border-top:1px solid var(--bdr)}
+  .j-card-field{display:flex;justify-content:space-between;padding:7px 12px;background:var(--bg0);font-size:.78rem}
+  .j-card-label{color:var(--t3)}
+  .j-card-val{font-family:var(--mono);font-weight:600;color:var(--t1)}
+  .j-card-tags{padding:6px 12px;display:flex;flex-wrap:wrap;gap:4px}
+  .j-card-notes{padding:6px 12px;font-size:.75rem;color:var(--t2);border-top:1px solid var(--bdr);white-space:pre-wrap}
+  .j-card-actions{display:flex;justify-content:flex-end;gap:6px;padding:8px 12px;border-top:1px solid var(--bdr)}
+
   .j-modal{max-width:96vw;max-height:92vh}
   .j-form-grid{grid-template-columns:1fr}
   .j-detail-grid{grid-template-columns:1fr}

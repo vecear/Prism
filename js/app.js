@@ -823,6 +823,14 @@ function _initTickerToggle() {
     const expanded = bar.classList.toggle('expanded');
     btn.setAttribute('aria-label', expanded ? '收合報價' : '展開報價');
   });
+  // Measure first row height for collapsed state
+  requestAnimationFrame(() => {
+    const chip = document.querySelector('.ticker-chip');
+    if (chip) {
+      const h = chip.offsetHeight + 4; // card height + grid gap
+      document.querySelector('.ticker-strip')?.style.setProperty('--ticker-row-h', h + 'px');
+    }
+  });
 }
 
 // 計算台指期 vs 加權指數的正逆價差

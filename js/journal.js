@@ -419,16 +419,74 @@ function renderTradeList() {
   const si=f=>sortState.field!==f?'<span class="j-sort-icon"></span>':`<span class="j-sort-icon active">${sortState.asc?'&#9650;':'&#9660;'}</span>`;
   const cp=filtered.filter(t=>t.status==='closed').map(t=>calcPL(t)).filter(Boolean);
   const tn=cp.reduce((s,p)=>s+p.net,0),wins=cp.filter(p=>p.net>0).length,wr=cp.length?(wins/cp.length*100).toFixed(1):0;
-  let h=`<div class="j-summary-bar"><span>共 <strong>${filtered.length}</strong> 筆</span>${cp.length?`<span>已平倉損益：<strong class="${tn>=0?'tg':'tr'}">${fmtNum(tn,0)}</strong></span><span>勝率：<strong>${wr}%</strong> (${wins}/${cp.length})</span>`:''}</div>
-  <div class="j-table-wrap"><table class="j-table"><thead><tr><th class="j-th-sort" data-sort="date">日期 ${si('date')}</th><th>市場</th><th>類型</th><th class="j-th-sort" data-sort="symbol">代號 ${si('symbol')}</th><th>方向</th><th>進場</th><th>出場</th><th>數量</th><th class="j-th-sort" data-sort="pl">損益 ${si('pl')}</th><th>狀態</th><th>標籤</th><th></th></tr></thead><tbody>`;
+  let h=`<div class="j-summary-bar"><span>共 <strong>${filtered.length}</strong> 筆</span>${cp.length?`<span>已平倉損益：<strong class="${tn>=0?'tg':'tr'}">${fmtNum(tn,0)}</strong></span><span>勝率：<strong>${wr}%</strong> (${wins}/${cp.length})</span>`:''}</div>`;
+
+  // Desktop: table view
+  h+=`<div class="j-table-wrap"><table class="j-table"><thead><tr><th class="j-th-sort" data-sort="date">日期 ${si('date')}</th><th>市場</th><th>類型</th><th class="j-th-sort" data-sort="symbol">代號 ${si('symbol')}</th><th>方向</th><th>進場</th><th>出場</th><th>數量</th><th class="j-th-sort" data-sort="pl">損益 ${si('pl')}</th><th>狀態</th><th>標籤</th><th></th></tr></thead><tbody>`;
   for(const t of filtered){const pl=calcPL(t),plStr=pl?fmtNum(pl.net,0):'—',plC=pl?(pl.net>0?'tg':pl.net<0?'tr':''):'tm';
   h+=`<tr class="j-row" data-id="${t.id}"><td class="j-td-date">${fmtDate(t.date)}</td><td><span class="j-badge j-badge-${t.market}">${ML[t.market]||t.market}</span></td><td><span class="j-badge j-badge-type">${TL[t.type]||t.type}</span></td><td class="j-td-sym"><strong>${t.symbol}</strong>${t.name?`<span class="j-sym-name">${t.name}</span>`:''}</td><td><span class="${DC[t.direction]}">${DL[t.direction]}</span></td><td class="j-td-num">${fmtNum(parseFloat(t.entryPrice),2)}</td><td class="j-td-num">${t.exitPrice?fmtNum(parseFloat(t.exitPrice),2):'—'}</td><td class="j-td-num">${t.quantity||'—'}</td><td class="j-td-num ${plC}">${plStr}</td><td><span class="j-status j-status-${t.status}">${SL[t.status]}</span></td><td class="j-td-tags">${(t.tags||[]).map(tag=>`<span class="j-tag">${tag}</span>`).join('')}</td><td class="j-td-actions"><button class="j-act-btn j-act-view" data-id="${t.id}" title="檢視"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button><button class="j-act-btn j-act-edit" data-id="${t.id}" title="編輯"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button><button class="j-act-btn j-act-del" data-id="${t.id}" title="刪除"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button></td></tr>`;}
-  h+='</tbody></table></div>';body.innerHTML=h;
+  h+='</tbody></table></div>';
+
+  // Mobile: card view
+  h+='<div class="j-card-list">';
+  for(const t of filtered){
+    const pl=calcPL(t),plStr=pl?fmtNum(pl.net,0):'—',plC=pl?(pl.net>0?'tg':pl.net<0?'tr':''):'tm';
+    const feeStr=pl?fmtNum(pl.fee+pl.tax,0):'—';
+    h+=`<div class="j-card" data-id="${t.id}">
+      <div class="j-card-head">
+        <div class="j-card-left">
+          <span class="j-card-symbol">${t.symbol}</span>
+          <span class="j-badge j-badge-${t.market}">${ML[t.market]||t.market}</span>
+          <span class="j-badge j-badge-type">${TL[t.type]||t.type}</span>
+          <span class="${DC[t.direction]} j-card-dir">${DL[t.direction]}</span>
+        </div>
+        <div class="j-card-right">
+          <span class="j-card-pl ${plC}">${plStr}</span>
+          <svg class="j-card-chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+        </div>
+      </div>
+      <div class="j-card-sub">
+        <span class="j-card-date">${fmtDate(t.date)}</span>
+        <span class="j-card-price">${fmtNum(parseFloat(t.entryPrice),2)} → ${t.exitPrice?fmtNum(parseFloat(t.exitPrice),2):'—'}</span>
+        <span class="j-status j-status-${t.status}">${SL[t.status]}</span>
+      </div>
+      <div class="j-card-detail">
+        <div class="j-card-detail-grid">
+          <div class="j-card-field"><span class="j-card-label">數量</span><span class="j-card-val">${t.quantity||'—'}</span></div>
+          ${t.contractMul?`<div class="j-card-field"><span class="j-card-label">乘數</span><span class="j-card-val">${t.contractMul}</span></div>`:''}
+          <div class="j-card-field"><span class="j-card-label">進場</span><span class="j-card-val">${fmtNum(parseFloat(t.entryPrice),2)}</span></div>
+          <div class="j-card-field"><span class="j-card-label">出場</span><span class="j-card-val">${t.exitPrice?fmtNum(parseFloat(t.exitPrice),2):'—'}</span></div>
+          <div class="j-card-field"><span class="j-card-label">手續費</span><span class="j-card-val">${t.fee?fmtNum(parseFloat(t.fee),0):'—'}</span></div>
+          <div class="j-card-field"><span class="j-card-label">交易稅</span><span class="j-card-val">${t.tax?fmtNum(parseFloat(t.tax),0):'—'}</span></div>
+          <div class="j-card-field"><span class="j-card-label">總成本</span><span class="j-card-val">${feeStr}</span></div>
+          <div class="j-card-field"><span class="j-card-label">淨損益</span><span class="j-card-val ${plC}">${plStr}</span></div>
+        </div>
+        ${(t.tags||[]).length?`<div class="j-card-tags">${t.tags.map(tag=>`<span class="j-tag">${tag}</span>`).join('')}</div>`:''}
+        ${t.notes?`<div class="j-card-notes">${t.notes}</div>`:''}
+        <div class="j-card-actions">
+          <button class="j-act-btn j-act-view" data-id="${t.id}" title="檢視"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+          <button class="j-act-btn j-act-edit" data-id="${t.id}" title="編輯"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+          <button class="j-act-btn j-act-del" data-id="${t.id}" title="刪除"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button>
+        </div>
+      </div>
+    </div>`;
+  }
+  h+='</div>';
+
+  body.innerHTML=h;
   $$('.j-th-sort').forEach(th=>th.addEventListener('click',()=>{const f=th.dataset.sort;if(sortState.field===f)sortState.asc=!sortState.asc;else{sortState.field=f;sortState.asc=false;}renderTradeList();}));
   $$('.j-act-view').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();openTradeDetail(b.dataset.id);}));
   $$('.j-act-edit').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();openTradeForm(b.dataset.id);}));
   $$('.j-act-del').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();deleteTrade(b.dataset.id);}));
+  // Desktop: row click
   $$('.j-row').forEach(r=>r.addEventListener('click',()=>openTradeDetail(r.dataset.id)));
+  // Mobile: card expand/collapse
+  $$('.j-card').forEach(c=>{
+    c.querySelector('.j-card-head').addEventListener('click',e=>{
+      if(e.target.closest('.j-act-btn'))return;
+      c.classList.toggle('expanded');
+    });
+  });
 }
 
 // ================================================================
@@ -563,13 +621,7 @@ function showSavedToast() {
     if (jTab) jTab.classList.add('active');
     $$('.tab-content').forEach(x => x.classList.remove('active'));
     $('#tab-journal')?.classList.add('active');
-    loadTrades().then(() => {
-      renderJournal();
-      // Open the latest trade for editing notes
-      if (trades.length) {
-        setTimeout(() => openTradeForm(trades[0].id), 200);
-      }
-    });
+    loadTrades().then(() => renderJournal());
   });
   setTimeout(() => { if (toast.parentNode) { toast.classList.remove('show'); setTimeout(() => toast.remove(), 300); } }, 6000);
 }
