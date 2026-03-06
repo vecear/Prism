@@ -25,6 +25,7 @@ const INDEX_DEFS = {
   kospi:    { name: 'KOSPI',     placeholder: '2500',  market: 'kr', region: '亞洲', chart: 'KRX:KOSPI' },
   shanghai: { name: '上證指數',  placeholder: '3200',  market: 'cn', region: '亞洲', chart: 'SSE:000001' },
   hsi:      { name: '恆生指數',  placeholder: '20000', market: 'hk', region: '亞洲', chart: 'TVC:HSI' },
+  vix:      { name: 'VIX',      placeholder: '20',    market: 'us', region: '美國', chart: 'CBOE:VIX' },
 };
 
 // ================================================================
@@ -101,22 +102,10 @@ const PriceService = {
     }
   },
 
-  // ── TPEX 台灣櫃買中心 (上櫃) ──
+  // ── TPEX 台灣櫃買中心 (上櫃) — 共用 TWSE MIS API ──
   tpex: {
     INDEX_MAP: {},
-    async fetchQuote(symbol) {
-      // TPEX uses same MIS endpoint with otc_ prefix
-      const url = `https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=${encodeURIComponent(symbol)}&_=${Date.now()}`;
-      const r = await PriceService._proxyFetch(url);
-      const items = (await r.json())?.msgArray || [];
-      const item = items.find(i => i.z && i.z !== '-') || items[0];
-      if (!item) throw new Error('查無資料');
-      const price = parseFloat(item.z !== '-' ? item.z : '') || parseFloat(item.y) || 0;
-      const prev = parseFloat(item.y) || price;
-      if (!price) throw new Error('尚無成交');
-      const sourceTime = item.tlong ? parseInt(item.tlong, 10) : null;
-      return { price, prevClose: prev, change: price - prev, changePct: prev ? ((price - prev) / prev * 100) : 0, currency: 'TWD', name: item.nf || item.n || symbol, sourceTime };
-    },
+    async fetchQuote(symbol) { return PriceService.twse.fetchQuote(symbol); },
     formatSymbol(code) {
       code = code.trim();
       if (/^\d{4,6}[A-Za-z]?$/.test(code)) return `otc_${code}.tw`;
@@ -632,11 +621,23 @@ const DEFAULT_SETTINGS = {
   usSource: 'yahoo',       // 'yahoo' | 'finnhub'
   finnhubKey: '',
   fontScale: 'm',          // 'xs' | 's' | 'm' | 'l' | 'xl'
-  twFeeDisc: '0.5',        // 台股手續費折扣
-  twTaxRate: '0.003',      // 台股證交稅率
-  usComm: '0',             // 美股 Commission per trade
-  defaultFee: '',          // 交易紀錄預設手續費 (元)
-  defaultTax: '',          // 交易紀錄預設交易稅 (元)
+  // 台灣股票
+  twFeeDisc: '0.5',        // 手續費折扣
+  twTaxRate: '0.003',      // 證交稅率
+  // 美國股票
+  usComm: '0',             // Commission per trade
+  // 台灣期貨
+  twFutComm: '60',         // 指數期貨手續費 (元/口)
+  twStkFutComm: '40',      // 股票期貨手續費 (元/口)
+  // 台灣選擇權
+  twOptComm: '25',         // 選擇權手續費 (元/口)
+  // 美國期貨
+  usFutComm: '2.25',       // 期貨 Commission (USD/口)
+  // 美國選擇權
+  usOptComm: '0.65',       // 選擇權 Commission (USD/口)
+  // 交易紀錄
+  defaultFee: '',          // 預設手續費 (元)
+  defaultTax: '',          // 預設交易稅 (元)
 };
 function mergeSettings(raw) {
   return { ...DEFAULT_SETTINGS, ...raw, indices: { ...DEFAULT_SETTINGS.indices, ...(raw.indices || {}) },
@@ -1332,6 +1333,17 @@ function init() {
 }
 document.addEventListener('DOMContentLoaded', init);
 
+// Pause refresh timer when tab is hidden (saves bandwidth)
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    if (_refreshTimer) { clearInterval(_refreshTimer); _refreshTimer = null; }
+  } else {
+    if (CFG.refreshInterval > 0 && !_refreshTimer) {
+      _refreshTimer = setInterval(handleFetchIndices, CFG.refreshInterval * 1000);
+    }
+  }
+});
+
 // ================================================================
 //  SETTINGS PANEL
 // ================================================================
@@ -1340,11 +1352,13 @@ function initSettings() {
   const overlay = $('#settings-overlay');
   const panel = $('#settings-panel');
   const closeBtn = $('#btn-settings-close');
-  const open = () => { renderSettings(); panel.classList.add('open'); overlay.classList.add('open'); };
+  let rendered = false;
+  const open = () => { if (!rendered) { renderSettings(); rendered = true; } panel.classList.add('open'); overlay.classList.add('open'); };
   const close = () => { panel.classList.remove('open'); overlay.classList.remove('open'); };
   if (btn) btn.addEventListener('click', open);
   if (overlay) overlay.addEventListener('click', close);
   if (closeBtn) closeBtn.addEventListener('click', close);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && panel.classList.contains('open')) close(); });
 }
 
 function renderSettings() {
@@ -1436,8 +1450,9 @@ function renderSettings() {
     </div>
     <div class="stg-section">
       <h4><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>交易手續費</h4>
+      <div class="stg-sub-label">台灣股票</div>
       <div class="stg-row">
-        <label>台股手續費折扣<span class="stg-hint">券商電子下單折扣</span></label>
+        <label>手續費折扣<span class="stg-hint">券商電子下單折扣</span></label>
         <select class="stg-select" id="stg-tw-fee-disc">
           <option value="1" ${CFG.twFeeDisc === '1' ? 'selected' : ''}>全額 0.1425%</option>
           <option value="0.6" ${CFG.twFeeDisc === '0.6' ? 'selected' : ''}>6折 0.0855%</option>
@@ -1448,23 +1463,49 @@ function renderSettings() {
         </select>
       </div>
       <div class="stg-row">
-        <label>台股證交稅率<span class="stg-hint">賣出時課徵</span></label>
+        <label>證交稅率<span class="stg-hint">賣出時課徵</span></label>
         <select class="stg-select" id="stg-tw-tax-rate">
           <option value="0.003" ${CFG.twTaxRate === '0.003' ? 'selected' : ''}>0.3% 股票</option>
           <option value="0.001" ${CFG.twTaxRate === '0.001' ? 'selected' : ''}>0.1% ETF</option>
           <option value="0.0015" ${CFG.twTaxRate === '0.0015' ? 'selected' : ''}>0.15% 當沖減半</option>
         </select>
       </div>
+      <div class="stg-sub-label">台灣期貨</div>
       <div class="stg-row">
-        <label>美股 Commission<span class="stg-hint">每筆交易手續費 (USD)</span></label>
-        <input type="number" class="stg-input" id="stg-us-comm" value="${CFG.usComm}" step="any" min="0" placeholder="0">
+        <label>指數期貨手續費<span class="stg-hint">NT$/口·單邊</span></label>
+        <input type="number" class="stg-input" id="stg-tw-fut-comm" value="${CFG.twFutComm}" step="any" min="0" placeholder="60">
       </div>
       <div class="stg-row">
-        <label>交易紀錄預設手續費<span class="stg-hint">新增交易時自動帶入的手續費金額</span></label>
+        <label>股票期貨手續費<span class="stg-hint">NT$/口·單邊</span></label>
+        <input type="number" class="stg-input" id="stg-tw-stk-fut-comm" value="${CFG.twStkFutComm}" step="any" min="0" placeholder="40">
+      </div>
+      <div class="stg-sub-label">台灣選擇權</div>
+      <div class="stg-row">
+        <label>選擇權手續費<span class="stg-hint">NT$/口·單邊</span></label>
+        <input type="number" class="stg-input" id="stg-tw-opt-comm" value="${CFG.twOptComm}" step="any" min="0" placeholder="25">
+      </div>
+      <div class="stg-sub-label">美國股票</div>
+      <div class="stg-row">
+        <label>Commission<span class="stg-hint">每筆交易手續費 (USD)</span></label>
+        <input type="number" class="stg-input" id="stg-us-comm" value="${CFG.usComm}" step="any" min="0" placeholder="0">
+      </div>
+      <div class="stg-sub-label">美國期貨</div>
+      <div class="stg-row">
+        <label>Commission<span class="stg-hint">USD/口·單邊</span></label>
+        <input type="number" class="stg-input" id="stg-us-fut-comm" value="${CFG.usFutComm}" step="any" min="0" placeholder="2.25">
+      </div>
+      <div class="stg-sub-label">美國選擇權</div>
+      <div class="stg-row">
+        <label>Commission<span class="stg-hint">USD/口·單邊</span></label>
+        <input type="number" class="stg-input" id="stg-us-opt-comm" value="${CFG.usOptComm}" step="any" min="0" placeholder="0.65">
+      </div>
+      <div class="stg-sub-label">交易紀錄</div>
+      <div class="stg-row">
+        <label>預設手續費<span class="stg-hint">新增交易時自動帶入</span></label>
         <input type="number" class="stg-input" id="stg-default-fee" value="${CFG.defaultFee}" step="any" min="0" placeholder="不設定">
       </div>
       <div class="stg-row">
-        <label>交易紀錄預設交易稅<span class="stg-hint">新增交易時自動帶入的交易稅金額</span></label>
+        <label>預設交易稅<span class="stg-hint">新增交易時自動帶入</span></label>
         <input type="number" class="stg-input" id="stg-default-tax" value="${CFG.defaultTax}" step="any" min="0" placeholder="不設定">
       </div>
       <button class="stg-save-btn" id="stg-fee-save">儲存</button>
@@ -1493,7 +1534,12 @@ function renderSettings() {
     CFG.fontScale = $('#stg-font-scale')?.value || 'm';
     CFG.twFeeDisc = $('#stg-tw-fee-disc')?.value || '0.5';
     CFG.twTaxRate = $('#stg-tw-tax-rate')?.value || '0.003';
+    CFG.twFutComm = $('#stg-tw-fut-comm')?.value || '60';
+    CFG.twStkFutComm = $('#stg-tw-stk-fut-comm')?.value || '40';
+    CFG.twOptComm = $('#stg-tw-opt-comm')?.value || '25';
     CFG.usComm = $('#stg-us-comm')?.value || '0';
+    CFG.usFutComm = $('#stg-us-fut-comm')?.value || '2.25';
+    CFG.usOptComm = $('#stg-us-opt-comm')?.value || '0.65';
     CFG.defaultFee = $('#stg-default-fee')?.value || '';
     CFG.defaultTax = $('#stg-default-tax')?.value || '';
     $$('[data-idx]', body).forEach(cb => { CFG.indices[cb.dataset.idx] = cb.checked; });
@@ -1502,9 +1548,7 @@ function renderSettings() {
   };
   body.addEventListener('change', save);
   $('#stg-finnhub-key')?.addEventListener('input', debounce(save, 500));
-  $('#stg-us-comm')?.addEventListener('input', debounce(save, 500));
-  $('#stg-default-fee')?.addEventListener('input', debounce(save, 500));
-  $('#stg-default-tax')?.addEventListener('input', debounce(save, 500));
+  $$('.stg-section:last-child .stg-input', body).forEach(el => el.addEventListener('input', debounce(save, 500)));
   $('#stg-fee-save')?.addEventListener('click', () => {
     save();
     const btn = $('#stg-fee-save');
@@ -1599,12 +1643,11 @@ function _renderTickerChip(key, q) {
   if (dispEl) {
     dispEl.textContent = fmt(q.price, q.price % 1 !== 0 ? 2 : 0);
     dispEl.classList.remove('stale');
-    // 價格變動閃爍
+    // 價格變動閃爍 (use rAF to batch DOM reads/writes)
     if (!isNaN(oldPrice) && oldPrice !== q.price) {
       const cls = q.price > oldPrice ? 'flash-up' : 'flash-down';
       dispEl.classList.remove('flash-up', 'flash-down');
-      void dispEl.offsetWidth; // force reflow to restart animation
-      dispEl.classList.add(cls);
+      requestAnimationFrame(() => { dispEl.classList.add(cls); });
     }
   }
   if (chgEl) {
@@ -1735,7 +1778,7 @@ function renderMarginForm() {
   // ── 共用區塊：股票代號 + 價格 + 數量 ──
   let h = `
     <div class="fg"><label>股票代號 <span class="hint">${symbolHint}</span></label>
-      <div class="stock-search-row"><input type="text" id="m-symbol" placeholder="${tw ? '代號 (如 2330)' : 'Symbol (AAPL)'}"><button type="button" class="mini-fetch-btn" id="m-fetch-stock">查詢</button></div>
+      <div class="stock-search-row"><input type="text" id="m-symbol" placeholder="${tw ? '代號 (如 2330)' : 'Symbol (AAPL)'}" autocomplete="off"><button type="button" class="mini-fetch-btn" id="m-fetch-stock">查詢</button></div>
       <div class="stock-info" id="m-stock-info"></div>
     </div>
     ${extra}
@@ -1777,7 +1820,7 @@ function renderMarginForm() {
     if (!long) {
       h = `
     <div class="fg"><label>股票代號 <span class="hint">${symbolHint}</span></label>
-      <div class="stock-search-row"><input type="text" id="m-symbol" placeholder="${tw ? '代號 (如 2330)' : 'Symbol (AAPL)'}"><button type="button" class="mini-fetch-btn" id="m-fetch-stock">查詢</button></div>
+      <div class="stock-search-row"><input type="text" id="m-symbol" placeholder="${tw ? '代號 (如 2330)' : 'Symbol (AAPL)'}" autocomplete="off"><button type="button" class="mini-fetch-btn" id="m-fetch-stock">查詢</button></div>
       <div class="stock-info" id="m-stock-info"></div>
     </div>
     ${extra}
@@ -2362,7 +2405,7 @@ function renderFuturesForm() {
       <div class="fg"><label>維持保證金 <span class="hint">(${tw ? '約契約價值10.35%' : 'per contract'})</span></label><input type="number" id="f-mm-input" placeholder="${tw ? '自行輸入' : 'Manual'}" step="any"></div>
     </div>` : ''}
     <div class="fr">
-      <div class="fg"><label>手續費 <span class="hint">(${cur}/口·單邊)</span></label><input type="number" id="f-comm" value="${tw ? (isStock ? '40' : '60') : '2.25'}" step="any"></div>
+      <div class="fg"><label>手續費 <span class="hint">(${cur}/口·單邊)</span></label><input type="number" id="f-comm" value="${tw ? (isStock ? CFG.twStkFutComm : CFG.twFutComm) : CFG.usFutComm}" step="any"></div>
       <div class="fg"><label>期交稅率</label><select id="f-tax-rate">
         ${tw ? (isStock ? `<option value="0.00004" selected>十萬分之四(股票)</option><option value="0.00002">十萬分之二(指數)</option>` : `<option value="0.00002" selected>十萬分之二(指數)</option><option value="0.00004">十萬分之四(股票)</option>`) : `<option value="0" selected>無</option>`}
       </select></div>
@@ -2900,7 +2943,7 @@ function renderOptionsForm() {
   }
 
   h += `<div class="fr">
-    <div class="fg"><label>手續費 <span class="hint">(${cur}/口·單邊)</span></label><input type="number" id="o-comm" value="${tw ? '25' : '0.65'}" step="any"></div>
+    <div class="fg"><label>手續費 <span class="hint">(${cur}/口·單邊)</span></label><input type="number" id="o-comm" value="${tw ? CFG.twOptComm : CFG.usOptComm}" step="any"></div>
     <div class="fg"><label>交易稅率</label><select id="o-tax-rate">
       ${tw ? `<option value="0.001" selected>千分之一</option><option value="0">免稅</option>` : `<option value="0" selected>無</option>`}
     </select></div>

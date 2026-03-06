@@ -14,6 +14,14 @@ const USER_KEY = 'prism_user_info';
 const $ = (s, c = document) => c.querySelector(s);
 const $$ = (s, c = document) => [...c.querySelectorAll(s)];
 
+// XSS escape helper
+function esc(str) {
+  if (!str) return '';
+  const d = document.createElement('div');
+  d.textContent = str;
+  return d.innerHTML;
+}
+
 // ── State ──
 let authToken = localStorage.getItem(TOKEN_KEY) || '';
 let currentUser = (() => { try { return JSON.parse(localStorage.getItem(USER_KEY)); } catch { return null; } })();
@@ -89,7 +97,7 @@ function renderHeaderAuth() {
   if (authToken && currentUser) {
     el.innerHTML = `<div class="ha-user">
       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-      <span>${currentUser.username}</span>
+      <span>${esc(currentUser.username)}</span>
       <button class="ha-logout" id="ha-logout" title="登出">&times;</button>
     </div>`;
     $('#ha-logout')?.addEventListener('click', handleLogout);
@@ -149,7 +157,9 @@ function showLoginModal() {
     $('#jg-error').textContent = '';
   }));
 
-  const close = () => { overlay.remove(); modal.remove(); };
+  const close = () => { overlay.remove(); modal.remove(); document.removeEventListener('keydown', loginEsc); };
+  const loginEsc = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', loginEsc);
   overlay.addEventListener('click', close);
   $('#jg-close').addEventListener('click', close);
   $('#jg-cancel').addEventListener('click', close);
@@ -325,7 +335,7 @@ function renderFilters() {
     <div class="j-filter-group">
       <select id="jf-market" class="j-filter-select"><option value="all">全部市場</option><option value="tw" ${filterState.market==='tw'?'selected':''}>台灣</option><option value="us" ${filterState.market==='us'?'selected':''}>美國</option></select>
       <select id="jf-type" class="j-filter-select"><option value="all">全部類型</option><option value="stock" ${filterState.type==='stock'?'selected':''}>股票</option><option value="futures" ${filterState.type==='futures'?'selected':''}>期貨</option><option value="options" ${filterState.type==='options'?'selected':''}>選擇權</option><option value="etf" ${filterState.type==='etf'?'selected':''}>ETF</option></select>
-      ${allTags.length?`<select id="jf-tag" class="j-filter-select"><option value="all">全部標籤</option>${allTags.map(t=>`<option value="${t}" ${filterState.tag===t?'selected':''}>${t}</option>`).join('')}</select>`:''}
+      ${allTags.length?`<select id="jf-tag" class="j-filter-select"><option value="all">全部標籤</option>${allTags.map(t=>`<option value="${esc(t)}" ${filterState.tag===t?'selected':''}>${esc(t)}</option>`).join('')}</select>`:''}
     </div>
     <div class="j-filter-group"><input type="date" id="jf-from" class="j-filter-date" value="${filterState.dateFrom}"><span class="j-filter-sep">~</span><input type="date" id="jf-to" class="j-filter-date" value="${filterState.dateTo}"></div>
     <div class="j-filter-search-wrap"><input type="text" id="jf-search" class="j-filter-search" placeholder="搜尋代號/名稱/備註..." value="${filterState.search}"></div>
@@ -469,7 +479,9 @@ function openTradeForm(id, prefill) {
   $$('#jf-entry,#jf-exit,#jf-qty,#jf-fee,#jf-tax,#jf-mul',modal).forEach(el=>{if(el)el.addEventListener('input',updatePV);});
   $('#jf-dir')?.addEventListener('change',updatePV);$('#jf-type2')?.addEventListener('change',updatePV);updatePV();
 
-  const closeModal=()=>{overlay.classList.remove('open');modal.classList.remove('open');editingId=null;};
+  const closeModal=()=>{overlay.classList.remove('open');modal.classList.remove('open');editingId=null;document.removeEventListener('keydown',escHandler);};
+  const escHandler=(e)=>{if(e.key==='Escape')closeModal();};
+  document.addEventListener('keydown',escHandler);
   $('#jf-close').addEventListener('click',closeModal);overlay.addEventListener('click',(e)=>{if(e.target===overlay)closeModal();});$('#jf-cancel').addEventListener('click',closeModal);
   $('#jf-save').addEventListener('click',async(e)=>{
     e.stopPropagation();
@@ -534,7 +546,7 @@ async function saveTrade() {
     if(editingId){await api(`/trades/${editingId}`,{method:'PUT',body:JSON.stringify(data)});const idx=trades.findIndex(t=>t.id===editingId);if(idx>=0)trades[idx]=data;}
     else{const res=await api('/trades',{method:'POST',body:JSON.stringify(data)});data.id=res.id;trades.unshift(data);}
     if($('#tab-journal')?.classList.contains('active'))renderJournal();
-  }catch(e){alert('儲存失敗：'+e.message);throw e;}
+  }catch(e){throw e;}
 }
 
 // ================================================================
@@ -565,12 +577,12 @@ function openTradeDetail(id) {
     ${t.tax?`<div class="j-detail-item"><span class="j-dl">交易稅</span><span class="j-dv">${fmtNum(parseFloat(t.tax),0)}</span></div>`:''}
   </div>
   ${pl?`<div class="j-pl-box ${pl.net>=0?'j-pl-profit':'j-pl-loss'} j-pl-detail-box"><div class="j-pl-row"><span>毛損益</span><strong>${fmtNum(pl.gross,0)}</strong></div><div class="j-pl-row"><span>手續費+稅</span><span>-${fmtNum(pl.fee+pl.tax,0)}</span></div><div class="j-pl-row j-pl-total"><span>淨損益</span><strong>${fmtNum(pl.net,0)}</strong></div></div>`:''}
-  ${(t.tags||[]).length?`<div class="j-detail-tags">${t.tags.map(tag=>`<span class="j-tag">${tag}</span>`).join('')}</div>`:''}
-  ${t.notes?`<div class="j-detail-notes"><h4>策略筆記</h4><div class="j-notes-content">${t.notes.replace(/\n/g,'<br>')}</div></div>`:''}
+  ${(t.tags||[]).length?`<div class="j-detail-tags">${t.tags.map(tag=>`<span class="j-tag">${esc(tag)}</span>`).join('')}</div>`:''}
+  ${t.notes?`<div class="j-detail-notes"><h4>策略筆記</h4><div class="j-notes-content">${esc(t.notes).replace(/\n/g,'<br>')}</div></div>`:''}
   </div><div class="j-modal-footer"><button class="j-btn-cancel" id="jd-back">關閉</button><button class="j-btn-save" id="jd-edit">編輯</button></div>`;
   overlay.classList.add('open');modal.classList.add('open');
   const cl=()=>{overlay.classList.remove('open');modal.classList.remove('open');};
-  $('#jd-close').addEventListener('click',cl);overlay.addEventListener('click',cl);$('#jd-back').addEventListener('click',cl);
+  $('#jd-close').addEventListener('click',cl);overlay.addEventListener('click',(e)=>{if(e.target===overlay)cl();});$('#jd-back').addEventListener('click',cl);
   $('#jd-edit').addEventListener('click',()=>{cl();setTimeout(()=>openTradeForm(id),100);});
 }
 
@@ -591,7 +603,7 @@ async function initJournal() {
       currentUser = data.user;
       localStorage.setItem(USER_KEY, JSON.stringify(currentUser));
       // Pre-load trades so they're ready for calc tab buttons
-      loadTrades();
+      await loadTrades();
     } catch {
       authToken = ''; currentUser = null;
       localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(USER_KEY);
@@ -601,10 +613,7 @@ async function initJournal() {
   // Render header auth immediately
   renderHeaderAuth();
 
-  // If not logged in, show login modal on page load
-  if (!authToken) {
-    setTimeout(showLoginModal, 500);
-  }
+  // Not logged in: don't auto-popup, show login when user navigates to journal or clicks record
 
   // Journal tab activation
   document.addEventListener('click', async (e) => {

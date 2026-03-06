@@ -2,13 +2,16 @@
 // Handles API routes + serves static assets via env.ASSETS
 
 // ── Auto-migrate DB ──
-let dbReady = false;
+let dbInitPromise = null;
 async function ensureDB(db) {
-  if (dbReady) return;
-  await db.prepare("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, salt TEXT NOT NULL, created_at TEXT DEFAULT (datetime('now')))").run();
-  await db.prepare("CREATE TABLE IF NOT EXISTS trades (id TEXT PRIMARY KEY, user_id INTEGER NOT NULL, date TEXT NOT NULL, market TEXT NOT NULL DEFAULT 'tw', type TEXT NOT NULL DEFAULT 'stock', symbol TEXT NOT NULL DEFAULT '', name TEXT NOT NULL DEFAULT '', direction TEXT NOT NULL DEFAULT 'long', status TEXT NOT NULL DEFAULT 'open', entry_price REAL, exit_price REAL, quantity REAL, contract_mul REAL, stop_loss REAL, take_profit REAL, fee REAL DEFAULT 0, tax REAL DEFAULT 0, tags TEXT DEFAULT '[]', notes TEXT DEFAULT '', created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')), FOREIGN KEY (user_id) REFERENCES users(id))").run();
-  await db.prepare("CREATE TABLE IF NOT EXISTS user_settings (user_id INTEGER PRIMARY KEY, data TEXT NOT NULL DEFAULT '{}', updated_at TEXT DEFAULT (datetime('now')), FOREIGN KEY (user_id) REFERENCES users(id))").run();
-  dbReady = true;
+  if (!dbInitPromise) {
+    dbInitPromise = db.batch([
+      db.prepare("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, salt TEXT NOT NULL, created_at TEXT DEFAULT (datetime('now')))"),
+      db.prepare("CREATE TABLE IF NOT EXISTS trades (id TEXT PRIMARY KEY, user_id INTEGER NOT NULL, date TEXT NOT NULL, market TEXT NOT NULL DEFAULT 'tw', type TEXT NOT NULL DEFAULT 'stock', symbol TEXT NOT NULL DEFAULT '', name TEXT NOT NULL DEFAULT '', direction TEXT NOT NULL DEFAULT 'long', status TEXT NOT NULL DEFAULT 'open', entry_price REAL, exit_price REAL, quantity REAL, contract_mul REAL, stop_loss REAL, take_profit REAL, fee REAL DEFAULT 0, tax REAL DEFAULT 0, tags TEXT DEFAULT '[]', notes TEXT DEFAULT '', created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')), FOREIGN KEY (user_id) REFERENCES users(id))"),
+      db.prepare("CREATE TABLE IF NOT EXISTS user_settings (user_id INTEGER PRIMARY KEY, data TEXT NOT NULL DEFAULT '{}', updated_at TEXT DEFAULT (datetime('now')), FOREIGN KEY (user_id) REFERENCES users(id))"),
+    ]);
+  }
+  return dbInitPromise;
 }
 
 // ── CORS ──
@@ -22,7 +25,7 @@ function corsHeaders() {
 }
 function jsonRes(data, status = 200) {
   return new Response(JSON.stringify(data), {
-    status, headers: { 'Content-Type': 'application/json', ...corsHeaders() },
+    status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...corsHeaders() },
   });
 }
 function jsonErr(status, message) {
@@ -104,12 +107,17 @@ async function verifyPassword(password, hash, saltHex) {
   return bufToHex(derived) === hash;
 }
 
+function getJwtSecret(env) {
+  const s = env.JWT_SECRET;
+  if (!s) console.warn('[Prism] JWT_SECRET 未設定，使用不安全的預設值！請設定 env.JWT_SECRET');
+  return s || 'prism-default-secret-change-me';
+}
+
 async function getUser(request, env) {
   const auth = request.headers.get('Authorization');
   if (!auth || !auth.startsWith('Bearer ')) return null;
   const token = auth.slice(7);
-  const secret = env.JWT_SECRET || 'prism-default-secret-change-me';
-  return await verifyJWT(token, secret);
+  return await verifyJWT(token, getJwtSecret(env));
 }
 
 // ── CORS Proxy (migrated from functions/api/proxy.js) ──
@@ -122,6 +130,7 @@ async function handleProxy(request) {
   let targetUrl;
   try { targetUrl = new URL(target); } catch { return jsonErr(400, 'Invalid URL'); }
   if (!PROXY_ALLOWED.includes(targetUrl.hostname)) return jsonErr(403, `Host not allowed: ${targetUrl.hostname}`);
+  if (targetUrl.protocol !== 'https:') return jsonErr(403, 'Only HTTPS allowed');
   try {
     const fetchOpts = { method: request.method, headers: {} };
     const ct = request.headers.get('content-type');
@@ -146,7 +155,8 @@ async function handleRegister(request, env) {
   const { username, password } = body;
   if (!username || !password) return jsonErr(400, '請提供使用者名稱和密碼');
   if (username.length < 2 || username.length > 20) return jsonErr(400, '使用者名稱需 2-20 字元');
-  if (password.length < 4) return jsonErr(400, '密碼至少需要 4 個字元');
+  if (password.length < 6) return jsonErr(400, '密碼至少需要 6 個字元');
+  if (password.length > 128) return jsonErr(400, '密碼過長');
   if (!/^[a-zA-Z0-9_\u4e00-\u9fff]+$/.test(username)) return jsonErr(400, '使用者名稱只能包含英文、數字、底線或中文');
 
   const db = env.DB;
@@ -156,7 +166,7 @@ async function handleRegister(request, env) {
   const { hash, salt } = await hashPassword(password);
   const result = await db.prepare('INSERT INTO users (username, password_hash, salt) VALUES (?, ?, ?)').bind(username, hash, salt).run();
   const userId = result.meta.last_row_id;
-  const secret = env.JWT_SECRET || 'prism-default-secret-change-me';
+  const secret = getJwtSecret(env);
   const token = await signJWT({ sub: userId, username }, secret);
   return jsonRes({ token, user: { id: userId, username } }, 201);
 }
@@ -173,7 +183,7 @@ async function handleLoginPost(request, env) {
   const valid = await verifyPassword(password, user.password_hash, user.salt);
   if (!valid) return jsonErr(401, '使用者名稱或密碼錯誤');
 
-  const secret = env.JWT_SECRET || 'prism-default-secret-change-me';
+  const secret = getJwtSecret(env);
   const token = await signJWT({ sub: user.id, username: user.username }, secret);
   return jsonRes({ token, user: { id: user.id, username: user.username } });
 }
@@ -205,15 +215,17 @@ async function handleCreateTrade(request, env) {
   if (!user) return jsonErr(401, '未登入');
   let body;
   try { body = await request.json(); } catch { return jsonErr(400, '無效的請求格式'); }
+  if (!body.symbol?.trim()) return jsonErr(400, '交易代號不可為空');
+  if (!body.entryPrice && body.entryPrice !== 0) return jsonErr(400, '進場價格不可為空');
   const id = body.id || (Date.now().toString(36) + Math.random().toString(36).slice(2, 7));
   const now = new Date().toISOString();
   const db = env.DB;
   await db.prepare(`INSERT INTO trades (id, user_id, date, market, type, symbol, name, direction, status, entry_price, exit_price, quantity, contract_mul, stop_loss, take_profit, fee, tax, tags, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(
     id, user.sub, body.date || now, body.market || 'tw', body.type || 'stock',
     body.symbol || '', body.name || '', body.direction || 'long', body.status || 'open',
-    body.entryPrice || null, body.exitPrice || null, body.quantity || null,
-    body.contractMul || null, body.stopLoss || null, body.takeProfit || null,
-    body.fee || 0, body.tax || 0, JSON.stringify(body.tags || []), body.notes || '', now, now
+    body.entryPrice ?? null, body.exitPrice ?? null, body.quantity ?? null,
+    body.contractMul ?? null, body.stopLoss ?? null, body.takeProfit ?? null,
+    body.fee ?? 0, body.tax ?? 0, JSON.stringify(body.tags || []), body.notes || '', now, now
   ).run();
   return jsonRes({ id }, 201);
 }
@@ -230,9 +242,9 @@ async function handleUpdateTrade(request, env, tradeId) {
   await db.prepare(`UPDATE trades SET date=?, market=?, type=?, symbol=?, name=?, direction=?, status=?, entry_price=?, exit_price=?, quantity=?, contract_mul=?, stop_loss=?, take_profit=?, fee=?, tax=?, tags=?, notes=?, updated_at=? WHERE id=? AND user_id=?`).bind(
     body.date, body.market || 'tw', body.type || 'stock',
     body.symbol || '', body.name || '', body.direction || 'long', body.status || 'open',
-    body.entryPrice || null, body.exitPrice || null, body.quantity || null,
-    body.contractMul || null, body.stopLoss || null, body.takeProfit || null,
-    body.fee || 0, body.tax || 0, JSON.stringify(body.tags || []), body.notes || '', now,
+    body.entryPrice ?? null, body.exitPrice ?? null, body.quantity ?? null,
+    body.contractMul ?? null, body.stopLoss ?? null, body.takeProfit ?? null,
+    body.fee ?? 0, body.tax ?? 0, JSON.stringify(body.tags || []), body.notes || '', now,
     tradeId, user.sub
   ).run();
   return jsonRes({ ok: true });
