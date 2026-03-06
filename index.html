@@ -2,8 +2,16 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Prism</title>
+  <!-- Favicon -->
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <!-- iOS Web App -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Prism">
+  <meta name="theme-color" content="#0e1117">
+  <link rel="manifest" href="manifest.json">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+TC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/style.css">
 </head>
@@ -163,6 +171,41 @@
       <p>Prism &mdash; 僅供參考，實際規則以各券商/期貨商公告為準</p>
     </footer>
   </div>
+  <script>
+  // Generate apple-touch-icon PNG from canvas (iOS requires PNG)
+  (function(){
+    var s = [180, 192, 512];
+    s.forEach(function(sz){
+      var c = document.createElement('canvas'); c.width = sz; c.height = sz;
+      var x = c.getContext('2d'), r = sz * 0.1875;
+      // Rounded rect background
+      x.beginPath(); x.moveTo(r,0); x.lineTo(sz-r,0); x.quadraticCurveTo(sz,0,sz,r);
+      x.lineTo(sz,sz-r); x.quadraticCurveTo(sz,sz,sz-r,sz); x.lineTo(r,sz);
+      x.quadraticCurveTo(0,sz,0,sz-r); x.lineTo(0,r); x.quadraticCurveTo(0,0,r,0);
+      x.closePath(); x.fillStyle='#0e1117'; x.fill();
+      // Triangle
+      var cx=sz/2, top=sz*0.14, bot=sz*0.86, left=sz*0.14, right=sz*0.86;
+      var g = x.createLinearGradient(0,0,sz,sz);
+      g.addColorStop(0,'#00b4d8'); g.addColorStop(0.5,'#ffd600'); g.addColorStop(1,'#ff1744');
+      x.strokeStyle=g; x.lineWidth=sz*0.062; x.lineJoin='round';
+      x.beginPath(); x.moveTo(cx,top); x.lineTo(right,bot); x.lineTo(left,bot); x.closePath(); x.stroke();
+      // Refraction lines
+      x.globalAlpha=0.4;
+      x.strokeStyle='#00b4d8'; x.lineWidth=sz*0.03;
+      x.beginPath(); x.moveTo(cx,top); x.lineTo(sz*0.31,bot); x.stroke();
+      x.strokeStyle='#ffd600';
+      x.beginPath(); x.moveTo(cx,top); x.lineTo(sz*0.69,bot); x.stroke();
+      x.globalAlpha=1;
+      // Inject as link
+      var url = c.toDataURL('image/png');
+      if(sz === 180){ var l=document.createElement('link'); l.rel='apple-touch-icon'; l.href=url; document.head.appendChild(l); }
+      if(sz === 192 || sz === 512){
+        // Also save for manifest (browsers cache from link tags)
+        var l2=document.createElement('link'); l2.rel='icon'; l2.type='image/png'; l2.sizes=sz+'x'+sz; l2.href=url; document.head.appendChild(l2);
+      }
+    });
+  })();
+  </script>
   <script src="js/app.js"></script>
   <script src="js/journal.js"></script>
 </body>

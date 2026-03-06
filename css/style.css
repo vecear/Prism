@@ -401,9 +401,13 @@ input[type="number"]{-moz-appearance:textfield}
   .sent-value{font-size:.92rem}
   .sent-tag{font-size:.62rem}
 
-  /* Main tabs: horizontal scroll, never wrap */
-  .main-tabs{gap:0;padding-top:4px;flex-wrap:nowrap}
-  .main-tab{padding:10px 14px;font-size:.84rem;min-height:44px}
+  /* Main tabs: fixed bottom bar */
+  .main-tabs{position:fixed;bottom:0;left:0;right:0;z-index:100;background:var(--bg0);border-top:1px solid var(--bdr2);border-bottom:none;padding:0;padding-bottom:env(safe-area-inset-bottom);gap:0;flex-wrap:nowrap}
+  .main-tab{flex:1;padding:8px 4px;font-size:.68rem;min-height:48px;border-bottom:none;border-top:2px solid transparent;bottom:auto;text-align:center;line-height:1.2;color:var(--t3);border-right:1px solid var(--bdr)}
+  .main-tab:last-child{border-right:none}
+  .main-tab.active{border-top-color:var(--accent);border-bottom-color:transparent;color:var(--accent);background:rgba(0,180,216,.06)}
+  .main-content{padding-bottom:64px}
+  .site-footer{padding-bottom:64px}
 
   /* Controls: wrap layout, market+product side by side, direction full row */
   .controls-bar{flex-direction:row;flex-wrap:wrap;gap:6px;padding:6px 0}
@@ -511,8 +515,8 @@ input[type="number"]{-moz-appearance:textfield}
   .ticker-chip+.ticker-chip::before{margin:0 4px}
   .tc-chg,.ticker-basis{display:none}
 
-  /* Tabs: even smaller */
-  .main-tab{padding:11px 10px;font-size:.8rem}
+  /* Tabs: even smaller in bottom bar */
+  .main-tab{font-size:.62rem;padding:6px 2px}
 
   /* Toggle: smaller padding */
   .toggle-btn{padding:9px 4px;font-size:.78rem}
