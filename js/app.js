@@ -1248,6 +1248,7 @@ function init() {
     b.classList.add('active');
     $$('.tab-content').forEach(x => x.classList.remove('active'));
     $(`#tab-${b.dataset.tab}`).classList.add('active');
+    window.scrollTo(0, 0);
     if (b.dataset.tab === 'guide') renderGuide();
   }));
 

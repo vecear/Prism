@@ -422,7 +422,7 @@ input[type="number"]{-moz-appearance:textfield}
   .main-tab:last-child{border-right:none}
   .main-tab.active{color:var(--accent);background:none}
   .main-tab.active .tab-icon{opacity:1}
-  .main-content{padding-bottom:72px}
+  .main-content{padding-bottom:72px;min-height:calc(100dvh - 120px)}
   .site-footer{padding-bottom:72px}
 
   /* Controls: wrap layout, market+product side by side, direction full row */
