@@ -289,29 +289,39 @@ export default {
       return new Response(null, { status: 204, headers: corsHeaders() });
     }
 
-    // Auto-migrate DB on first API request
-    if (path.startsWith('/api/') && path !== '/api/proxy' && env.DB) {
-      try { await ensureDB(env.DB); } catch (e) {
-        return jsonErr(500, 'DB init failed: ' + e.message);
+    // Only handle /api/* routes in worker — catch all errors to avoid HTML fallback
+    if (path.startsWith('/api/')) {
+      try {
+        // Proxy doesn't need DB
+        if (path === '/api/proxy') return await handleProxy(request);
+
+        // Check DB binding
+        if (!env.DB) return jsonErr(500, 'D1 database binding not configured. Please add DB binding in Cloudflare Pages dashboard.');
+
+        // Auto-migrate DB on first API request
+        await ensureDB(env.DB);
+
+        // API routes
+        if (path === '/api/auth/register' && method === 'POST') return await handleRegister(request, env);
+        if (path === '/api/auth/login' && method === 'POST') return await handleLoginPost(request, env);
+        if (path === '/api/auth/me' && method === 'GET') return await handleMe(request, env);
+        if (path === '/api/trades' && method === 'GET') return await handleGetTrades(request, env);
+        if (path === '/api/trades' && method === 'POST') return await handleCreateTrade(request, env);
+        if (path === '/api/settings' && method === 'GET') return await handleGetSettings(request, env);
+        if (path === '/api/settings' && method === 'PUT') return await handleSaveSettings(request, env);
+
+        // /api/trades/:id
+        const tradeMatch = path.match(/^\/api\/trades\/([^/]+)$/);
+        if (tradeMatch) {
+          const tradeId = tradeMatch[1];
+          if (method === 'PUT') return await handleUpdateTrade(request, env, tradeId);
+          if (method === 'DELETE') return await handleDeleteTrade(request, env, tradeId);
+        }
+
+        return jsonErr(404, 'API route not found');
+      } catch (e) {
+        return jsonErr(500, e.message || 'Internal server error');
       }
-    }
-
-    // API routes
-    if (path === '/api/proxy') return handleProxy(request);
-    if (path === '/api/auth/register' && method === 'POST') return handleRegister(request, env);
-    if (path === '/api/auth/login' && method === 'POST') return handleLoginPost(request, env);
-    if (path === '/api/auth/me' && method === 'GET') return handleMe(request, env);
-    if (path === '/api/trades' && method === 'GET') return handleGetTrades(request, env);
-    if (path === '/api/trades' && method === 'POST') return handleCreateTrade(request, env);
-    if (path === '/api/settings' && method === 'GET') return handleGetSettings(request, env);
-    if (path === '/api/settings' && method === 'PUT') return handleSaveSettings(request, env);
-
-    // /api/trades/:id
-    const tradeMatch = path.match(/^\/api\/trades\/([^/]+)$/);
-    if (tradeMatch) {
-      const tradeId = tradeMatch[1];
-      if (method === 'PUT') return handleUpdateTrade(request, env, tradeId);
-      if (method === 'DELETE') return handleDeleteTrade(request, env, tradeId);
     }
 
     // Serve static assets
