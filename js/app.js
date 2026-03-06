@@ -632,15 +632,52 @@ const DEFAULT_SETTINGS = {
   usSource: 'yahoo',       // 'yahoo' | 'finnhub'
   finnhubKey: '',
   fontScale: 'm',          // 'xs' | 's' | 'm' | 'l' | 'xl'
+  twFeeDisc: '0.5',        // 台股手續費折扣
+  twTaxRate: '0.003',      // 台股證交稅率
+  usComm: '0',             // 美股 Commission per trade
+  defaultFee: '',          // 交易紀錄預設手續費 (元)
+  defaultTax: '',          // 交易紀錄預設交易稅 (元)
 };
+function mergeSettings(raw) {
+  return { ...DEFAULT_SETTINGS, ...raw, indices: { ...DEFAULT_SETTINGS.indices, ...(raw.indices || {}) },
+    fontScale: raw.fontScale || DEFAULT_SETTINGS.fontScale };
+}
 function loadSettings() {
   try {
     const raw = JSON.parse(localStorage.getItem('tg-settings')) || {};
-    return { ...DEFAULT_SETTINGS, ...raw, indices: { ...DEFAULT_SETTINGS.indices, ...(raw.indices || {}) },
-      fontScale: raw.fontScale || DEFAULT_SETTINGS.fontScale };
+    return mergeSettings(raw);
   } catch { return { ...DEFAULT_SETTINGS }; }
 }
-function saveSettings(s) { localStorage.setItem('tg-settings', JSON.stringify(s)); }
+function saveSettings(s) {
+  localStorage.setItem('tg-settings', JSON.stringify(s));
+  // Sync to server if logged in (fire-and-forget)
+  const token = localStorage.getItem('prism_token');
+  if (token) {
+    fetch('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ settings: s }),
+    }).catch(() => {});
+  }
+}
+// Load settings from server (called after login)
+async function loadSettingsFromServer() {
+  const token = localStorage.getItem('prism_token');
+  if (!token) return;
+  try {
+    const res = await fetch('/api/settings', {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data.settings && Object.keys(data.settings).length > 0) {
+      CFG = mergeSettings(data.settings);
+      localStorage.setItem('tg-settings', JSON.stringify(CFG));
+      applySettings();
+    }
+  } catch {}
+}
+window.loadSettingsFromServer = loadSettingsFromServer;
 let CFG = loadSettings();
 let _refreshTimer = null;
 
@@ -1285,6 +1322,13 @@ function init() {
 
   // ── 根據設定決定是否自動取報價 ──
   applySettings();
+
+  // ── 登入狀態下從雲端載入設定 ──
+  if (localStorage.getItem('prism_token')) {
+    loadSettingsFromServer().then(() => {
+      renderMarginForm(); renderFuturesForm(); renderOptionsForm();
+    });
+  }
 }
 document.addEventListener('DOMContentLoaded', init);
 
@@ -1330,7 +1374,7 @@ function renderSettings() {
 
   body.innerHTML = `
     <div class="stg-section">
-      <h4>報價來源</h4>
+      <h4><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>報價來源</h4>
       <div class="stg-row">
         <label>台灣市場<span class="stg-hint" id="stg-tw-desc">${P[CFG.twSource]?.desc || ''}</span></label>
         <select class="stg-select" id="stg-tw-source">${twOpts}</select>
@@ -1345,7 +1389,7 @@ function renderSettings() {
       </div>
     </div>
     <div class="stg-section">
-      <h4>即時報價</h4>
+      <h4><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>即時報價</h4>
       <div class="stg-row">
         <label>進入頁面自動取得報價<span class="stg-hint">載入時自動查詢指數行情</span></label>
         <label class="stg-toggle"><input type="checkbox" id="stg-auto-fetch" ${CFG.autoFetch ? 'checked' : ''}><span class="slider"></span></label>
@@ -1364,11 +1408,11 @@ function renderSettings() {
       </div>
     </div>
     <div class="stg-section">
-      <h4>顯示指數</h4>
+      <h4><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>顯示指數</h4>
       <div class="stg-cb-group">${cbHtml}</div>
     </div>
     <div class="stg-section">
-      <h4>預設市場</h4>
+      <h4><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>預設市場</h4>
       <div class="stg-row">
         <label>開啟頁面時的預設市場</label>
         <select class="stg-select" id="stg-default-market">
@@ -1378,17 +1422,52 @@ function renderSettings() {
       </div>
     </div>
     <div class="stg-section">
-      <h4>字體大小</h4>
+      <h4><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>字體大小</h4>
       <div class="stg-row">
         <label>全站字體縮放<span class="stg-hint">調整所有文字大小</span></label>
         <select class="stg-select" id="stg-font-scale">
-          <option value="xs" ${CFG.fontScale === 'xs' ? 'selected' : ''}>極小</option>
-          <option value="s" ${CFG.fontScale === 's' ? 'selected' : ''}>小</option>
-          <option value="m" ${CFG.fontScale === 'm' ? 'selected' : ''}>中 (預設)</option>
-          <option value="l" ${CFG.fontScale === 'l' ? 'selected' : ''}>大</option>
-          <option value="xl" ${CFG.fontScale === 'xl' ? 'selected' : ''}>極大</option>
+          <option value="xs" ${CFG.fontScale === 'xs' ? 'selected' : ''}>小 (14px)</option>
+          <option value="s" ${CFG.fontScale === 's' ? 'selected' : ''}>適中 (15px)</option>
+          <option value="m" ${CFG.fontScale === 'm' ? 'selected' : ''}>標準 (16px)</option>
+          <option value="l" ${CFG.fontScale === 'l' ? 'selected' : ''}>大 (17px)</option>
+          <option value="xl" ${CFG.fontScale === 'xl' ? 'selected' : ''}>特大 (18.5px)</option>
         </select>
       </div>
+    </div>
+    <div class="stg-section">
+      <h4><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>交易手續費</h4>
+      <div class="stg-row">
+        <label>台股手續費折扣<span class="stg-hint">券商電子下單折扣</span></label>
+        <select class="stg-select" id="stg-tw-fee-disc">
+          <option value="1" ${CFG.twFeeDisc === '1' ? 'selected' : ''}>全額 0.1425%</option>
+          <option value="0.6" ${CFG.twFeeDisc === '0.6' ? 'selected' : ''}>6折 0.0855%</option>
+          <option value="0.5" ${CFG.twFeeDisc === '0.5' ? 'selected' : ''}>5折 0.07125%</option>
+          <option value="0.38" ${CFG.twFeeDisc === '0.38' ? 'selected' : ''}>3.8折</option>
+          <option value="0.28" ${CFG.twFeeDisc === '0.28' ? 'selected' : ''}>2.8折 0.0399%</option>
+          <option value="0" ${CFG.twFeeDisc === '0' ? 'selected' : ''}>免手續費</option>
+        </select>
+      </div>
+      <div class="stg-row">
+        <label>台股證交稅率<span class="stg-hint">賣出時課徵</span></label>
+        <select class="stg-select" id="stg-tw-tax-rate">
+          <option value="0.003" ${CFG.twTaxRate === '0.003' ? 'selected' : ''}>0.3% 股票</option>
+          <option value="0.001" ${CFG.twTaxRate === '0.001' ? 'selected' : ''}>0.1% ETF</option>
+          <option value="0.0015" ${CFG.twTaxRate === '0.0015' ? 'selected' : ''}>0.15% 當沖減半</option>
+        </select>
+      </div>
+      <div class="stg-row">
+        <label>美股 Commission<span class="stg-hint">每筆交易手續費 (USD)</span></label>
+        <input type="number" class="stg-input" id="stg-us-comm" value="${CFG.usComm}" step="any" min="0" placeholder="0">
+      </div>
+      <div class="stg-row">
+        <label>交易紀錄預設手續費<span class="stg-hint">新增交易時自動帶入的手續費金額</span></label>
+        <input type="number" class="stg-input" id="stg-default-fee" value="${CFG.defaultFee}" step="any" min="0" placeholder="不設定">
+      </div>
+      <div class="stg-row">
+        <label>交易紀錄預設交易稅<span class="stg-hint">新增交易時自動帶入的交易稅金額</span></label>
+        <input type="number" class="stg-input" id="stg-default-tax" value="${CFG.defaultTax}" step="any" min="0" placeholder="不設定">
+      </div>
+      <button class="stg-save-btn" id="stg-fee-save">儲存</button>
     </div>`;
 
   // Update descriptions & show/hide Finnhub key row on source change
@@ -1412,12 +1491,27 @@ function renderSettings() {
     CFG.refreshInterval = parseInt($('#stg-refresh')?.value || '0', 10);
     CFG.defaultMarket = $('#stg-default-market')?.value || 'tw';
     CFG.fontScale = $('#stg-font-scale')?.value || 'm';
+    CFG.twFeeDisc = $('#stg-tw-fee-disc')?.value || '0.5';
+    CFG.twTaxRate = $('#stg-tw-tax-rate')?.value || '0.003';
+    CFG.usComm = $('#stg-us-comm')?.value || '0';
+    CFG.defaultFee = $('#stg-default-fee')?.value || '';
+    CFG.defaultTax = $('#stg-default-tax')?.value || '';
     $$('[data-idx]', body).forEach(cb => { CFG.indices[cb.dataset.idx] = cb.checked; });
     saveSettings(CFG);
     applySettings();
   };
   body.addEventListener('change', save);
   $('#stg-finnhub-key')?.addEventListener('input', debounce(save, 500));
+  $('#stg-us-comm')?.addEventListener('input', debounce(save, 500));
+  $('#stg-default-fee')?.addEventListener('input', debounce(save, 500));
+  $('#stg-default-tax')?.addEventListener('input', debounce(save, 500));
+  $('#stg-fee-save')?.addEventListener('click', () => {
+    save();
+    const btn = $('#stg-fee-save');
+    btn.textContent = '已儲存';
+    btn.classList.add('saved');
+    setTimeout(() => { btn.textContent = '儲存'; btn.classList.remove('saved'); }, 1500);
+  });
 }
 
 function applySettings() {
@@ -1654,18 +1748,18 @@ function renderMarginForm() {
     // ── 現股模式：只需數量 + 費用 ──
     h += `
     <div class="fg"><label>數量 <span class="hint">${su}</span></label><input type="number" id="m-qty" value="1" min="1" step="1"></div>
-    ${tw ? `<div class="fr">
+    ${tw ? (() => { const defTax = product === 'stock' ? '0.003' : '0.001'; const t = CFG.twTaxRate === '0.0015' ? '0.0015' : defTax; return `<div class="fr">
       <div class="fg"><label>手續費折扣</label><select id="m-fee-disc">
-        <option value="1">全額 0.1425%</option><option value="0.6">6折 0.0855%</option>
-        <option value="0.5" selected>5折 0.07125%</option><option value="0.38">3.8折</option>
-        <option value="0.28">2.8折 0.0399%</option><option value="0">免手續費</option>
+        <option value="1" ${CFG.twFeeDisc==='1'?'selected':''}>全額 0.1425%</option><option value="0.6" ${CFG.twFeeDisc==='0.6'?'selected':''}>6折 0.0855%</option>
+        <option value="0.5" ${CFG.twFeeDisc==='0.5'?'selected':''}>5折 0.07125%</option><option value="0.38" ${CFG.twFeeDisc==='0.38'?'selected':''}>3.8折</option>
+        <option value="0.28" ${CFG.twFeeDisc==='0.28'?'selected':''}>2.8折 0.0399%</option><option value="0" ${CFG.twFeeDisc==='0'?'selected':''}>免手續費</option>
       </select></div>
       <div class="fg"><label>證交稅(賣出)</label><select id="m-tax-rate">
-        <option value="0.003"${product === 'stock' ? ' selected' : ''}>0.3% 股票</option>
-        <option value="0.001"${product !== 'stock' ? ' selected' : ''}>0.1% ETF</option>
-        <option value="0.0015">0.15% 當沖減半</option>
+        <option value="0.003" ${t==='0.003'?'selected':''}>0.3% 股票</option>
+        <option value="0.001" ${t==='0.001'?'selected':''}>0.1% ETF</option>
+        <option value="0.0015" ${t==='0.0015'?'selected':''}>0.15% 當沖減半</option>
       </select></div>
-    </div>` : `<div class="fg"><label>Commission <span class="hint">(per trade)</span></label><input type="number" id="m-comm" value="0" step="any"></div>`}`;
+    </div>`; })() : `<div class="fg"><label>Commission <span class="hint">(per trade)</span></label><input type="number" id="m-comm" value="${CFG.usComm||'0'}" step="any"></div>`}`;
   } else {
     // ── 融資/融券模式 ──
     const priceLabel = long ? '買進價格' : '賣出價格';
@@ -1702,23 +1796,23 @@ function renderMarginForm() {
       <div class="fg"><label>追繳線</label><div class="isuf"><input type="number" id="m-call-rate" value="${defCall}" step="any"><span class="suf">%</span></div></div>
       <div class="fg"><label>斷頭線</label><div class="isuf"><input type="number" id="m-forced-rate" value="${defForced}" step="any"><span class="suf">%</span></div></div>
     </div>
-    ${tw ? `<div class="fr">
+    ${tw ? (() => { const defTax = product === 'stock' ? '0.003' : '0.001'; const t = CFG.twTaxRate === '0.0015' ? '0.0015' : defTax; return `<div class="fr">
       <div class="fg"><label>手續費折扣</label><select id="m-fee-disc">
-        <option value="1">全額 0.1425%</option><option value="0.6">6折 0.0855%</option>
-        <option value="0.5" selected>5折 0.07125%</option><option value="0.38">3.8折</option>
-        <option value="0.28">2.8折 0.0399%</option><option value="0">免手續費</option>
+        <option value="1" ${CFG.twFeeDisc==='1'?'selected':''}>全額 0.1425%</option><option value="0.6" ${CFG.twFeeDisc==='0.6'?'selected':''}>6折 0.0855%</option>
+        <option value="0.5" ${CFG.twFeeDisc==='0.5'?'selected':''}>5折 0.07125%</option><option value="0.38" ${CFG.twFeeDisc==='0.38'?'selected':''}>3.8折</option>
+        <option value="0.28" ${CFG.twFeeDisc==='0.28'?'selected':''}>2.8折 0.0399%</option><option value="0" ${CFG.twFeeDisc==='0'?'selected':''}>免手續費</option>
       </select></div>
       <div class="fg"><label>證交稅(賣出)</label><select id="m-tax-rate">
-        <option value="0.003"${product === 'stock' ? ' selected' : ''}>0.3% 股票</option>
-        <option value="0.001"${product !== 'stock' ? ' selected' : ''}>0.1% ETF</option>
-        <option value="0.0015">0.15% 當沖減半</option>
+        <option value="0.003" ${t==='0.003'?'selected':''}>0.3% 股票</option>
+        <option value="0.001" ${t==='0.001'?'selected':''}>0.1% ETF</option>
+        <option value="0.0015" ${t==='0.0015'?'selected':''}>0.15% 當沖減半</option>
       </select></div>
-    </div>
+    </div>`; })() + `
     <div class="fr">
       <div class="fg"><label>${long ? '融資年利率' : '借券費率(年)'}</label><div class="isuf"><input type="number" id="m-int-rate" value="${long ? '6.25' : '0.5'}" step="any"><span class="suf">%</span></div></div>
       <div class="fg"><label>持有天數</label><input type="number" id="m-hold-days" value="30" min="0" step="1"></div>
     </div>` : `<div class="fr">
-      <div class="fg"><label>Commission <span class="hint">(per trade)</span></label><input type="number" id="m-comm" value="0" step="any"></div>
+      <div class="fg"><label>Commission <span class="hint">(per trade)</span></label><input type="number" id="m-comm" value="${CFG.usComm||'0'}" step="any"></div>
       <div class="fg"><label>Holding Days</label><input type="number" id="m-hold-days" value="30" min="0" step="1"></div>
     </div>
     <div class="fg"><label>Margin Interest Rate</label><div class="isuf"><input type="number" id="m-int-rate" value="${long ? '8' : '3'}" step="any"><span class="suf">%/yr</span></div></div>`}`;
@@ -1726,6 +1820,14 @@ function renderMarginForm() {
 
   $('#margin-inputs').innerHTML = h;
   $('#margin-results').innerHTML = PLACEHOLDER;
+
+  // Sync fee settings back to CFG when changed in calc form
+  const feeDisc = $('#m-fee-disc');
+  if (feeDisc) feeDisc.addEventListener('change', () => { CFG.twFeeDisc = feeDisc.value; saveSettings(CFG); });
+  const taxRate = $('#m-tax-rate');
+  if (taxRate) taxRate.addEventListener('change', () => { CFG.twTaxRate = taxRate.value; saveSettings(CFG); });
+  const usCommEl = $('#m-comm');
+  if (usCommEl) usCommEl.addEventListener('change', () => { CFG.usComm = usCommEl.value; saveSettings(CFG); });
 
   // ETF / 槓桿 ETF 選擇時自動帶入代號並查詢
   if (product === 'etf' || product === 'letf') {
@@ -1886,7 +1988,7 @@ function calcMargin() {
       </div>
     </div>`;
 
-    $('#margin-results').innerHTML = subTabs('mr', ['風險概覽', '壓力測試', '計算公式'], [overview, stress, formula]);
+    $('#margin-results').innerHTML = subTabs('mr', ['風險概覽', '壓力測試', '計算公式'], [overview, stress, formula]) + (window.PrismJournal ? PrismJournal.recordBtnHTML('margin') : '');
     return;
   }
 
@@ -2042,7 +2144,7 @@ function calcMargin() {
       </div>
     </div>`;
 
-    $('#margin-results').innerHTML = subTabs('mr', ['風險概覽', '壓力測試', '計算公式'], [overview, stress, formula]);
+    $('#margin-results').innerHTML = subTabs('mr', ['風險概覽', '壓力測試', '計算公式'], [overview, stress, formula]) + (window.PrismJournal ? PrismJournal.recordBtnHTML('margin') : '');
 
   } else {
     // ── SHORT ──
@@ -2174,7 +2276,7 @@ function calcMargin() {
       </div>
     </div>`;
 
-    $('#margin-results').innerHTML = subTabs('mr', ['風險概覽', '壓力測試', '計算公式'], [overview, stress, formula]);
+    $('#margin-results').innerHTML = subTabs('mr', ['風險概覽', '壓力測試', '計算公式'], [overview, stress, formula]) + (window.PrismJournal ? PrismJournal.recordBtnHTML('margin') : '');
   }
 }
 
@@ -2742,7 +2844,7 @@ function calcFutures() {
     </div>
   </div>`;
 
-  $('#futures-results').innerHTML = subTabs('fr', ['風險概覽', '壓力測試', '計算公式'], [overview, stress, formula]);
+  $('#futures-results').innerHTML = subTabs('fr', ['風險概覽', '壓力測試', '計算公式'], [overview, stress, formula]) + (window.PrismJournal ? PrismJournal.recordBtnHTML('futures') : '');
 }
 
 // ================================================================
@@ -2992,7 +3094,7 @@ function calcOptions() {
         <div class="fn">買方風險有限但獲利機率較低，統計上大多數選擇權到期時為價外（歸零）。</div>
       </div>
     </div>`;
-    $('#options-results').innerHTML = subTabs('or', ['風險概覽', '到期情境', '計算公式'], [overview, stress, formula]);
+    $('#options-results').innerHTML = subTabs('or', ['風險概覽', '到期情境', '計算公式'], [overview, stress, formula]) + (window.PrismJournal ? PrismJournal.recordBtnHTML('options') : '');
   } else {
     const rr = gV('o-rr') / 100, mr = gV('o-mr') / 100;
     const pmv = prem * mul, uv = ul * mul;
@@ -3069,7 +3171,7 @@ function calcOptions() {
         <div class="fn">實際追繳時限與砍倉門檻以各期貨商風控規則為準。賣方風險極大，請務必做好資金管理。</div>
       </div>
     </div>`;
-    $('#options-results').innerHTML = subTabs('or', ['風險概覽', '到期情境', '計算公式'], [overview, stress, formula]);
+    $('#options-results').innerHTML = subTabs('or', ['風險概覽', '到期情境', '計算公式'], [overview, stress, formula]) + (window.PrismJournal ? PrismJournal.recordBtnHTML('options') : '');
   }
 }
 

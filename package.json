@@ -2,9 +2,10 @@
   "name": "prism",
   "private": true,
   "scripts": {
-    "dev": "wrangler pages dev . --port 3000"
+    "dev": "wrangler pages dev . --port 3000 --d1 DB --script-path _worker.js",
+    "deploy": "wrangler pages deploy ."
   },
   "devDependencies": {
-    "wrangler": "^4"
+    "wrangler": "^4.71.0"
   }
 }

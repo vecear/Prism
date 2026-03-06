@@ -1,0 +1,10 @@
+name = "prism"
+compatibility_date = "2024-01-01"
+
+# Pages project — static assets served from root
+# Functions auto-detected from /functions directory
+
+[[d1_databases]]
+binding = "DB"
+database_name = "prism-db"
+database_id = "08bfc46c-a993-482d-9e84-96c156968da3"
