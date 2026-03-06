@@ -81,10 +81,11 @@ function calcPL(t) {
   const entry = parseFloat(t.entryPrice), exit = parseFloat(t.exitPrice), qty = parseFloat(t.quantity);
   const fee = parseFloat(t.fee) || 0, tax = parseFloat(t.tax) || 0;
   if (isNaN(entry) || isNaN(exit) || isNaN(qty)) return null;
-  const mul = t.type === 'futures' ? (parseFloat(t.contractMul) || 1) : 1;
+  const mul = (t.type === 'futures' || t.type === 'options') ? (parseFloat(t.contractMul) || 1) : 1;
   const dir = t.direction === 'long' ? 1 : -1;
-  const gross = dir * (exit - entry) * qty * mul;
-  return { gross, net: gross - fee - tax, fee, tax };
+  const gross = Math.round(dir * (exit - entry) * qty * mul * 100) / 100;
+  const totalFee = Math.round((fee + tax) * 100) / 100;
+  return { gross, net: gross - totalFee, fee, tax };
 }
 
 const TAG_PRESETS = ['突破', '回測', '順勢', '逆勢', '事件', '技術面', '基本面', '短線', '波段', '當沖', '停損', '停利', '加碼', '減碼'];
@@ -216,18 +217,47 @@ window.PrismJournal = {
     let trade = newTrade();
     trade.status = 'open'; // default to open position
 
+    const _gv = id => parseFloat(document.getElementById(id)?.value) || 0;
+
     if (tabType === 'margin') {
       const market = document.querySelector('[data-group="margin-market"] .toggle-btn.active')?.dataset.value || 'tw';
       const dir = document.querySelector('[data-group="margin-direction"] .toggle-btn.active')?.dataset.value || 'cash';
+      const tw = market === 'tw';
       trade.market = market;
       trade.type = 'stock';
       trade.direction = (dir === 'short') ? 'short' : 'long';
       trade.symbol = document.getElementById('m-symbol')?.value || '';
       trade.name = document.querySelector('.stock-info')?.textContent?.split('|')[0]?.trim() || '';
-      trade.entryPrice = document.getElementById('m-buy-price')?.value || '';
-      trade.quantity = document.getElementById('m-qty')?.value || '';
-      const spu = market === 'tw' ? 1000 : 1;
-      if (trade.quantity) trade.quantity = String(parseFloat(trade.quantity) * spu);
+      const spu = tw ? 1000 : 1;
+      const qty = _gv('m-qty');
+      trade.quantity = qty ? String(qty * spu) : '';
+      if (dir === 'short') {
+        trade.entryPrice = document.getElementById('m-sell-price')?.value || '';
+        const cp = _gv('m-current-price') || _gv('m-sell-price');
+        trade.exitPrice = cp ? String(cp) : '';
+      } else {
+        trade.entryPrice = document.getElementById('m-buy-price')?.value || '';
+        const cp = _gv('m-current-price') || _gv('m-buy-price');
+        trade.exitPrice = cp ? String(cp) : '';
+      }
+      // Calculate fees & tax
+      const ts = qty * spu;
+      const bp = parseFloat(trade.entryPrice) || 0, ep = parseFloat(trade.exitPrice) || 0;
+      if (tw) {
+        const disc = parseFloat(document.getElementById('m-fee-disc')?.value || '0.5');
+        const feeRate = 0.001425 * disc;
+        const taxRate = parseFloat(document.getElementById('m-tax-rate')?.value || '0.003');
+        const buyFee = Math.round(Math.max(20, bp * ts * feeRate));
+        const sellFee = Math.round(Math.max(20, ep * ts * feeRate));
+        const sellTax = Math.round(ep * ts * taxRate);
+        trade.fee = String(buyFee + sellFee);
+        trade.tax = String(sellTax);
+      } else {
+        const comm = _gv('m-comm');
+        trade.fee = String(comm * 2);
+        trade.tax = String(Math.round(ep * ts * 0.0000278 * 100) / 100);
+      }
+      if (trade.exitPrice) trade.status = 'closed';
     }
     else if (tabType === 'futures') {
       const market = document.querySelector('[data-group="futures-market"] .toggle-btn.active')?.dataset.value || 'tw';
@@ -241,6 +271,16 @@ window.PrismJournal = {
       // Get contract name
       const sel = document.getElementById('f-contract');
       if (sel) { trade.symbol = sel.value; trade.name = sel.options[sel.selectedIndex]?.text || ''; }
+      // Exit price: f-current → f-live-price → f-entry
+      const exitVal = _gv('f-current') || _gv('f-live-price') || _gv('f-entry');
+      if (exitVal) trade.exitPrice = String(exitVal);
+      // Fee & tax
+      const entry = _gv('f-entry'), qty = _gv('f-qty'), mul = _gv('f-mul');
+      const fComm = _gv('f-comm');
+      const fTaxRate = parseFloat(document.getElementById('f-tax-rate')?.value || '0');
+      trade.fee = String(fComm * qty * 2);
+      trade.tax = String(Math.round(entry * mul * qty * fTaxRate) + Math.round(exitVal * mul * qty * fTaxRate));
+      if (trade.exitPrice) trade.status = 'closed';
     }
     else if (tabType === 'options') {
       const market = document.querySelector('[data-group="options-market"] .toggle-btn.active')?.dataset.value || 'tw';
@@ -255,6 +295,12 @@ window.PrismJournal = {
       trade.contractMul = document.getElementById('o-mul')?.value || '';
       trade.symbol = `${optType.toUpperCase()} ${strike}`;
       trade.name = `${optType === 'call' ? 'Call' : 'Put'} ${side === 'buyer' ? '買方' : '賣方'} @ ${strike}`;
+      // Fee & tax
+      const prem = _gv('o-premium'), qty = _gv('o-qty'), mul = _gv('o-mul');
+      const oComm = _gv('o-comm');
+      const oTaxRate = parseFloat(document.getElementById('o-tax-rate')?.value || '0');
+      trade.fee = String(oComm * qty * 2);
+      trade.tax = String(Math.round(prem * mul * qty * oTaxRate) * 2);
     }
 
     openTradeForm(null, trade);

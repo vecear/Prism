@@ -206,6 +206,7 @@ body{font-family:var(--sans);background:var(--bg0);color:var(--t1);line-height:1
 .fg input,.fg select{width:100%;padding:8px 10px;background:var(--bg0);border:1px solid var(--bdr);border-radius:5px;color:var(--t1);font-family:var(--mono);font-size:.9rem;outline:none;transition:border-color .15s}
 .fg input:focus,.fg select:focus{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-d)}
 .fg input::placeholder{color:var(--t3);font-family:var(--sans);font-size:.82rem}
+.fg-readonly{background:var(--bg2)!important;border-color:var(--bdr)!important;color:var(--t2)!important;cursor:default;opacity:.85}
 .fg select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%235a6f82' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;padding-right:30px}
 .fg select option{background:var(--bg2);color:var(--t1)}
 .isuf{position:relative}
@@ -397,15 +398,22 @@ input[type="number"]{-moz-appearance:textfield}
   /* Header */
   .logo h1{font-size:1.1rem}
 
-  /* Ticker bar — collapsible on mobile */
-  .ticker-bar{padding:6px 0;flex-wrap:wrap}
-  .ticker-strip{flex-wrap:wrap;overflow:hidden;max-height:26px;transition:max-height .3s ease}
-  .ticker-bar.expanded .ticker-strip{max-height:200px}
-  .ticker-toggle{display:flex;border-left:1px solid var(--bdr);margin-left:2px;padding:2px 6px}
-  .tc-name{font-size:.62rem}
-  .tc-price{font-size:.72rem}
-  .tc-chg{font-size:.58rem}
-  .ticker-chip+.ticker-chip::before{margin:0 5px}
+  /* Ticker bar — card grid on mobile */
+  .ticker-bar{padding:6px 0;flex-direction:column;gap:6px;align-items:stretch}
+  .ticker-strip{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;overflow:hidden;max-height:0;transition:max-height .35s ease;flex:none}
+  .ticker-bar.expanded .ticker-strip{max-height:600px}
+  .ticker-chip{display:flex;flex-direction:column;align-items:flex-start;gap:1px;padding:6px 8px;background:var(--bg1);border:1px solid var(--bdr);border-radius:6px;white-space:nowrap}
+  .ticker-chip+.ticker-chip::before{display:none}
+  .ticker-chip:hover{background:var(--bg2)}
+  .tc-name{font-size:.58rem;color:var(--t3);font-weight:600;line-height:1}
+  .tc-price{font-size:.78rem;font-weight:700;line-height:1.2}
+  .tc-chg{font-size:.58rem;line-height:1}
+  .ticker-basis{font-size:.52rem;margin-top:1px}
+  .ticker-bar-actions{display:flex;align-items:center;justify-content:space-between}
+  .ticker-toggle{display:flex;border:1px solid var(--bdr);border-radius:6px;padding:5px 12px;gap:4px;font-size:.7rem;color:var(--t2);font-family:var(--sans);min-height:32px;align-items:center}
+  .ticker-toggle::after{content:'展開報價';font-size:.68rem}
+  .ticker-bar.expanded .ticker-toggle::after{content:'收合報價'}
+  .ticker-refresh{border:1px solid var(--bdr);border-radius:6px;padding:5px 10px;border-left:1px solid var(--bdr);margin-left:0}
 
   /* Sentiment strip */
   .sentiment-strip{flex-direction:column;gap:4px;padding:6px 0}
@@ -529,8 +537,11 @@ input[type="number"]{-moz-appearance:textfield}
   .card{padding:8px}
 
   /* Ticker: tighter spacing, hide less-important data */
-  .ticker-chip+.ticker-chip::before{margin:0 4px}
+  .ticker-chip+.ticker-chip::before{margin:0 3px}
   .tc-chg,.ticker-basis{display:none}
+  .tc-name{font-size:.56rem}
+  .tc-price{font-size:.66rem}
+  .ticker-time{font-size:.58rem!important}
 
   /* Tabs: even smaller in bottom bar */
   .main-tab .tab-label{font-size:.55rem}

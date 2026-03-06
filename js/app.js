@@ -687,11 +687,15 @@ let CFG = loadSettings();
 let _refreshTimer = null;
 
 // ── State ──
-const S = {
+const _savedS = (() => { try { return JSON.parse(localStorage.getItem('prism_state')); } catch { return null; } })();
+const S = _savedS || {
   margin: { market: 'tw', direction: 'cash', product: 'stock' },
   futures: { market: 'tw', direction: 'long', product: 'index' },
-  options: { market: 'tw', side: 'buyer', product: 'index' }
+  options: { market: 'tw', side: 'buyer', product: 'index' },
+  activeTab: 'margin'
 };
+if (!S.activeTab) S.activeTab = 'margin';
+function _saveState() { localStorage.setItem('prism_state', JSON.stringify(S)); }
 
 // ── Presets ──
 const FP = {
@@ -1228,7 +1232,7 @@ function _restoreIndicesFromCache() {
     _updateTickerTime(cached);
     _renderSentimentStrip();
     if ($('#f-entry')) fillFromTicker('f-entry');
-    if ($('#f-current')) fillFromTicker('f-current');
+    if ($('#f-live-price')) fillFromTicker('f-live-price');
     if ($('#o-ul')) fillOptFromTicker();
     autoFillMarginPrice();
   }
@@ -1249,6 +1253,7 @@ function init() {
     $$('.tab-content').forEach(x => x.classList.remove('active'));
     $(`#tab-${b.dataset.tab}`).classList.add('active');
     window.scrollTo(0, 0);
+    S.activeTab = b.dataset.tab; _saveState();
     if (b.dataset.tab === 'guide') renderGuide();
   }));
 
@@ -1267,6 +1272,7 @@ function init() {
       if (gn === 'options-market')   { S.options.market = v;   renderOptionsForm(); }
       if (gn === 'options-side')     { S.options.side = v;     renderOptionsForm(); }
       if (gn === 'options-product')  { S.options.product = v;  renderOptionsForm(); }
+      _saveState();
     }));
   });
 
@@ -1290,18 +1296,36 @@ function init() {
   // ── Settings panel ──
   initSettings();
 
-  // ── Apply default market from settings ──
-  if (CFG.defaultMarket) {
+  // ── Restore saved state or apply default market ──
+  if (!_savedS && CFG.defaultMarket) {
     const m = CFG.defaultMarket;
     S.margin.market = m; S.futures.market = m; S.options.market = m;
-    // Sync toggle buttons
-    ['margin-market', 'futures-market', 'options-market'].forEach(gn => {
+  }
+  // Sync all toggle buttons to match S state
+  const _syncToggles = () => {
+    const map = {
+      'margin-market': S.margin.market, 'margin-direction': S.margin.direction, 'margin-product': S.margin.product,
+      'futures-market': S.futures.market, 'futures-direction': S.futures.direction, 'futures-product': S.futures.product,
+      'options-market': S.options.market, 'options-side': S.options.side, 'options-product': S.options.product,
+    };
+    Object.entries(map).forEach(([gn, val]) => {
       const g = $(`.toggle-group[data-group="${gn}"]`);
       if (!g) return;
-      $$('.toggle-btn', g).forEach(b => {
-        b.classList.toggle('active', b.dataset.value === m);
-      });
+      $$('.toggle-btn', g).forEach(b => b.classList.toggle('active', b.dataset.value === val));
     });
+  };
+  _syncToggles();
+
+  // Restore active tab
+  if (S.activeTab && S.activeTab !== 'margin') {
+    const tabBtn = $(`.main-tab[data-tab="${S.activeTab}"]`);
+    if (tabBtn) {
+      $$('.main-tab').forEach(x => x.classList.remove('active'));
+      tabBtn.classList.add('active');
+      $$('.tab-content').forEach(x => x.classList.remove('active'));
+      $(`#tab-${S.activeTab}`)?.classList.add('active');
+      if (S.activeTab === 'guide') renderGuide();
+    }
   }
 
   // Render forms
@@ -1658,7 +1682,7 @@ async function handleFetchIndices(updateForms) {
     }
     if (updateForms && ok > 0) {
       if ($('#f-entry')) fillFromTicker('f-entry');
-      if ($('#f-current')) fillFromTicker('f-current');
+      if ($('#f-live-price')) fillFromTicker('f-live-price');
       if ($('#o-ul')) fillOptFromTicker();
       autoFillMarginPrice();
     }
@@ -1863,7 +1887,7 @@ function renderMarginForm() {
     ${extra}
     <div class="fr">
       <div class="fg"><label>${priceLabel} <span class="hint">(${cur})</span></label><input type="number" id="${priceId}" placeholder="${tw ? '市價' : 'Market'}" step="any"></div>
-      <div class="fg"><label>目前價格 <span class="hint">(留空=同進場)</span></label><input type="number" id="m-current-price" placeholder="即時價格" step="any"></div>
+      <div class="fg"><label>目前價格 <span class="hint">(留空=以進場價計算)</span></label><input type="number" id="m-current-price" placeholder="即時價格" step="any"></div>
     </div>`;
     }
 
@@ -1985,10 +2009,10 @@ function calcMargin() {
       const disc = parseFloat($('#m-fee-disc')?.value || '0.5');
       const feeRate = 0.001425 * disc;
       const taxRate = parseFloat($('#m-tax-rate')?.value || '0.003');
-      buyFee = Math.max(20, tc * feeRate); sellFee = Math.max(20, cv * feeRate); sellTax = cv * taxRate;
+      buyFee = Math.round(Math.max(20, tc * feeRate)); sellFee = Math.round(Math.max(20, cv * feeRate)); sellTax = Math.round(cv * taxRate);
     } else {
       const comm = gV('m-comm') || 0;
-      buyFee = comm; sellFee = comm; sellTax = cv * 0.0000278;
+      buyFee = comm; sellFee = comm; sellTax = Math.round(cv * 0.0000278 * 100) / 100;
     }
     totalFees = buyFee + sellFee + sellTax;
     const netPL = upl - totalFees;
@@ -2091,15 +2115,15 @@ function calcMargin() {
       const disc = parseFloat($('#m-fee-disc')?.value || '0.5');
       const feeRate = 0.001425 * disc;
       const taxRate = parseFloat($('#m-tax-rate')?.value || '0.003');
-      buyFee = Math.max(20, tc * feeRate);
-      sellFee = Math.max(20, cv * feeRate);
-      sellTax = cv * taxRate;
-      interest = tl * intRate * holdDays / 365;
+      buyFee = Math.round(Math.max(20, tc * feeRate));
+      sellFee = Math.round(Math.max(20, cv * feeRate));
+      sellTax = Math.round(cv * taxRate);
+      interest = Math.round(tl * intRate * holdDays / 365);
     } else {
       const comm = gV('m-comm') || 0;
       buyFee = comm; sellFee = comm;
-      sellTax = cv * 0.0000278; // SEC fee
-      interest = tl * intRate * holdDays / 365;
+      sellTax = Math.round(cv * 0.0000278 * 100) / 100; // SEC fee
+      interest = Math.round(tl * intRate * holdDays / 365 * 100) / 100;
     }
     totalFees = buyFee + sellFee + sellTax + interest;
     const netPL = upl - totalFees;
@@ -2399,8 +2423,10 @@ function renderFuturesForm() {
       <input type="hidden" id="f-im" value="0"><input type="hidden" id="f-mm" value="0"><input type="hidden" id="f-mul" value="100">`;
   } else {
     const presets = FP[market];
-    const opts = Object.entries(presets).filter(([k]) => k !== 'STK').map(([k, v]) => `<option value="${k}">${v.name}</option>`).join('');
-    const fk = Object.keys(presets).filter(k => k !== 'STK')[0], f = presets[fk];
+    const savedContract = S.futures.contract;
+    const opts = Object.entries(presets).filter(([k]) => k !== 'STK').map(([k, v]) => `<option value="${k}" ${k === savedContract ? 'selected' : ''}>${v.name}</option>`).join('');
+    const fk = (savedContract && presets[savedContract]) ? savedContract : Object.keys(presets).filter(k => k !== 'STK')[0];
+    const f = presets[fk];
     contractRow = `
       <div class="fr">
         <div class="fg"><label>合約類型</label><select id="f-contract">${opts}</select></div>
@@ -2423,9 +2449,13 @@ function renderFuturesForm() {
     ${isStock ? `<div class="fg"><label>口數</label><input type="number" id="f-qty" value="1" min="1" step="1"></div>` : ''}
     <div class="fr">
       <div class="fg"><label>進場${priceLabel}</label><input type="number" id="f-entry" placeholder="${pricePH}" step="any"></div>
-      <div class="fg"><label>目前${priceLabel} <span class="hint">(留空=同進場)</span></label><input type="number" id="f-current" placeholder="即時報價" step="any">
-        ${isStock && tw ? `<div style="display:flex;gap:3px;margin-top:2px;flex-wrap:wrap"><button type="button" class="ticker-fill-btn" id="f-stk-price-btn">更新報價</button></div>` : ''}
-        ${!isStock ? `<div style="display:flex;gap:3px;margin-top:2px;flex-wrap:wrap"><button type="button" class="ticker-fill-btn" onclick="refreshFuturesPrice()">更新報價</button></div>` : ''}
+      <div class="fg"><label>賣出${priceLabel} <span class="hint">(留空=目前點數)</span></label><input type="number" id="f-current" placeholder="賣出價格" step="any"></div>
+    </div>
+    <div class="fg"><label>目前${priceLabel} <span class="hint">(API 即時報價)</span></label>
+      <div style="display:flex;align-items:center;gap:6px">
+        <input type="text" id="f-live-price" class="fg-readonly" readonly placeholder="尚未取得" style="flex:1">
+        ${isStock && tw ? `<button type="button" class="ticker-fill-btn" id="f-stk-price-btn">更新報價</button>` : ''}
+        ${!isStock ? `<button type="button" class="ticker-fill-btn" onclick="refreshFuturesPrice()">更新報價</button>` : ''}
       </div>
     </div>
     <div class="margin-info">
@@ -2479,7 +2509,7 @@ function renderFuturesForm() {
         if (sf) { $('#f-mul').value = sf.mul; const d = $('#f-mul-display'); if (d) d.textContent = cur + ' ' + fmt(sf.mul); }
         // 切換商品時清空價格與保證金，讓新查詢結果能正確帶入
         const _clr = id => { const e = $(`#${id}`); if (e) e.value = ''; };
-        ['f-entry', 'f-current', 'f-im-input', 'f-mm-input'].forEach(_clr);
+        ['f-entry', 'f-current', 'f-live-price', 'f-im-input', 'f-mm-input'].forEach(_clr);
         fetchStk();
       }
     });
@@ -2487,7 +2517,7 @@ function renderFuturesForm() {
     $('#f-stk-price-btn')?.addEventListener('click', () => {
       // 更新報價時清空欄位，讓新報價帶入進場價格與保證金
       const _clr = id => { const e = $(`#${id}`); if (e) e.value = ''; };
-      ['f-entry', 'f-current', 'f-im-input', 'f-mm-input'].forEach(_clr);
+      ['f-entry', 'f-current', 'f-live-price', 'f-im-input', 'f-mm-input'].forEach(_clr);
       fetchStk();
     });
     // Manual margin inputs sync to hidden fields
@@ -2538,6 +2568,7 @@ function renderFuturesForm() {
     // Index futures: contract change handler
     $('#f-contract')?.addEventListener('change', () => {
       const mk = S.futures.market, c = mk === 'tw' ? 'NT$' : 'USD';
+      S.futures.contract = $('#f-contract').value; _saveState();
       const p = FP[mk][$('#f-contract').value];
       if (p) {
         $('#f-im').value = p.im; $('#f-mm').value = p.mm; $('#f-mul').value = p.mul;
@@ -2555,7 +2586,7 @@ function renderFuturesForm() {
       if (dateEl && _taifexMarginDate) dateEl.textContent = '期交所 ' + _taifexMarginDate;
     });
     fillFromTicker('f-entry');
-    fillFromTicker('f-current');
+    fillFromTicker('f-live-price');
   }
 
   // Equity multiplier buttons
@@ -2622,11 +2653,11 @@ async function _fetchTaifexStockFutures(cid) {
       const timeLabel = srcStr ? `報價 ${srcStr} · 抓取 ${fetchStr}` : `抓取 ${fetchStr}`;
       infoEl.innerHTML = `<span class="si-row"><strong>${q.name || cid}</strong> <span class="${chgCls}">${q.price.toFixed(2)} ${chgStr}</span>${basisHtml}</span><span class="si-row"><span class="tm" style="font-size:.6rem">期交所 ${q.session || '日盤 (08:45-13:45)'} · ${timeLabel}</span></span>`;
     }
-    // Fill entry & current price
+    // Fill entry & live price
     const entryEl = $('#f-entry');
     if (entryEl && !entryEl.value) { entryEl.value = q.price.toFixed(2); entryEl.dispatchEvent(new Event('input', { bubbles: true })); }
-    const curEl = $('#f-current');
-    if (curEl) { curEl.value = q.price.toFixed(2); curEl.dispatchEvent(new Event('input', { bubbles: true })); }
+    const liveEl = $('#f-live-price');
+    if (liveEl) { liveEl.value = q.price.toFixed(2); }
     // 用期交所實際比例計算保證金，無資料時 fallback 預設級距1 (13.5%/10.35%)
     const marginInfo = _stkFutMargins[cid];
     const imRate = marginInfo?.imRate || 0.135;
@@ -2664,11 +2695,11 @@ async function _fetchFuturesStockPrice(code) {
       const timeLabel = srcStr ? `報價 ${srcStr} · 抓取 ${fetchStr}` : `抓取 ${fetchStr}`;
       infoEl.innerHTML = `<span class="si-row"><strong>${q.name || code}</strong> <span class="${chgCls}">${q.price.toFixed(2)} ${chgStr}</span></span><span class="si-row"><span class="tm" style="font-size:.6rem">${provName || 'API'} ${timeLabel}</span></span>`;
     }
-    // Fill entry & current price
+    // Fill entry & live price
     const entryEl = $('#f-entry');
     if (entryEl && !entryEl.value) { entryEl.value = q.price.toFixed(2); entryEl.dispatchEvent(new Event('input', { bubbles: true })); }
-    const curEl = $('#f-current');
-    if (curEl) { curEl.value = q.price.toFixed(2); curEl.dispatchEvent(new Event('input', { bubbles: true })); }
+    const liveEl = $('#f-live-price');
+    if (liveEl) { liveEl.value = q.price.toFixed(2); }
     // Auto-estimate margins for TW stock futures (用期交所實際比例)
     if (tw) {
       const stkCode = ($('#f-sym')?.value || '').trim().toUpperCase();
@@ -2706,15 +2737,15 @@ window.refreshFuturesPrice = async function() {
     return;
   }
   // 快取過期或沒有 → 發 API
-  const el = document.getElementById('f-current');
-  if (el) el.placeholder = '查詢中…';
+  const el = document.getElementById('f-live-price');
+  if (el) el.value = '查詢中…';
   try {
     const q = await PriceService.fetchIndex(idxKey);
     _quoteCache.setIndex(idxKey, q);
     _renderTickerChip(idxKey, q);
     _applyFuturesQuote(idxKey, q);
   } catch {
-    if (el) { el.placeholder = '查詢失敗'; setTimeout(() => { el.placeholder = '即時報價'; }, 2000); }
+    if (el) { el.value = '查詢失敗'; setTimeout(() => { el.value = ''; el.placeholder = '尚未取得'; }, 2000); }
   }
 };
 
@@ -2725,12 +2756,11 @@ function _applyFuturesQuote(idxKey, q, fetchTime) {
   const sessionStr = isTxf && q.session ? ` ${q.session}` : '';
   const provName = isTxf ? `期交所${sessionStr}` : (mk === 'tw' ? PriceService.PROVIDER_INFO[CFG.twSource]?.name : PriceService.PROVIDER_INFO[CFG.usSource]?.name);
 
-  const curEl = document.getElementById('f-current');
-  if (curEl) {
-    curEl.value = q.price.toFixed(2);
-    curEl.placeholder = mk === 'tw' ? '即時報價' : 'Live price';
-    curEl.dispatchEvent(new Event('input', { bubbles: true }));
-    stampTime('f-current', provName || 'API', q.sourceTime, fetchTime);
+  // 填入唯讀的「目前價格」顯示
+  const liveEl = document.getElementById('f-live-price');
+  if (liveEl) {
+    liveEl.value = q.price.toFixed(2);
+    stampTime('f-live-price', provName || 'API', q.sourceTime, fetchTime);
   }
   // 進場價格預設帶入（若為空）
   const entryEl = document.getElementById('f-entry');
@@ -2782,15 +2812,19 @@ function calcFutures() {
   const tw = market === 'tw', long = direction === 'long';
   const cur = tw ? 'NT$' : 'USD';
   const entry = gV('f-entry'), qty = gV('f-qty'), im = gV('f-im'), mm = gV('f-mm'), mul = gV('f-mul');
-  let curr = gV('f-current'); if (!curr) curr = entry;
+  let curr = gV('f-current');
+  if (!curr) {
+    const liveVal = parseFloat($('#f-live-price')?.value);
+    curr = liveVal || entry;
+  }
   if (!entry || !qty || !im || !mul) { $('#futures-results').innerHTML = PLACEHOLDER; return; }
 
   // Fee calculation
   const fComm = gV('f-comm') || 0;
   const fTaxRate = parseFloat($('#f-tax-rate')?.value || '0');
   const commTotal = fComm * qty * 2; // round trip
-  const entryTax = entry * mul * qty * fTaxRate;
-  const exitTax = curr * mul * qty * fTaxRate;
+  const entryTax = Math.round(entry * mul * qty * fTaxRate);
+  const exitTax = Math.round(curr * mul * qty * fTaxRate);
   const taxTotal = entryTax + exitTax;
   const futFees = commTotal + taxTotal;
 
@@ -3102,8 +3136,8 @@ function calcOptions() {
   const oComm = gV('o-comm') || 0;
   const oTaxRate = parseFloat($('#o-tax-rate')?.value || '0');
   const oCommTotal = oComm * qty * 2; // open + close
-  const oOpenTax = prem * mul * qty * oTaxRate; // tax on premium at open
-  const oCloseTax = prem * mul * qty * oTaxRate; // approximate (close at same premium)
+  const oOpenTax = Math.round(prem * mul * qty * oTaxRate); // tax on premium at open
+  const oCloseTax = Math.round(prem * mul * qty * oTaxRate); // approximate (close at same premium)
   const oFees = oCommTotal + oOpenTax + oCloseTax;
 
   const totalPrem = prem * mul * qty;
