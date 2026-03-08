@@ -19,6 +19,15 @@ async function ensureDB(db) {
       try { await db.prepare("ALTER TABLE trades ADD COLUMN rating INTEGER NOT NULL DEFAULT 0").run(); } catch {}
       // v5 migration: daily_journal table
       try { await db.prepare("CREATE TABLE IF NOT EXISTS daily_journal (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, date TEXT NOT NULL, mood INTEGER DEFAULT 3, market_note TEXT DEFAULT '', plan TEXT DEFAULT '', review TEXT DEFAULT '', created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')), FOREIGN KEY (user_id) REFERENCES users(id), UNIQUE(user_id, date))").run(); } catch {}
+      // v6 migration: daily_journal enhancements
+      try { await db.prepare("ALTER TABLE daily_journal ADD COLUMN discipline INTEGER NOT NULL DEFAULT 0").run(); } catch {}
+      try { await db.prepare("ALTER TABLE daily_journal ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'").run(); } catch {}
+      try { await db.prepare("ALTER TABLE daily_journal ADD COLUMN takeaway TEXT NOT NULL DEFAULT ''").run(); } catch {}
+      try { await db.prepare("ALTER TABLE daily_journal ADD COLUMN starred INTEGER NOT NULL DEFAULT 0").run(); } catch {}
+      // v7 migration: trade review scores (discipline, timing, sizing) for process-vs-outcome analysis
+      try { await db.prepare("ALTER TABLE trades ADD COLUMN review_discipline INTEGER NOT NULL DEFAULT 0").run(); } catch {}
+      try { await db.prepare("ALTER TABLE trades ADD COLUMN review_timing INTEGER NOT NULL DEFAULT 0").run(); } catch {}
+      try { await db.prepare("ALTER TABLE trades ADD COLUMN review_sizing INTEGER NOT NULL DEFAULT 0").run(); } catch {}
     })();
   }
   return dbInitPromise;
@@ -220,6 +229,7 @@ async function handleGetTrades(request, env) {
     contractMul: row.contract_mul, stopLoss: row.stop_loss, takeProfit: row.take_profit,
     fee: row.fee, tax: row.tax, tags: JSON.parse(row.tags || '[]'), notes: row.notes,
     account: row.account || '', imageUrl: row.image_url || '', rating: row.rating || 0,
+    reviewDiscipline: row.review_discipline || 0, reviewTiming: row.review_timing || 0, reviewSizing: row.review_sizing || 0,
     createdAt: row.created_at, updatedAt: row.updated_at,
   }));
   return jsonRes({ trades });
@@ -236,13 +246,14 @@ async function handleCreateTrade(request, env) {
   const id = body.id || (Date.now().toString(36) + Math.random().toString(36).slice(2, 7));
   const now = new Date().toISOString();
   const db = env.DB;
-  await db.prepare(`INSERT INTO trades (id, user_id, date, market, type, symbol, name, direction, status, entry_price, exit_price, quantity, contract_mul, stop_loss, take_profit, fee, tax, tags, notes, account, image_url, rating, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(
+  await db.prepare(`INSERT INTO trades (id, user_id, date, market, type, symbol, name, direction, status, entry_price, exit_price, quantity, contract_mul, stop_loss, take_profit, fee, tax, tags, notes, account, image_url, rating, review_discipline, review_timing, review_sizing, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(
     id, user.sub, body.date || now, body.market || 'tw', body.type || 'stock',
     body.symbol || '', body.name || '', body.direction || 'long', body.status || 'open',
     body.entryPrice ?? null, body.exitPrice ?? null, body.quantity ?? null,
     body.contractMul ?? null, body.stopLoss ?? null, body.takeProfit ?? null,
     body.fee ?? 0, body.tax ?? 0, JSON.stringify(body.tags || []), body.notes || '',
-    body.account || '', body.imageUrl || '', body.rating ?? 0, now, now
+    body.account || '', body.imageUrl || '', body.rating ?? 0,
+    body.reviewDiscipline ?? 0, body.reviewTiming ?? 0, body.reviewSizing ?? 0, now, now
   ).run();
   return jsonRes({ id }, 201);
 }
@@ -257,13 +268,14 @@ async function handleUpdateTrade(request, env, tradeId) {
   try { body = await request.json(); } catch { return jsonErr(400, '無效的請求格式'); }
   if (JSON.stringify(body).length > 32768) return jsonErr(400, '交易資料過大');
   const now = new Date().toISOString();
-  await db.prepare(`UPDATE trades SET date=?, market=?, type=?, symbol=?, name=?, direction=?, status=?, entry_price=?, exit_price=?, quantity=?, contract_mul=?, stop_loss=?, take_profit=?, fee=?, tax=?, tags=?, notes=?, account=?, image_url=?, rating=?, updated_at=? WHERE id=? AND user_id=?`).bind(
+  await db.prepare(`UPDATE trades SET date=?, market=?, type=?, symbol=?, name=?, direction=?, status=?, entry_price=?, exit_price=?, quantity=?, contract_mul=?, stop_loss=?, take_profit=?, fee=?, tax=?, tags=?, notes=?, account=?, image_url=?, rating=?, review_discipline=?, review_timing=?, review_sizing=?, updated_at=? WHERE id=? AND user_id=?`).bind(
     body.date, body.market || 'tw', body.type || 'stock',
     body.symbol || '', body.name || '', body.direction || 'long', body.status || 'open',
     body.entryPrice ?? null, body.exitPrice ?? null, body.quantity ?? null,
     body.contractMul ?? null, body.stopLoss ?? null, body.takeProfit ?? null,
     body.fee ?? 0, body.tax ?? 0, JSON.stringify(body.tags || []), body.notes || '',
-    body.account || '', body.imageUrl || '', body.rating ?? 0, now,
+    body.account || '', body.imageUrl || '', body.rating ?? 0,
+    body.reviewDiscipline ?? 0, body.reviewTiming ?? 0, body.reviewSizing ?? 0, now,
     tradeId, user.sub
   ).run();
   return jsonRes({ ok: true });
@@ -302,7 +314,7 @@ async function handleGetDailyJournals(request, env) {
   const user = await getUser(request, env);
   if (!user) return jsonErr(401, '未登入');
   const { results } = await env.DB.prepare('SELECT * FROM daily_journal WHERE user_id = ? ORDER BY date DESC LIMIT 100').bind(user.sub).all();
-  return jsonRes({ journals: results.map(r => ({ id: r.id, date: r.date, mood: r.mood, marketNote: r.market_note, plan: r.plan, review: r.review })) });
+  return jsonRes({ journals: results.map(r => ({ id: r.id, date: r.date, mood: r.mood, marketNote: r.market_note, plan: r.plan, review: r.review, discipline: r.discipline || 0, tags: JSON.parse(r.tags || '[]'), takeaway: r.takeaway || '', starred: r.starred || 0 })) });
 }
 
 async function handleSaveDailyJournal(request, env) {
@@ -312,9 +324,9 @@ async function handleSaveDailyJournal(request, env) {
   try { body = await request.json(); } catch { return jsonErr(400, '無效的請求格式'); }
   if (!body.date) return jsonErr(400, '日期不可為空');
   const now = new Date().toISOString();
-  await env.DB.prepare(`INSERT INTO daily_journal (user_id, date, mood, market_note, plan, review, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(user_id, date) DO UPDATE SET mood=?, market_note=?, plan=?, review=?, updated_at=?`).bind(
-    user.sub, body.date, body.mood ?? 3, body.marketNote || '', body.plan || '', body.review || '', now,
-    body.mood ?? 3, body.marketNote || '', body.plan || '', body.review || '', now
+  await env.DB.prepare(`INSERT INTO daily_journal (user_id, date, mood, market_note, plan, review, discipline, tags, takeaway, starred, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(user_id, date) DO UPDATE SET mood=?, market_note=?, plan=?, review=?, discipline=?, tags=?, takeaway=?, starred=?, updated_at=?`).bind(
+    user.sub, body.date, body.mood ?? 3, body.marketNote || '', body.plan || '', body.review || '', body.discipline ?? 0, JSON.stringify(body.tags || []), body.takeaway || '', body.starred ?? 0, now,
+    body.mood ?? 3, body.marketNote || '', body.plan || '', body.review || '', body.discipline ?? 0, JSON.stringify(body.tags || []), body.takeaway || '', body.starred ?? 0, now
   ).run();
   return jsonRes({ ok: true });
 }

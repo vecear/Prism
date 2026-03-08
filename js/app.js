@@ -37,6 +37,7 @@ const INDEX_DEFS = {
   kospi:    { name: 'KOSPI',     placeholder: '2500',  market: 'kr', region: '亞洲', chart: 'KRX:KOSPI' },
   shanghai: { name: '上證指數',  placeholder: '3200',  market: 'cn', region: '亞洲', chart: 'SSE:000001' },
   hsi:      { name: '恆生指數',  placeholder: '20000', market: 'hk', region: '亞洲', chart: 'TVC:HSI' },
+  btc:      { name: 'BTC',       placeholder: '85000', market: 'crypto', region: '加密貨幣', chart: 'COINBASE:BTCUSD' },
 };
 
 // ================================================================
@@ -108,7 +109,7 @@ const PriceService = {
 
   // ── Yahoo Finance ──
   yahoo: {
-    INDEX_MAP: { taiex: '^TWII', es: 'ES=F', nq: 'NQ=F', ym: 'YM=F', sox: '^SOX', nkd: 'NKD=F', kospi: '^KS11', shanghai: '000001.SS', hsi: '^HSI', vix: '^VIX' },
+    INDEX_MAP: { taiex: '^TWII', es: 'ES=F', nq: 'NQ=F', ym: 'YM=F', sox: '^SOX', nkd: 'NKD=F', kospi: '^KS11', shanghai: '000001.SS', hsi: '^HSI', vix: '^VIX', btc: 'BTC-USD' },
     async fetchQuote(symbol) {
       const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=1d`;
       const r = await PriceService._proxyFetch(url);
@@ -740,7 +741,7 @@ const DEFAULT_SETTINGS = {
   theme: 'dark',               // 'dark' | 'light' | 'midnight' | 'emerald' | 'warm'
   autoFetch: true,
   refreshInterval: 10,
-  indices: { taiex: true, txf: true, es: true, nq: true, ym: true, sox: true, nkd: true, kospi: true, shanghai: true, hsi: true },
+  indices: { taiex: true, txf: true, es: true, nq: true, ym: true, sox: true, nkd: true, kospi: true, shanghai: true, hsi: true, btc: true },
   showVix: true,
   showFearGreed: true,
   defaultMarket: 'tw',
@@ -765,10 +766,13 @@ const DEFAULT_SETTINGS = {
   // 交易紀錄
   defaultFee: '',          // 預設手續費 (元)
   defaultTax: '',          // 預設交易稅 (元)
+  // 交易前檢查清單
+  checklist: [],           // string[] 自訂檢查項目
 };
 function mergeSettings(raw) {
   return { ...DEFAULT_SETTINGS, ...raw, indices: { ...DEFAULT_SETTINGS.indices, ...(raw.indices || {}) },
-    fontScale: raw.fontScale || DEFAULT_SETTINGS.fontScale };
+    fontScale: raw.fontScale || DEFAULT_SETTINGS.fontScale,
+    checklist: Array.isArray(raw.checklist) ? raw.checklist : DEFAULT_SETTINGS.checklist };
 }
 function loadSettings() {
   try {
@@ -776,15 +780,19 @@ function loadSettings() {
     return mergeSettings(raw);
   } catch { return { ...DEFAULT_SETTINGS }; }
 }
+// Keys that stay local-only (not synced to cloud)
+const LOCAL_ONLY_KEYS = ['fontScale'];
 function saveSettings(s) {
   localStorage.setItem('tg-settings', JSON.stringify(s));
   // Sync to server if logged in (fire-and-forget)
   const token = localStorage.getItem('prism_token');
   if (token) {
+    const cloud = { ...s };
+    LOCAL_ONLY_KEYS.forEach(k => delete cloud[k]);
     fetch(`${API_BASE}/api/settings`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-      body: JSON.stringify({ settings: s }),
+      body: JSON.stringify({ settings: cloud }),
     }).catch(() => {});
   }
 }
@@ -799,7 +807,9 @@ async function loadSettingsFromServer() {
     if (!res.ok) return;
     const data = await res.json();
     if (data.settings && Object.keys(data.settings).length > 0) {
-      CFG = mergeSettings(data.settings);
+      const localOnly = {};
+      LOCAL_ONLY_KEYS.forEach(k => { localOnly[k] = CFG[k]; });
+      CFG = mergeSettings({ ...data.settings, ...localOnly });
       localStorage.setItem('tg-settings', JSON.stringify(CFG));
       applySettings();
     }
@@ -1789,7 +1799,7 @@ function renderSettings() {
   if (!body) return;
   const P = PriceService.PROVIDER_INFO;
   // Group indices by region
-  const regionOrder = ['台灣', '美國', '亞洲'];
+  const regionOrder = ['台灣', '美國', '亞洲', '加密貨幣'];
   const grouped = {};
   Object.entries(INDEX_DEFS).forEach(([k, def]) => {
     if (!grouped[def.region]) grouped[def.region] = [];
@@ -2003,6 +2013,14 @@ function renderSettings() {
           </div>
         </div>
       </div>
+    </div>
+    <div class="stg-section">
+      <h4><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>交易前檢查清單</h4>
+      <div class="stg-s-body">
+        <p style="color:var(--t3);font-size:.78rem;margin:0 0 8px">新增交易時會顯示的提醒檢查項目</p>
+        <div id="stg-checklist-items">${(CFG.checklist||[]).map((item,i)=>`<div class="stg-cl-item" data-idx="${i}"><span>${item}</span><button class="stg-cl-del" data-idx="${i}" title="刪除">&times;</button></div>`).join('')}</div>
+        <div class="stg-cl-add"><input type="text" id="stg-cl-input" placeholder="輸入檢查項目，按 Enter 新增" maxlength="50"><button id="stg-cl-add-btn" class="stg-save-btn" style="padding:5px 12px;font-size:.78rem">新增</button></div>
+      </div>
     </div>`;
 
   // Collapsible group toggle
@@ -2088,6 +2106,33 @@ function renderSettings() {
   $('#stg-stockdb-tw-fetch')?.addEventListener('click', () => _stockDBFetch('stg-stockdb-tw-fetch', 'stg-stockdb-tw-info', () => StockDB.fetchTW()));
   $('#stg-stockdb-fut-fetch')?.addEventListener('click', () => _stockDBFetch('stg-stockdb-fut-fetch', 'stg-stockdb-fut-info', () => StockDB.fetchTaifexOnly()));
   $('#stg-stockdb-us-fetch')?.addEventListener('click', () => _stockDBFetch('stg-stockdb-us-fetch', 'stg-stockdb-us-info', () => StockDB.fetchUS()));
+
+  // Checklist management
+  const refreshChecklist = () => {
+    const container = $('#stg-checklist-items');
+    if (!container) return;
+    container.innerHTML = (CFG.checklist||[]).map((item,i)=>`<div class="stg-cl-item" data-idx="${i}"><span>${item}</span><button class="stg-cl-del" data-idx="${i}" title="刪除">&times;</button></div>`).join('');
+    $$('.stg-cl-del', container).forEach(btn => btn.addEventListener('click', () => {
+      const idx = parseInt(btn.dataset.idx);
+      CFG.checklist.splice(idx, 1);
+      saveSettings(CFG);
+      refreshChecklist();
+    }));
+  };
+  const addChecklistItem = () => {
+    const input = $('#stg-cl-input');
+    const val = input?.value?.trim();
+    if (!val) return;
+    if (!CFG.checklist) CFG.checklist = [];
+    if (CFG.checklist.length >= 20) { alert('最多 20 個檢查項目'); return; }
+    CFG.checklist.push(val);
+    input.value = '';
+    saveSettings(CFG);
+    refreshChecklist();
+  };
+  $('#stg-cl-add-btn')?.addEventListener('click', addChecklistItem);
+  $('#stg-cl-input')?.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addChecklistItem(); } });
+  refreshChecklist();
 }
 
 function applyTheme(theme) {

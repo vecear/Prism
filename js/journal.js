@@ -85,6 +85,7 @@ function newTrade() {
     stopLoss: '', takeProfit: '', fee: df.fee, tax: df.tax,
     tags: [], notes: '', status: 'open', contractMul: '',
     account: '', imageUrl: '', rating: 0,
+    reviewDiscipline: 0, reviewTiming: 0, reviewSizing: 0,
   };
 }
 
@@ -416,8 +417,8 @@ async function loadDailyJournals() {
   catch { dailyJournals = []; }
 }
 
-async function saveDailyJournal(date, mood, marketNote, plan, review) {
-  await api('/daily-journal', { method: 'PUT', body: JSON.stringify({ date, mood, marketNote, plan, review }) });
+async function saveDailyJournal(date, mood, marketNote, plan, review, discipline, tags, takeaway, starred) {
+  await api('/daily-journal', { method: 'PUT', body: JSON.stringify({ date, mood, marketNote, plan, review, discipline: discipline || 0, tags: tags || [], takeaway: takeaway || '', starred: starred || 0 }) });
   await loadDailyJournals();
 }
 
@@ -577,6 +578,11 @@ async function fetchOpenTradeQuotes() {
 }
 
 const TAG_PRESETS = ['突破', '回測', '順勢', '逆勢', '事件', '技術面', '基本面', '短線', '波段', '當沖', '停損', '停利', '加碼', '減碼'];
+
+function getChecklistItems() {
+  try { const s = JSON.parse(localStorage.getItem('tg-settings')) || {}; return s.checklist || []; }
+  catch { return []; }
+}
 
 // ================================================================
 //  HEADER AUTH — Show login/user badge in header on page load
@@ -920,11 +926,11 @@ function renderDashboard() {
   const lossCount = closed.filter(t => { const pl = calcPL(t); return pl && pl.net <= 0; }).length;
 
   el.innerHTML = `<div class="j-dashboard">
-    <div class="j-dash-item"><div class="j-dash-icon"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></div><span class="j-dash-label">今日</span><span class="j-dash-value ${cls(todayPL)}">${fmtNum(todayPL, 0)}</span></div>
-    <div class="j-dash-item"><div class="j-dash-icon"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div><span class="j-dash-label">本週</span><span class="j-dash-value ${cls(weekPL)}">${fmtNum(weekPL, 0)}</span></div>
-    <div class="j-dash-item"><div class="j-dash-icon"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg></div><span class="j-dash-label">本月</span><span class="j-dash-value ${cls(monthPL)}">${fmtNum(monthPL, 0)}</span></div>
-    <div class="j-dash-item"><div class="j-dash-icon"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div><span class="j-dash-label">未實現</span><span class="j-dash-value ${cls(unrealized)}">${unrealized ? fmtNum(unrealized, 0) : '—'}</span></div>
-    <div class="j-dash-item"><div class="j-dash-icon"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/></svg></div><span class="j-dash-label">持倉</span><span class="j-dash-value">${openCount}</span></div>
+    <div class="j-dash-item"><span class="j-dash-label">今日</span><span class="j-dash-value ${cls(todayPL)}">${fmtNum(todayPL, 0)}</span></div>
+    <div class="j-dash-item"><span class="j-dash-label">本週</span><span class="j-dash-value ${cls(weekPL)}">${fmtNum(weekPL, 0)}</span></div>
+    <div class="j-dash-item"><span class="j-dash-label">本月</span><span class="j-dash-value ${cls(monthPL)}">${fmtNum(monthPL, 0)}</span></div>
+    <div class="j-dash-item"><span class="j-dash-label">未實現</span><span class="j-dash-value ${cls(unrealized)}">${unrealized ? fmtNum(unrealized, 0) : '—'}</span></div>
+    <div class="j-dash-item"><span class="j-dash-label">持倉</span><span class="j-dash-value">${openCount}</span></div>
   </div>
   <div class="j-quick-filters" id="j-quick-filters">
     <button class="j-qf-chip" data-qf="all">全部<span class="j-qf-count">${trades.length}</span></button>
@@ -1348,6 +1354,25 @@ function renderPLDistribution(pls) {
     </svg></div>`;
 }
 
+function renderRollingChart(data) {
+  const W=500,H=140,pad=40;
+  if(data.length<2) return '';
+  const maxWr=100,minWr=0;
+  const xStep=(W-pad*2)/(data.length-1);
+  const pts=data.map((d,i)=>{const x=pad+i*xStep;const y=H-pad-(d.wr-minWr)/(maxWr-minWr)*(H-pad*2);return `${x},${y}`;});
+  const line50y=H-pad-(50-minWr)/(maxWr-minWr)*(H-pad*2);
+  return `<div class="j-stats-chart"><svg viewBox="0 0 ${W} ${H}" class="j-equity-svg">
+    <line x1="${pad}" y1="${line50y}" x2="${W-pad}" y2="${line50y}" stroke="var(--t3)" stroke-width="0.5" stroke-dasharray="4,3"/>
+    <text x="${pad-4}" y="${line50y+3}" fill="var(--t3)" font-size="9" text-anchor="end">50%</text>
+    <polyline points="${pts.join(' ')}" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linejoin="round"/>
+    <text x="${pad}" y="${H-6}" fill="var(--t3)" font-size="9">#1</text>
+    <text x="${W-pad}" y="${H-6}" fill="var(--t3)" font-size="9" text-anchor="end">#${data.length}</text>
+    <text x="${pad-4}" y="${pad}" fill="var(--t3)" font-size="9" text-anchor="end">100%</text>
+    <text x="${pad-4}" y="${H-pad+3}" fill="var(--t3)" font-size="9" text-anchor="end">0%</text>
+    <text x="${W-pad}" y="${pts[pts.length-1].split(',')[1]}" fill="var(--accent)" font-size="10" text-anchor="start" dx="4" dy="3">${data[data.length-1].wr.toFixed(1)}%</text>
+  </svg></div>`;
+}
+
 // ================================================================
 //  Daily Journal View
 // ================================================================
@@ -1391,17 +1416,88 @@ function _calcDiaryStreak() {
 function _renderMoodTrend() {
   const recent = [...dailyJournals].sort((a, b) => a.date.localeCompare(b.date)).slice(-30).filter(j => j.mood);
   if (recent.length < 3) return '';
-  const W = 400, H = 80, pad = 24;
+  const W = 500, H = 140, pad = 32, topPad = 20;
+  const chartH = H - topPad - pad;
   const sx = (i) => pad + (i / (recent.length - 1)) * (W - pad * 2);
-  const sy = (m) => H - pad - ((m - 1) / 4) * (H - pad * 2);
-  const pathD = recent.map((j, i) => `${i === 0 ? 'M' : 'L'}${sx(i).toFixed(1)},${sy(j.mood).toFixed(1)}`).join(' ');
+  const sy = (m) => topPad + chartH - ((m - 1) / 4) * chartH;
   const moodEmojis = ['', '😞', '😐', '🙂', '😊', '🤩'];
-  const lastMood = recent[recent.length - 1].mood;
-  return `<div class="j-mood-trend"><svg viewBox="0 0 ${W} ${H}" class="j-equity-svg" style="height:80px">
+
+  // Compute daily P&L for each journal date
+  const plData = recent.map(j => {
+    const dt = _getDiaryTradesForDate(j.date).filter(t => t.status === 'closed');
+    return dt.map(t => calcPL(t)).filter(Boolean).reduce((s, p) => s + p.net, 0);
+  });
+  const maxPL = Math.max(...plData.map(Math.abs), 1);
+  const barH = chartH * 0.4;
+  const barMid = topPad + chartH * 0.5;
+  const barW = Math.max(4, Math.min(16, (W - pad * 2) / recent.length * 0.6));
+
+  // P&L bars
+  const bars = recent.map((j, i) => {
+    if (!plData[i]) return '';
+    const h = Math.abs(plData[i]) / maxPL * barH;
+    const isPos = plData[i] >= 0;
+    const x = sx(i) - barW / 2;
+    const y = isPos ? barMid - h : barMid;
+    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW}" height="${h.toFixed(1)}" fill="${isPos?'var(--green)':'var(--red)'}" opacity="0.2" rx="2"><title>${j.date}: ${fmtNum(plData[i],0)}</title></rect>`;
+  }).join('');
+
+  // Mood line
+  const pathD = recent.map((j, i) => `${i === 0 ? 'M' : 'L'}${sx(i).toFixed(1)},${sy(j.mood).toFixed(1)}`).join(' ');
+
+  // Dots colored by discipline
+  const dots = recent.map((j, i) => {
+    const d = j.discipline || 0;
+    const color = d >= 4 ? 'var(--green)' : d >= 2 ? 'var(--accent)' : d > 0 ? 'var(--red)' : 'var(--t3)';
+    return `<circle cx="${sx(i).toFixed(1)}" cy="${sy(j.mood).toFixed(1)}" r="4" fill="${color}" stroke="var(--bg1)" stroke-width="1.5"><title>${j.date}: ${moodEmojis[j.mood]} 紀律${d}/5 損益${fmtNum(plData[i],0)}</title></circle>`;
+  }).join('');
+
+  // Discipline vs P&L correlation text
+  const withDisc = recent.filter(j => (j.discipline||0) > 0);
+  let corrText = '';
+  if (withDisc.length >= 3) {
+    const highD = recent.filter(j => (j.discipline||0) >= 4);
+    const lowD = recent.filter(j => (j.discipline||0) > 0 && (j.discipline||0) <= 2);
+    const plOf = (arr) => arr.reduce((s, j) => {
+      const dt = _getDiaryTradesForDate(j.date).filter(t => t.status === 'closed');
+      return s + dt.map(t => calcPL(t)).filter(Boolean).reduce((ss, p) => ss + p.net, 0);
+    }, 0);
+    if (highD.length && lowD.length) {
+      const hAvg = plOf(highD) / highD.length, lAvg = plOf(lowD) / lowD.length;
+      corrText = `<div class="j-diary-correlation">高紀律 (${highD.length}天) 平均損益 <span class="${hAvg>=0?'tg':'tr'}">${fmtNum(hAvg,0)}</span>　低紀律 (${lowD.length}天) <span class="${lAvg>=0?'tg':'tr'}">${fmtNum(lAvg,0)}</span></div>`;
+    }
+  }
+
+  return `<div class="j-mood-trend"><svg viewBox="0 0 ${W} ${H}" class="j-equity-svg" style="height:140px">
+    <line x1="${pad}" y1="${barMid}" x2="${W-pad}" y2="${barMid}" stroke="var(--bdr)" stroke-width="0.5" stroke-dasharray="3,3"/>
+    ${bars}
     <path d="${pathD}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>
-    ${recent.map((j, i) => `<circle cx="${sx(i).toFixed(1)}" cy="${sy(j.mood).toFixed(1)}" r="3" fill="var(--accent)"><title>${j.date}: ${moodEmojis[j.mood]}</title></circle>`).join('')}
-    <text x="${W - pad}" y="14" text-anchor="end" fill="var(--t3)" font-size="9">近 ${recent.length} 天心情趨勢</text>
-  </svg></div>`;
+    ${dots}
+    <text x="${pad}" y="13" fill="var(--t3)" font-size="9">心情+損益趨勢 (近 ${recent.length} 天)</text>
+    <text x="${pad-2}" y="${topPad+4}" fill="var(--t3)" font-size="8" text-anchor="end">5</text>
+    <text x="${pad-2}" y="${topPad+chartH+2}" fill="var(--t3)" font-size="8" text-anchor="end">1</text>
+  </svg>${corrText}</div>`;
+}
+
+const DIARY_TAG_PRESETS = ['趨勢', '盤整', '震盪', '跳空', '量縮', '量增', '事件', '財報'];
+
+function _getDiaryFormValues() {
+  // Desktop fields have no suffix, mobile fields have -m suffix
+  // Use whichever is visible / has content
+  const isMobile = !$('.j-diary-cols')?.offsetParent;
+  const sfx = isMobile ? '-m' : '';
+  return {
+    mood: parseInt($('#jd-mood')?.value) || 3,
+    marketNote: $(`#jd-market${sfx}`)?.value || '',
+    plan: $(`#jd-plan${sfx}`)?.value || '',
+    review: $(`#jd-review${sfx}`)?.value || '',
+    discipline: parseInt($('#jd-discipline')?.value) || 0,
+    tags: isMobile
+      ? $$('.jd-tag-btn.jd-tag-mobile.active').map(b => b.dataset.tag)
+      : $$('.j-diary-tags-bar .jd-tag-btn.active').map(b => b.dataset.tag),
+    takeaway: $(`#jd-takeaway${sfx}`)?.value || '',
+    starred: parseInt($('#jd-starred')?.value) || 0,
+  };
 }
 
 function renderDiary() {
@@ -1414,92 +1510,164 @@ function renderDiary() {
     const entry = dailyJournals.find(j => j.date === editDate);
     const moodEmojis = ['', '😞', '😐', '🙂', '😊', '🤩'];
     const streak = _calcDiaryStreak();
+    const hour = new Date().getHours();
+    const defaultTab = (isToday && hour < 14) ? 'pre' : 'post';
+    const entryTags = entry?.tags || [];
+    const dayTrades = _getDiaryTradesForDate(editDate);
+    const closedTrades = dayTrades.filter(t => t.status === 'closed');
+    const dayPL = closedTrades.map(t => calcPL(t)).filter(Boolean).reduce((s, p) => s + p.net, 0);
 
-    let h = `<div class="j-diary">`;
+    const historyEntries = dailyJournals.filter(j => j.date !== editDate);
+    const starred = historyEntries.filter(j => j.starred);
 
-    // Streak
-    if (streak > 0) {
-      h += `<div class="j-diary-streak"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2z"/></svg>連續記錄 <strong>${streak}</strong> 個交易日</div>`;
-    }
-
-    // Mood trend
-    h += _renderMoodTrend();
-
-    // Form
-    h += `<div class="j-diary-form card">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-          <h4 style="margin:0">${isToday ? '今日日記' : `日記 — ${editDate}`}</h4>
-          <div style="display:flex;align-items:center;gap:8px">
-            <span class="j-diary-auto-saved" id="jd-auto-status">✓ 已自動儲存</span>
-            ${!isToday ? `<button class="j-btn-cancel" id="jd-back-today" style="padding:4px 10px;font-size:.75rem">回到今天</button>` : ''}
-          </div>
-        </div>
-        <div class="j-fg" style="margin:8px 0"><label>心情</label>
+    let h = `<div class="j-diary">
+    <div class="j-diary-topbar">
+      <div class="j-diary-topbar-left">
+        <h4>${isToday ? '今日日記' : `日記 — ${editDate}`}</h4>
+        ${streak > 0 ? `<span class="j-diary-streak-inline"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2z"/></svg>${streak}天</span>` : ''}
+        <span class="j-diary-auto-saved" id="jd-auto-status">✓ 已儲存</span>
+      </div>
+      <div class="j-diary-topbar-right">
+        <div class="j-diary-checkin-inline">
           <div class="j-mood-picker">${[1,2,3,4,5].map(i => `<button type="button" class="j-mood-btn ${(entry?.mood||3)===i?'active':''}" data-mood="${i}">${moodEmojis[i]}</button>`).join('')}</div>
           <input type="hidden" id="jd-mood" value="${entry?.mood||3}">
+          <span class="j-diary-sep"></span>
+          <div class="j-diary-discipline">${[1,2,3,4,5].map(i=>`<span class="j-star ${i<=(entry?.discipline||0)?'j-star-on':''}" data-rate="${i}" style="cursor:pointer;font-size:1rem">${i<=(entry?.discipline||0)?'★':'☆'}</span>`).join('')}</div>
+          <input type="hidden" id="jd-discipline" value="${entry?.discipline||0}">
         </div>
-        <div class="j-fg" style="margin:8px 0"><label>盤勢觀察</label><textarea id="jd-market" rows="3" placeholder="今日大盤走勢、重要消息...">${entry?.marketNote||''}</textarea></div>
-        <div class="j-fg" style="margin:8px 0"><label>交易計畫</label><textarea id="jd-plan" rows="2" placeholder="今日計畫進出場、觀察標的...">${entry?.plan||''}</textarea></div>
-        <div class="j-fg" style="margin:8px 0"><label>收盤檢討</label><textarea id="jd-review" rows="3" placeholder="執行力如何、情緒管控、改進事項...">${entry?.review||''}</textarea></div>
-        <button class="j-btn-save" id="jd-save" style="margin-top:8px;width:100%">儲存日記</button>
-        ${_renderDiaryTrades(editDate)}
-      </div>`;
-
-    // History
-    if (dailyJournals.length) {
-      h += `<div class="j-diary-list">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin:16px 0 8px">
-          <h4 style="margin:0;color:var(--t2)">歷史日記</h4>
+        <button type="button" class="j-diary-star-btn ${(entry?.starred)?'active':''}" id="jd-star-btn" title="書籤">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="${(entry?.starred)?'var(--yellow)':'none'}" stroke="currentColor" stroke-width="2"><path d="M12 2L15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2z"/></svg>
+        </button>
+        <input type="hidden" id="jd-starred" value="${entry?.starred||0}">
+        ${!isToday ? `<button class="j-btn-cancel" id="jd-back-today" style="padding:3px 10px;font-size:.75rem">回到今天</button>` : ''}
+        <button class="j-btn-save j-diary-save-btn" id="jd-save">儲存</button>
+      </div>
+    </div>
+    <div class="j-diary-tags-bar">
+      ${DIARY_TAG_PRESETS.map(tag=>`<button type="button" class="jd-tag-btn ${entryTags.includes(tag)?'active':''}" data-tag="${tag}">${tag}</button>`).join('')}
+    </div>
+    <div class="j-diary-cols">
+      <div class="j-diary-col">
+        <div class="j-diary-col-head">盤前</div>
+        <div class="j-fg"><label>盤勢觀察</label><textarea id="jd-market" rows="3" placeholder="大盤走勢、重要消息...">${esc(entry?.marketNote||'')}</textarea></div>
+        <div class="j-fg"><label>交易計畫</label><textarea id="jd-plan" rows="3" placeholder="計畫進出場、觀察標的...">${esc(entry?.plan||'')}</textarea></div>
+      </div>
+      <div class="j-diary-col">
+        <div class="j-diary-col-head">盤後</div>
+        <div class="j-fg"><label>收盤檢討</label><textarea id="jd-review" rows="3" placeholder="執行力、情緒管控、改進...">${esc(entry?.review||'')}</textarea></div>
+        <div class="j-fg"><label>今日心得</label><input type="text" id="jd-takeaway" value="${esc(entry?.takeaway||'')}" placeholder="今天最重要的學習..."></div>
+      </div>
+      <div class="j-diary-col j-diary-col-info">
+        <div class="j-diary-col-head">資訊</div>
+        ${dayTrades.length ? _renderDiaryTrades(editDate) : '<div class="j-diary-no-trades">今日尚無交易</div>'}
+        ${closedTrades.length ? `<div class="j-diary-day-summary"><span>今日損益</span><strong class="${dayPL>=0?'tg':'tr'}">${fmtNum(dayPL,0)}</strong></div>` : ''}
+        ${_renderMoodTrend()}
+      </div>
+    </div>
+    <!-- Mobile tabs (hidden on desktop) -->
+    <div class="j-diary-mobile-form">
+      <div class="j-diary-checkin-mobile">
+        <div class="j-diary-checkin-group"><label class="j-diary-checkin-label">市況</label>
+          <div class="j-diary-tags">${DIARY_TAG_PRESETS.map(tag=>`<button type="button" class="jd-tag-btn jd-tag-mobile ${entryTags.includes(tag)?'active':''}" data-tag="${tag}">${tag}</button>`).join('')}</div>
         </div>
-        <input type="text" class="j-diary-search" id="jd-search" placeholder="搜尋日記內容...">
-        <div id="jd-history-list">
-        ${dailyJournals.filter(j => j.date !== editDate).slice(0,30).map(j => {
-          const dayTrades = _getDiaryTradesForDate(j.date);
-          const dayPL = dayTrades.filter(t => t.status === 'closed').map(t => calcPL(t)).filter(Boolean).reduce((s, p) => s + p.net, 0);
-          return `<div class="j-diary-entry card" style="margin-bottom:8px" data-date="${j.date}">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-            <strong style="color:var(--accent)">${j.date}</strong>
-            <div style="display:flex;align-items:center;gap:8px">
-              ${dayTrades.length ? `<span style="font-size:.72rem;color:var(--t3)">${dayTrades.length}筆 <span class="${dayPL >= 0 ? 'tg' : 'tr'}">${fmtNum(dayPL, 0)}</span></span>` : ''}
-              <span>${moodEmojis[j.mood||3]}</span>
-            </div>
-          </div>
-          ${j.marketNote?`<div style="font-size:.82rem;color:var(--t2);margin-bottom:4px"><span style="color:var(--t3);font-size:.75rem">盤勢</span> ${esc(j.marketNote)}</div>`:''}
-          ${j.plan?`<div style="font-size:.82rem;color:var(--t2);margin-bottom:4px"><span style="color:var(--t3);font-size:.75rem">計畫</span> ${esc(j.plan)}</div>`:''}
-          ${j.review?`<div style="font-size:.82rem;color:var(--t2)"><span style="color:var(--t3);font-size:.75rem">檢討</span> ${esc(j.review)}</div>`:''}
-        </div>`;}).join('')}
+      </div>
+      <div class="j-diary-tab-bar">
+        <button class="j-diary-tab ${defaultTab==='pre'?'active':''}" data-pane="pre">盤前</button>
+        <button class="j-diary-tab ${defaultTab==='post'?'active':''}" data-pane="post">盤後</button>
+        <button class="j-diary-tab" data-pane="trades">交易${dayTrades.length?` (${dayTrades.length})`:''}</button>
+      </div>
+      <div class="j-diary-tab-pane ${defaultTab==='pre'?'active':''}" data-pane="pre">
+        <div class="j-fg"><label>盤勢觀察</label><textarea id="jd-market-m" rows="3" placeholder="大盤走勢、重要消息...">${esc(entry?.marketNote||'')}</textarea></div>
+        <div class="j-fg"><label>交易計畫</label><textarea id="jd-plan-m" rows="3" placeholder="計畫進出場、觀察標的...">${esc(entry?.plan||'')}</textarea></div>
+      </div>
+      <div class="j-diary-tab-pane ${defaultTab==='post'?'active':''}" data-pane="post">
+        <div class="j-fg"><label>收盤檢討</label><textarea id="jd-review-m" rows="3" placeholder="執行力、情緒管控、改進...">${esc(entry?.review||'')}</textarea></div>
+        <div class="j-fg"><label>今日心得</label><input type="text" id="jd-takeaway-m" value="${esc(entry?.takeaway||'')}" placeholder="今天最重要的學習..."></div>
+      </div>
+      <div class="j-diary-tab-pane" data-pane="trades">
+        ${dayTrades.length ? _renderDiaryTrades(editDate) : '<div class="j-diary-no-trades">今日尚無交易</div>'}
+        ${closedTrades.length ? `<div class="j-diary-day-summary"><span>今日損益</span><strong class="${dayPL>=0?'tg':'tr'}">${fmtNum(dayPL,0)}</strong></div>` : ''}
+        ${_renderMoodTrend()}
+      </div>
+      <button class="j-btn-save" id="jd-save-m" style="width:100%;margin-top:8px">儲存日記</button>
+    </div>
+    ${historyEntries.length ? `<div class="j-diary-list">
+      <div class="j-diary-history-header">
+        <h4>歷史日記</h4>
+        <div class="j-diary-history-filters">
+          <button class="jd-filter-btn ${starred.length?'':'disabled'}" id="jd-filter-star" title="只看書籤">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2z"/></svg>
+          </button>
         </div>
-      </div>`;
-    }
-    h += '</div>';
+      </div>
+      <input type="text" class="j-diary-search" id="jd-search" placeholder="搜尋日記內容...">
+      <div id="jd-history-list">
+      ${historyEntries.slice(0,30).map(j => _renderDiaryEntryCard(j, moodEmojis)).join('')}
+      </div>
+      ${historyEntries.length > 30 ? `<button class="j-diary-load-more" id="jd-load-more">載入更多 (共 ${historyEntries.length} 篇)</button>` : ''}
+    </div>` : ''}
+    </div>`;
     body.innerHTML = h;
 
-    // Back to today
-    $('#jd-back-today')?.addEventListener('click', () => { _diaryEditingDate = null; renderDiary(); });
-
-    // Click on past entry to edit
-    $$('.j-diary-entry[data-date]', body).forEach(el => el.addEventListener('click', () => {
-      _diaryEditingDate = el.dataset.date;
-      renderDiary();
-    }));
+    // === Event Binding ===
 
     // Auto-save on input (debounce 2s)
     const _triggerDiaryAutoSave = (date) => {
       if (_diaryAutoSaveTimer) clearTimeout(_diaryAutoSaveTimer);
       _diaryAutoSaveTimer = setTimeout(async () => {
         try {
-          await saveDailyJournal(
-            date,
-            parseInt($('#jd-mood')?.value) || 3,
-            $('#jd-market')?.value || '',
-            $('#jd-plan')?.value || '',
-            $('#jd-review')?.value || ''
-          );
+          const v = _getDiaryFormValues();
+          await saveDailyJournal(date, v.mood, v.marketNote, v.plan, v.review, v.discipline, v.tags, v.takeaway, v.starred);
           const el = $('#jd-auto-status');
           if (el) { el.classList.add('show'); setTimeout(() => el.classList.remove('show'), 2000); }
         } catch {}
       }, 2000);
     };
+
+    // Back to today
+    $('#jd-back-today')?.addEventListener('click', () => { _diaryEditingDate = null; renderDiary(); });
+
+    // Star toggle
+    $('#jd-star-btn')?.addEventListener('click', () => {
+      const btn = $('#jd-star-btn');
+      const input = $('#jd-starred');
+      const isStarred = parseInt(input.value) ? 0 : 1;
+      input.value = isStarred;
+      btn.classList.toggle('active', !!isStarred);
+      btn.querySelector('svg').setAttribute('fill', isStarred ? 'var(--yellow)' : 'none');
+      _triggerDiaryAutoSave(editDate);
+    });
+
+    // Tab switching
+    $$('.j-diary-tab', body).forEach(tab => tab.addEventListener('click', () => {
+      $$('.j-diary-tab', body).forEach(t => t.classList.remove('active'));
+      $$('.j-diary-tab-pane', body).forEach(p => p.classList.remove('active'));
+      tab.classList.add('active');
+      $(`.j-diary-tab-pane[data-pane="${tab.dataset.pane}"]`, body)?.classList.add('active');
+    }));
+
+    // Discipline picker
+    $$('.j-diary-discipline .j-star', body).forEach(s => s.addEventListener('click', () => {
+      const rate = parseInt(s.dataset.rate);
+      $('#jd-discipline').value = rate;
+      $$('.j-diary-discipline .j-star', body).forEach((st, i) => {
+        st.textContent = i < rate ? '★' : '☆';
+        st.classList.toggle('j-star-on', i < rate);
+      });
+      _triggerDiaryAutoSave(editDate);
+    }));
+
+    // Tag toggle
+    $$('.jd-tag-btn', body).forEach(b => b.addEventListener('click', () => {
+      b.classList.toggle('active');
+      _triggerDiaryAutoSave(editDate);
+    }));
+
+    // Click on past entry to edit
+    $$('.j-diary-entry[data-date]', body).forEach(el => el.addEventListener('click', () => {
+      _diaryEditingDate = el.dataset.date;
+      renderDiary();
+    }));
 
     // Mood picker
     $$('.j-mood-btn', body).forEach(b => b.addEventListener('click', () => {
@@ -1509,40 +1677,92 @@ function renderDiary() {
       _triggerDiaryAutoSave(editDate);
     }));
 
-    $$('#jd-market,#jd-plan,#jd-review', body).forEach(el => {
-      el.addEventListener('input', () => _triggerDiaryAutoSave(editDate));
+    $$('#jd-market,#jd-plan,#jd-review,#jd-takeaway,#jd-market-m,#jd-plan-m,#jd-review-m,#jd-takeaway-m', body).forEach(el => {
+      if (el) el.addEventListener('input', () => _triggerDiaryAutoSave(editDate));
     });
+
+    // Mobile tab switching
+    $$('.j-diary-tab', body).forEach(tab => tab.addEventListener('click', () => {
+      $$('.j-diary-tab', body).forEach(t => t.classList.remove('active'));
+      $$('.j-diary-tab-pane', body).forEach(p => p.classList.remove('active'));
+      tab.classList.add('active');
+      $(`.j-diary-tab-pane[data-pane="${tab.dataset.pane}"]`, body)?.classList.add('active');
+    }));
 
     // Diary search
-    $('#jd-search')?.addEventListener('input', e => {
-      const q = e.target.value.toLowerCase().trim();
+    let _showStarredOnly = false;
+    const _filterHistory = () => {
+      const q = ($('#jd-search')?.value || '').toLowerCase().trim();
       $$('.j-diary-entry[data-date]', body).forEach(el => {
         const text = el.textContent.toLowerCase();
-        el.style.display = (!q || text.includes(q)) ? '' : 'none';
+        const matchSearch = !q || text.includes(q);
+        const matchStar = !_showStarredOnly || el.dataset.starred === '1';
+        el.style.display = (matchSearch && matchStar) ? '' : 'none';
       });
+    };
+    $('#jd-search')?.addEventListener('input', _filterHistory);
+    $('#jd-filter-star')?.addEventListener('click', () => {
+      _showStarredOnly = !_showStarredOnly;
+      $('#jd-filter-star')?.classList.toggle('active', _showStarredOnly);
+      _filterHistory();
     });
 
-    // Manual save
-    $('#jd-save')?.addEventListener('click', async () => {
+    // Load more
+    let _historyShown = 30;
+    $('#jd-load-more')?.addEventListener('click', () => {
+      const list = $('#jd-history-list');
+      const next = historyEntries.slice(_historyShown, _historyShown + 30);
+      list.insertAdjacentHTML('beforeend', next.map(j => _renderDiaryEntryCard(j, moodEmojis)).join(''));
+      _historyShown += 30;
+      // Re-bind click on new entries
+      $$('.j-diary-entry[data-date]', list).forEach(el => {
+        el.onclick = () => { _diaryEditingDate = el.dataset.date; renderDiary(); };
+      });
+      if (_historyShown >= historyEntries.length) $('#jd-load-more')?.remove();
+    });
+
+    // Manual save (desktop + mobile buttons)
+    const _manualSave = async (btn, label) => {
       if (_diaryAutoSaveTimer) clearTimeout(_diaryAutoSaveTimer);
-      const btn = $('#jd-save');
       btn.disabled = true; btn.textContent = '儲存中...';
       try {
-        await saveDailyJournal(
-          editDate,
-          parseInt($('#jd-mood')?.value) || 3,
-          $('#jd-market')?.value || '',
-          $('#jd-plan')?.value || '',
-          $('#jd-review')?.value || ''
-        );
-        btn.textContent = '已儲存 ✓';
-        setTimeout(() => { btn.disabled = false; btn.textContent = '儲存日記'; }, 1500);
+        const v = _getDiaryFormValues();
+        await saveDailyJournal(editDate, v.mood, v.marketNote, v.plan, v.review, v.discipline, v.tags, v.takeaway, v.starred);
+        btn.textContent = '✓';
+        setTimeout(() => { btn.disabled = false; btn.textContent = label; }, 1500);
       } catch (e) {
         alert('儲存失敗：' + e.message);
-        btn.disabled = false; btn.textContent = '儲存日記';
+        btn.disabled = false; btn.textContent = label;
       }
-    });
+    };
+    $('#jd-save')?.addEventListener('click', () => _manualSave($('#jd-save'), '儲存'));
+    $('#jd-save-m')?.addEventListener('click', () => _manualSave($('#jd-save-m'), '儲存日記'));
   });
+}
+
+function _renderDiaryEntryCard(j, moodEmojis) {
+  const dayTrades = _getDiaryTradesForDate(j.date);
+  const closedTrades = dayTrades.filter(t => t.status === 'closed');
+  const dayPL = closedTrades.map(t => calcPL(t)).filter(Boolean).reduce((s, p) => s + p.net, 0);
+  const hasTrades = closedTrades.length > 0;
+  const borderClass = hasTrades ? (dayPL >= 0 ? 'j-diary-border-green' : 'j-diary-border-red') : '';
+  return `<div class="j-diary-entry card ${borderClass}" data-date="${j.date}" data-starred="${j.starred||0}">
+    <div class="j-diary-entry-top">
+      <div class="j-diary-entry-date">
+        <strong>${j.date}</strong>
+        ${j.starred?'<svg viewBox="0 0 24 24" width="12" height="12" fill="var(--yellow)" stroke="var(--yellow)" stroke-width="2"><path d="M12 2L15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2z"/></svg>':''}
+      </div>
+      <div class="j-diary-entry-meta">
+        ${dayTrades.length ? `<span class="j-diary-entry-pl">${dayTrades.length}筆 <span class="${dayPL >= 0 ? 'tg' : 'tr'}">${fmtNum(dayPL, 0)}</span></span>` : ''}
+        ${j.discipline?`<span class="j-diary-entry-disc">${'★'.repeat(j.discipline)}${'☆'.repeat(5-j.discipline)}</span>`:''}
+        <span>${moodEmojis[j.mood||3]}</span>
+      </div>
+    </div>
+    ${(j.tags||[]).length?`<div class="j-diary-entry-tags">${j.tags.map(tag=>`<span class="j-diary-entry-tag">${esc(tag)}</span>`).join('')}</div>`:''}
+    ${j.takeaway?`<div class="j-diary-entry-takeaway">💡 ${esc(j.takeaway)}</div>`:''}
+    ${j.marketNote?`<div class="j-diary-entry-text"><span class="j-diary-entry-label">盤勢</span> ${esc(j.marketNote).slice(0,80)}${j.marketNote.length>80?'...':''}</div>`:''}
+    ${j.review?`<div class="j-diary-entry-text"><span class="j-diary-entry-label">檢討</span> ${esc(j.review).slice(0,80)}${j.review.length>80?'...':''}</div>`:''}
+  </div>`;
 }
 
 // ================================================================
@@ -1595,6 +1815,38 @@ function renderStats() {
   // By rating
   const byRating = {};
   pls.forEach(t=>{const r=t.rating||0;if(r>0){if(!byRating[r])byRating[r]={c:0,n:0,w:0};byRating[r].c++;byRating[r].n+=t.pl.net;if(t.pl.net>0)byRating[r].w++;}});
+  // By symbol
+  const bySymbol = {};
+  pls.forEach(t=>{const s=t.symbol||'(未知)';if(!bySymbol[s])bySymbol[s]={c:0,n:0,w:0,name:t.name||s};bySymbol[s].c++;bySymbol[s].n+=t.pl.net;if(t.pl.net>0)bySymbol[s].w++;});
+  // Rolling 30-trade performance
+  const sorted = [...pls].sort((a,b)=>a.date>b.date?1:-1);
+  const rollingData = [];
+  for(let i=0;i<sorted.length;i++){
+    const window = sorted.slice(Math.max(0,i-29),i+1);
+    const ww=window.filter(t=>t.pl.net>0).length;
+    const wn=window.reduce((s,t)=>s+t.pl.net,0);
+    rollingData.push({date:sorted[i].date,wr:(ww/window.length*100),cum:wn,idx:i+1});
+  }
+  // Post-loss behavior (revenge trading detection)
+  let revengeTrades=0,revengeNet=0,afterLossCount=0,afterLossNet=0;
+  for(let i=1;i<sorted.length;i++){
+    if(sorted[i-1].pl.net<0){
+      afterLossCount++;afterLossNet+=sorted[i].pl.net;
+      const d1=new Date(sorted[i-1].date),d2=new Date(sorted[i].date);
+      const diffH=(d2-d1)/(1000*60*60);
+      if(diffH<2){revengeTrades++;revengeNet+=sorted[i].pl.net;}
+    }
+  }
+  // Review score analysis
+  const reviewed = pls.filter(t=>(t.reviewDiscipline||0)>0||(t.reviewTiming||0)>0||(t.reviewSizing||0)>0);
+  const avgDisc = reviewed.length?reviewed.reduce((s,t)=>s+(t.reviewDiscipline||0),0)/reviewed.length:0;
+  const avgTim = reviewed.length?reviewed.reduce((s,t)=>s+(t.reviewTiming||0),0)/reviewed.length:0;
+  const avgSiz = reviewed.length?reviewed.reduce((s,t)=>s+(t.reviewSizing||0),0)/reviewed.length:0;
+  // High vs low discipline performance
+  const highDisc = reviewed.filter(t=>(t.reviewDiscipline||0)>=4);
+  const lowDisc = reviewed.filter(t=>(t.reviewDiscipline||0)<=2&&(t.reviewDiscipline||0)>0);
+  const highDiscPL = highDisc.length?highDisc.reduce((s,t)=>s+t.pl.net,0)/highDisc.length:0;
+  const lowDiscPL = lowDisc.length?lowDisc.reduce((s,t)=>s+t.pl.net,0)/lowDisc.length:0;
 
   body.innerHTML=`<div class="j-stats"><div class="j-stats-grid">
     <div class="j-stat-card j-stat-main"><div class="j-stat-label">淨損益</div><div class="j-stat-value ${tn>=0?'tg':'tr'}">${fmtNum(tn,0)}</div></div>
@@ -1622,6 +1874,10 @@ function renderStats() {
   ${Object.keys(byRating).length?`<div class="j-stats-section"><h4>依評分</h4><table class="j-stats-table"><thead><tr><th>評分</th><th>筆數</th><th>淨損益</th><th>勝率</th></tr></thead><tbody>${Object.entries(byRating).sort((a,b)=>b[0]-a[0]).map(([r,v])=>`<tr><td>${'★'.repeat(parseInt(r))}${'☆'.repeat(5-parseInt(r))}</td><td>${v.c}</td><td class="${v.n>=0?'tg':'tr'}">${fmtNum(v.n,0)}</td><td>${(v.w/v.c*100).toFixed(1)}%</td></tr>`).join('')}</tbody></table></div>`:''}
   <div class="j-stats-section"><h4>依星期</h4><table class="j-stats-table"><thead><tr><th>星期</th><th>筆數</th><th>淨損益</th><th>勝率</th></tr></thead><tbody>${[1,2,3,4,5,6,0].filter(d=>byDow[d]).map(d=>{const v=byDow[d];return `<tr><td>週${dowNames[d]}</td><td>${v.c}</td><td class="${v.n>=0?'tg':'tr'}">${fmtNum(v.n,0)}</td><td>${(v.w/v.c*100).toFixed(1)}%</td></tr>`;}).join('')}</tbody></table></div>
   ${byTime.morning.c&&byTime.afternoon.c?`<div class="j-stats-section"><h4>依時段</h4><table class="j-stats-table"><thead><tr><th>時段</th><th>筆數</th><th>淨損益</th><th>勝率</th></tr></thead><tbody><tr><td>上午 (0-12)</td><td>${byTime.morning.c}</td><td class="${byTime.morning.n>=0?'tg':'tr'}">${fmtNum(byTime.morning.n,0)}</td><td>${(byTime.morning.w/byTime.morning.c*100).toFixed(1)}%</td></tr><tr><td>下午 (12-24)</td><td>${byTime.afternoon.c}</td><td class="${byTime.afternoon.n>=0?'tg':'tr'}">${fmtNum(byTime.afternoon.n,0)}</td><td>${(byTime.afternoon.w/byTime.afternoon.c*100).toFixed(1)}%</td></tr></tbody></table></div>`:''}
+  ${Object.keys(bySymbol).length>1?`<div class="j-stats-section"><h4>依標的績效</h4><table class="j-stats-table"><thead><tr><th>標的</th><th>筆數</th><th>淨損益</th><th>勝率</th><th>均損益</th></tr></thead><tbody>${Object.entries(bySymbol).sort((a,b)=>b[1].n-a[1].n).map(([s,v])=>`<tr><td title="${esc(v.name)}">${esc(s)}</td><td>${v.c}</td><td class="${v.n>=0?'tg':'tr'}">${fmtNum(v.n,0)}</td><td>${(v.w/v.c*100).toFixed(1)}%</td><td class="${v.n/v.c>=0?'tg':'tr'}">${fmtNum(v.n/v.c,0)}</td></tr>`).join('')}</tbody></table></div>`:''}
+  ${reviewed.length?`<div class="j-stats-section"><h4>覆盤評分分析</h4><div class="j-rv-analysis"><div class="j-rv-avg"><span>平均紀律 <strong>${avgDisc.toFixed(1)}</strong>/5</span><span>平均時機 <strong>${avgTim.toFixed(1)}</strong>/5</span><span>平均倉位 <strong>${avgSiz.toFixed(1)}</strong>/5</span></div>${highDisc.length&&lowDisc.length?`<div class="j-rv-compare"><div class="j-rv-cmp-item"><span class="j-rv-cmp-label">高紀律 (4-5分) 平均損益</span><span class="${highDiscPL>=0?'tg':'tr'}">${fmtNum(highDiscPL,0)}</span><span class="j-stat-sub">${highDisc.length}筆</span></div><div class="j-rv-cmp-item"><span class="j-rv-cmp-label">低紀律 (1-2分) 平均損益</span><span class="${lowDiscPL>=0?'tg':'tr'}">${fmtNum(lowDiscPL,0)}</span><span class="j-stat-sub">${lowDisc.length}筆</span></div></div>`:''}</div></div>`:''}
+  ${afterLossCount>0?`<div class="j-stats-section"><h4>虧損後行為分析</h4><div class="j-revenge-analysis"><div class="j-revenge-row"><span class="j-dl">虧損後交易</span><span class="j-dv">${afterLossCount} 筆</span><span class="j-dv ${afterLossNet>=0?'tg':'tr'}">${fmtNum(afterLossNet,0)}</span></div><div class="j-revenge-row"><span class="j-dl">疑似報復性交易</span><span class="j-dv ${revengeTrades>0?'tr':''}">${revengeTrades} 筆</span><span class="j-dv ${revengeNet>=0?'tg':'tr'}">${fmtNum(revengeNet,0)}</span></div>${revengeTrades>0?`<div class="j-revenge-warn">⚠ 偵測到 ${revengeTrades} 筆在虧損後 2 小時內的交易，平均損益 ${fmtNum(revengeTrades?revengeNet/revengeTrades:0,0)}</div>`:`<div class="j-revenge-ok">✓ 未偵測到明顯的報復性交易行為</div>`}</div></div>`:''}
+  ${rollingData.length>=5?`<div class="j-stats-section"><h4>滾動績效趨勢 (近30筆)</h4>${renderRollingChart(rollingData)}</div>`:''}
   ${renderMonthlyBarChart(byM)}
   ${renderPLDistribution(pls)}
   </div>`;
@@ -1686,6 +1942,18 @@ function openTradeForm(id, prefill) {
         <div class="j-fg"><label>截圖網址</label><input type="url" id="jf-image-url" value="${esc(t.imageUrl||'')}" placeholder="貼上圖片連結 (可選)"></div>
         <div class="j-fg"><label>自評 (1-5)</label><div class="j-rating-picker" id="jf-rating">${[1,2,3,4,5].map(i=>`<span class="j-star ${i<=(t.rating||0)?'j-star-on':''}" data-rate="${i}" style="cursor:pointer;font-size:1.2rem">${i<=(t.rating||0)?'★':'☆'}</span>`).join('')}</div><input type="hidden" id="jf-rating-val" value="${t.rating||0}"></div>
       </div>
+      <div class="j-review-section">
+        <label class="j-review-title">交易覆盤評分</label>
+        <div class="j-review-scores">
+          <div class="j-review-item"><span class="j-review-label">紀律</span><div class="j-review-picker" data-field="discipline">${[1,2,3,4,5].map(i=>`<button type="button" class="j-rv-dot ${i<=(t.reviewDiscipline||0)?'active':''}" data-val="${i}">${i}</button>`).join('')}</div><input type="hidden" id="jf-rv-discipline" value="${t.reviewDiscipline||0}"></div>
+          <div class="j-review-item"><span class="j-review-label">時機</span><div class="j-review-picker" data-field="timing">${[1,2,3,4,5].map(i=>`<button type="button" class="j-rv-dot ${i<=(t.reviewTiming||0)?'active':''}" data-val="${i}">${i}</button>`).join('')}</div><input type="hidden" id="jf-rv-timing" value="${t.reviewTiming||0}"></div>
+          <div class="j-review-item"><span class="j-review-label">倉位</span><div class="j-review-picker" data-field="sizing">${[1,2,3,4,5].map(i=>`<button type="button" class="j-rv-dot ${i<=(t.reviewSizing||0)?'active':''}" data-val="${i}">${i}</button>`).join('')}</div><input type="hidden" id="jf-rv-sizing" value="${t.reviewSizing||0}"></div>
+        </div>
+      </div>
+      ${getChecklistItems().length ? `<div class="j-checklist-section">
+        <label class="j-review-title">交易前檢查清單</label>
+        <div class="j-checklist-items" id="jf-checklist">${getChecklistItems().map((item,i)=>`<label class="j-checklist-item"><input type="checkbox" data-cl="${i}"><span>${esc(item)}</span></label>`).join('')}</div>
+      </div>` : ''}
       ${getTemplates().length ? `<div class="j-fg j-fg-wide" style="margin-top:6px"><label>套用模板</label><div class="j-tpl-row">${getTemplates().map(tpl => `<button type="button" class="j-tag-btn j-tpl-btn" data-tpl="${esc(tpl.name)}">${esc(tpl.name)}</button>`).join('')}</div></div>` : ''}
       <div class="j-fg j-fg-wide" style="margin-top:10px"><label>標籤</label>
         <div class="j-tag-picker" id="jf-tags">${TAG_PRESETS.map(tag=>`<button type="button" class="j-tag-btn ${(t.tags||[]).includes(tag)?'active':''}" data-tag="${tag}">${tag}</button>`).join('')}${(t.tags||[]).filter(tag=>!TAG_PRESETS.includes(tag)).map(tag=>`<button type="button" class="j-tag-btn active" data-tag="${tag}">${tag}</button>`).join('')}</div>
@@ -1784,6 +2052,15 @@ function openTradeForm(id, prefill) {
       st.classList.toggle('j-star-on', i < rate);
     });
   }));
+  // Review score pickers (discipline/timing/sizing)
+  $$('.j-review-picker', modal).forEach(picker => {
+    const field = picker.dataset.field;
+    $$('.j-rv-dot', picker).forEach(dot => dot.addEventListener('click', () => {
+      const val = parseInt(dot.dataset.val);
+      $(`#jf-rv-${field}`).value = val;
+      $$('.j-rv-dot', picker).forEach((d, i) => d.classList.toggle('active', i < val));
+    }));
+  });
 
   const updatePV=()=>{const p=$('#jf-pl-preview');if(!p)return;const en=parseFloat($('#jf-entry')?.value),ex=parseFloat($('#jf-exit')?.value),q=parseFloat($('#jf-qty')?.value),fe=parseFloat($('#jf-fee')?.value)||0,ta=parseFloat($('#jf-tax')?.value)||0,di=$('#jf-dir')?.value==='long'?1:-1,mu=['futures','options'].includes($('#jf-type2')?.value)?(parseFloat($('#jf-mul')?.value)||1):1;if(isNaN(en)||isNaN(ex)||isNaN(q)){p.innerHTML='';return;}const g=di*(ex-en)*q*mu,n=g-fe-ta;p.innerHTML=`<div class="j-pl-box ${n>=0?'j-pl-profit':'j-pl-loss'}"><span>預估損益</span><strong>${fmtNum(n,0)}</strong><span class="j-pl-detail">毛利 ${fmtNum(g,0)} - 費用 ${fmtNum(fe+ta,0)}</span></div>`;};
   $$('#jf-entry,#jf-exit,#jf-qty,#jf-fee,#jf-tax,#jf-mul',modal).forEach(el=>{if(el)el.addEventListener('input',updatePV);});
@@ -1856,6 +2133,9 @@ async function saveTrade() {
     account:$('#jf-account')?.value.trim()||'',
     imageUrl:$('#jf-image-url')?.value.trim()||'',
     rating:parseInt($('#jf-rating-val')?.value)||0,
+    reviewDiscipline:parseInt($('#jf-rv-discipline')?.value)||0,
+    reviewTiming:parseInt($('#jf-rv-timing')?.value)||0,
+    reviewSizing:parseInt($('#jf-rv-sizing')?.value)||0,
   };
   try {
     if(editingId){await api(`/trades/${editingId}`,{method:'PUT',body:JSON.stringify(data)});const idx=trades.findIndex(t=>t.id===editingId);if(idx>=0)trades[idx]=data;}
@@ -1898,6 +2178,7 @@ function openTradeDetail(id) {
   ${(t.tags||[]).length?`<div class="j-detail-tags">${t.tags.map(tag=>`<span class="j-tag">${esc(tag)}</span>`).join('')}</div>`:''}
   ${t.account?`<div class="j-detail-item" style="grid-column:1/-1"><span class="j-dl">帳戶</span><span class="j-dv">${esc(t.account)}</span></div>`:''}
   ${t.rating?`<div class="j-detail-item"><span class="j-dl">自評</span><span class="j-dv">${ratingHTML(t.rating)}</span></div>`:''}
+  ${(t.reviewDiscipline||t.reviewTiming||t.reviewSizing)?`<div class="j-detail-review" style="grid-column:1/-1"><span class="j-dl">覆盤評分</span><div class="j-detail-rv-scores"><span>紀律 <strong>${t.reviewDiscipline||0}</strong>/5</span><span>時機 <strong>${t.reviewTiming||0}</strong>/5</span><span>倉位 <strong>${t.reviewSizing||0}</strong>/5</span></div></div>`:''}
   ${t.notes?`<div class="j-detail-notes"><h4>策略筆記</h4><div class="j-notes-content">${esc(t.notes).replace(/\n/g,'<br>')}</div></div>`:''}
   ${t.imageUrl?`<div class="j-detail-notes"><h4>交易截圖</h4><img src="${esc(t.imageUrl)}" class="j-detail-img" alt="交易截圖" loading="lazy" onerror="this.style.display='none'"></div>`:''}
   </div><div class="j-modal-footer">${t.status==='open'?`<button class="j-btn-cancel j-detail-close-btn" id="jd-quick-close" style="color:var(--red);border-color:var(--red)">快速平倉</button>`:''}<button class="j-btn-cancel" id="jd-calc" title="在計算器中開啟">計算器</button><button class="j-btn-cancel" id="jd-dup" title="複製為新交易">複製</button><span style="flex:1"></span><button class="j-btn-cancel" id="jd-back">關閉</button><button class="j-btn-save" id="jd-edit">編輯</button></div>`;
