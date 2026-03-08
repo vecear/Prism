@@ -1655,6 +1655,7 @@ function init() {
     window.scrollTo(0, 0);
     S.activeTab = b.dataset.tab; _saveState();
     if (b.dataset.tab === 'guide') renderGuide();
+    if (b.dataset.tab === 'settings') { if (!window._stgRendered) { renderSettings(); window._stgRendered = true; } }
   }));
 
   // Toggle groups
@@ -1724,6 +1725,7 @@ function init() {
       $$('.tab-content').forEach(x => x.classList.remove('active'));
       $(`#tab-${S.activeTab}`)?.classList.add('active');
       if (S.activeTab === 'guide') renderGuide();
+      if (S.activeTab === 'settings') { if (!window._stgRendered) { renderSettings(); window._stgRendered = true; } }
     }
   }
 
@@ -1779,17 +1781,7 @@ document.addEventListener('visibilitychange', () => {
 //  SETTINGS PANEL
 // ================================================================
 function initSettings() {
-  const btn = $('#btn-settings');
-  const overlay = $('#settings-overlay');
-  const panel = $('#settings-panel');
-  const closeBtn = $('#btn-settings-close');
   window._stgRendered = false;
-  const open = () => { if (!window._stgRendered) { renderSettings(); window._stgRendered = true; } panel.classList.add('open'); overlay.classList.add('open'); };
-  const close = () => { panel.classList.remove('open'); overlay.classList.remove('open'); };
-  if (btn) btn.addEventListener('click', open);
-  if (overlay) overlay.addEventListener('click', close);
-  if (closeBtn) closeBtn.addEventListener('click', close);
-  document.addEventListener('keydown', e => { if (e.key === 'Escape' && panel.classList.contains('open')) close(); });
 }
 
 function renderSettings() {
@@ -1835,170 +1827,186 @@ function renderSettings() {
       </div>`;
 
   const curTheme = CFG.theme || 'dark';
+  const _chevron = `<svg class="stg-group-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>`;
+  const _twDBInfo = (() => { const t = StockDB.getTime('tw'); const n = StockDB.getList('tw').length; return n ? `${n} 檔 · ${new Date(t).toLocaleDateString('zh-TW')}` : '尚未下載'; })();
+  const _futDBInfo = (() => { const t = StockDB.getTaifexFuturesTime(); const n = StockDB.getTaifexFutures().length; return n ? `${n} 檔 · ${new Date(t).toLocaleDateString('zh-TW')}` : '尚未下載'; })();
+  const _usDBInfo = (() => { const t = StockDB.getTime('us'); const n = StockDB.getList('us').length; return n ? `${n} 檔 · ${new Date(t).toLocaleDateString('zh-TW')}` : '尚未下載'; })();
+
   body.innerHTML = `
+    <!-- ① 外觀與帳號 -->
     <div class="stg-section">
-      <h4><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>配色主題</h4>
-      <div class="stg-theme-grid">
-        <button type="button" class="stg-theme-btn ${curTheme==='dark'?'active':''}" data-theme="dark"><div class="stg-theme-swatch" data-sw="dark"></div><span class="stg-theme-label">深色</span></button>
-        <button type="button" class="stg-theme-btn ${curTheme==='light'?'active':''}" data-theme="light"><div class="stg-theme-swatch" data-sw="light"></div><span class="stg-theme-label">淺色</span></button>
-        <button type="button" class="stg-theme-btn ${curTheme==='midnight'?'active':''}" data-theme="midnight"><div class="stg-theme-swatch" data-sw="midnight"></div><span class="stg-theme-label">午夜藍</span></button>
-        <button type="button" class="stg-theme-btn ${curTheme==='emerald'?'active':''}" data-theme="emerald"><div class="stg-theme-swatch" data-sw="emerald"></div><span class="stg-theme-label">翡翠綠</span></button>
-        <button type="button" class="stg-theme-btn ${curTheme==='warm'?'active':''}" data-theme="warm"><div class="stg-theme-swatch" data-sw="warm"></div><span class="stg-theme-label">琥珀</span></button>
+      <h4><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>外觀與偏好</h4>
+      <div class="stg-s-body">
+        <div class="stg-theme-grid">
+          <button type="button" class="stg-theme-btn ${curTheme==='dark'?'active':''}" data-theme="dark"><div class="stg-theme-swatch" data-sw="dark"></div><span class="stg-theme-label">深色</span></button>
+          <button type="button" class="stg-theme-btn ${curTheme==='light'?'active':''}" data-theme="light"><div class="stg-theme-swatch" data-sw="light"></div><span class="stg-theme-label">淺色</span></button>
+          <button type="button" class="stg-theme-btn ${curTheme==='midnight'?'active':''}" data-theme="midnight"><div class="stg-theme-swatch" data-sw="midnight"></div><span class="stg-theme-label">午夜藍</span></button>
+          <button type="button" class="stg-theme-btn ${curTheme==='emerald'?'active':''}" data-theme="emerald"><div class="stg-theme-swatch" data-sw="emerald"></div><span class="stg-theme-label">翡翠綠</span></button>
+          <button type="button" class="stg-theme-btn ${curTheme==='warm'?'active':''}" data-theme="warm"><div class="stg-theme-swatch" data-sw="warm"></div><span class="stg-theme-label">琥珀</span></button>
+        </div>
+        <div class="stg-row" style="margin-top:10px">
+          <label>預設市場</label>
+          <select class="stg-select" id="stg-default-market">
+            <option value="tw" ${CFG.defaultMarket === 'tw' ? 'selected' : ''}>台灣</option>
+            <option value="us" ${CFG.defaultMarket === 'us' ? 'selected' : ''}>美國</option>
+          </select>
+        </div>
+        <div class="stg-row">
+          <label>字體大小</label>
+          <select class="stg-select" id="stg-font-scale">
+            <option value="xs" ${CFG.fontScale === 'xs' ? 'selected' : ''}>小</option>
+            <option value="s" ${CFG.fontScale === 's' ? 'selected' : ''}>適中</option>
+            <option value="m" ${CFG.fontScale === 'm' ? 'selected' : ''}>標準</option>
+            <option value="l" ${CFG.fontScale === 'l' ? 'selected' : ''}>大</option>
+            <option value="xl" ${CFG.fontScale === 'xl' ? 'selected' : ''}>特大</option>
+          </select>
+        </div>
+      </div>
+      <div class="stg-group open">
+        <div class="stg-group-title"><span><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>帳號</span>${_chevron}</div>
+        <div class="stg-group-body">${accountHTML}</div>
       </div>
     </div>
+
+    <!-- ② 報價與行情 -->
     <div class="stg-section">
-      <h4><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>帳號</h4>
-      ${accountHTML}
-    </div>
-    <div class="stg-section">
-      <h4><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>報價來源</h4>
-      <div class="stg-row">
-        <label>台灣市場<span class="stg-hint" id="stg-tw-desc">${P[CFG.twSource]?.desc || ''}</span></label>
-        <select class="stg-select" id="stg-tw-source">${twOpts}</select>
+      <h4><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>報價與行情</h4>
+      <div class="stg-s-body">
+        <div class="stg-row">
+          <label>台灣報價來源<span class="stg-hint" id="stg-tw-desc">${P[CFG.twSource]?.desc || ''}</span></label>
+          <select class="stg-select" id="stg-tw-source">${twOpts}</select>
+        </div>
+        <div class="stg-row">
+          <label>美國報價來源<span class="stg-hint" id="stg-us-desc">${P[CFG.usSource]?.desc || ''}</span></label>
+          <select class="stg-select" id="stg-us-source">${usOpts}</select>
+        </div>
+        <div class="stg-row" id="stg-finnhub-row" style="display:${CFG.usSource === 'finnhub' ? '' : 'none'}">
+          <label>Finnhub API Key<span class="stg-hint">至 finnhub.io 免費註冊取得</span></label>
+          <input type="text" class="stg-input" id="stg-finnhub-key" value="${CFG.finnhubKey}" placeholder="輸入 API Key" spellcheck="false">
+        </div>
+        <div class="stg-row">
+          <label>自動取得報價<span class="stg-hint">進入頁面時自動查詢</span></label>
+          <label class="stg-toggle"><input type="checkbox" id="stg-auto-fetch" ${CFG.autoFetch ? 'checked' : ''}><span class="slider"></span></label>
+        </div>
+        <div class="stg-row">
+          <label>報價刷新頻率<span class="stg-hint">指數列即時刷新間隔</span></label>
+          <select class="stg-select" id="stg-refresh">
+            <option value="0" ${CFG.refreshInterval === 0 ? 'selected' : ''}>關閉</option>
+            <option value="5" ${CFG.refreshInterval === 5 ? 'selected' : ''}>5 秒</option>
+            <option value="10" ${CFG.refreshInterval === 10 ? 'selected' : ''}>10 秒</option>
+            <option value="15" ${CFG.refreshInterval === 15 ? 'selected' : ''}>15 秒</option>
+            <option value="30" ${CFG.refreshInterval === 30 ? 'selected' : ''}>30 秒</option>
+            <option value="60" ${CFG.refreshInterval === 60 ? 'selected' : ''}>1 分鐘</option>
+            <option value="300" ${CFG.refreshInterval === 300 ? 'selected' : ''}>5 分鐘</option>
+          </select>
+        </div>
       </div>
-      <div class="stg-row">
-        <label>美國市場<span class="stg-hint" id="stg-us-desc">${P[CFG.usSource]?.desc || ''}</span></label>
-        <select class="stg-select" id="stg-us-source">${usOpts}</select>
+      <div class="stg-group">
+        <div class="stg-group-title"><span><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>顯示指數與指標</span>${_chevron}</div>
+        <div class="stg-group-body">
+          <div class="stg-cb-group">
+            ${cbHtml}
+            <div class="stg-cb-region" style="margin-top:4px;padding-top:6px;border-top:1px dashed var(--bdr)">
+              <span class="stg-cb-region-label">指標</span>
+              <label class="stg-cb"><input type="checkbox" id="stg-show-vix" ${CFG.showVix !== false ? 'checked' : ''}>VIX</label>
+              <label class="stg-cb"><input type="checkbox" id="stg-show-fg" ${CFG.showFearGreed !== false ? 'checked' : ''}>恐懼與貪婪</label>
+            </div>
+          </div>
+        </div>
       </div>
-      <div class="stg-row" id="stg-finnhub-row" style="display:${CFG.usSource === 'finnhub' ? '' : 'none'}">
-        <label>Finnhub API Key<span class="stg-hint">至 finnhub.io 免費註冊取得</span></label>
-        <input type="text" class="stg-input" id="stg-finnhub-key" value="${CFG.finnhubKey}" placeholder="輸入 API Key" spellcheck="false">
-      </div>
-    </div>
-    <div class="stg-section">
-      <h4><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>即時報價</h4>
-      <div class="stg-row">
-        <label>進入頁面自動取得報價<span class="stg-hint">載入時自動查詢指數行情</span></label>
-        <label class="stg-toggle"><input type="checkbox" id="stg-auto-fetch" ${CFG.autoFetch ? 'checked' : ''}><span class="slider"></span></label>
-      </div>
-      <div class="stg-row">
-        <label>報價跳動間隔<span class="stg-hint">上方指數列即時刷新頻率（不影響下方分頁）</span></label>
-        <select class="stg-select" id="stg-refresh">
-          <option value="0" ${CFG.refreshInterval === 0 ? 'selected' : ''}>關閉</option>
-          <option value="5" ${CFG.refreshInterval === 5 ? 'selected' : ''}>5 秒</option>
-          <option value="10" ${CFG.refreshInterval === 10 ? 'selected' : ''}>10 秒</option>
-          <option value="15" ${CFG.refreshInterval === 15 ? 'selected' : ''}>15 秒</option>
-          <option value="30" ${CFG.refreshInterval === 30 ? 'selected' : ''}>30 秒</option>
-          <option value="60" ${CFG.refreshInterval === 60 ? 'selected' : ''}>1 分鐘</option>
-          <option value="300" ${CFG.refreshInterval === 300 ? 'selected' : ''}>5 分鐘</option>
-        </select>
-      </div>
-    </div>
-    <div class="stg-section">
-      <h4><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>顯示指數</h4>
-      <div class="stg-cb-group">${cbHtml}</div>
-    </div>
-    <div class="stg-section">
-      <h4><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M18 9l-5 5-2-2-4 4"/></svg>行情指標 Bar</h4>
-      <div class="stg-cb-group">
-        <label class="stg-cb"><input type="checkbox" id="stg-show-vix" ${CFG.showVix !== false ? 'checked' : ''}>VIX 恐慌指數</label>
-        <label class="stg-cb"><input type="checkbox" id="stg-show-fg" ${CFG.showFearGreed !== false ? 'checked' : ''}>恐懼與貪婪指數</label>
-      </div>
-    </div>
-    <div class="stg-section">
-      <h4><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>股票資料庫</h4>
-      <p class="stg-hint" style="margin:0 0 8px;padding:0">下載清單後，輸入代號時可即時搜尋提示</p>
-      <div class="stg-row" style="flex-wrap:wrap">
-        <label style="flex:1 1 100%">台灣股票 <span class="stg-hint" style="display:inline;margin:0;font-size:.72rem">證交所 + 櫃買中心</span></label>
-        <span class="stg-hint" id="stg-stockdb-tw-info" style="flex:1;margin-top:0">${(() => { const t = StockDB.getTime('tw'); const n = StockDB.getList('tw').length; return n ? `${n} 檔 · ${new Date(t).toLocaleDateString('zh-TW')}` : '尚未下載'; })()}</span>
-        <button class="stg-save-btn" id="stg-stockdb-tw-fetch" style="min-width:auto;padding:6px 14px">更新</button>
-      </div>
-      <div class="stg-row" style="flex-wrap:wrap">
-        <label style="flex:1 1 100%">台灣股期 <span class="stg-hint" style="display:inline;margin:0;font-size:.72rem">期交所 TAIFEX</span></label>
-        <span class="stg-hint" id="stg-stockdb-fut-info" style="flex:1;margin-top:0">${(() => { const t = StockDB.getTaifexFuturesTime(); const n = StockDB.getTaifexFutures().length; return n ? `${n} 檔 · ${new Date(t).toLocaleDateString('zh-TW')}` : '尚未下載'; })()}</span>
-        <button class="stg-save-btn" id="stg-stockdb-fut-fetch" style="min-width:auto;padding:6px 14px">更新</button>
-      </div>
-      <div class="stg-row" style="flex-wrap:wrap">
-        <label style="flex:1 1 100%">美國股票 <span class="stg-hint" style="display:inline;margin:0;font-size:.72rem">SEC / NASDAQ</span></label>
-        <span class="stg-hint" id="stg-stockdb-us-info" style="flex:1;margin-top:0">${(() => { const t = StockDB.getTime('us'); const n = StockDB.getList('us').length; return n ? `${n} 檔 · ${new Date(t).toLocaleDateString('zh-TW')}` : '尚未下載'; })()}</span>
-        <button class="stg-save-btn" id="stg-stockdb-us-fetch" style="min-width:auto;padding:6px 14px">更新</button>
-      </div>
-    </div>
-    <div class="stg-section">
-      <h4><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>預設市場</h4>
-      <div class="stg-row">
-        <label>開啟頁面時的預設市場</label>
-        <select class="stg-select" id="stg-default-market">
-          <option value="tw" ${CFG.defaultMarket === 'tw' ? 'selected' : ''}>台灣</option>
-          <option value="us" ${CFG.defaultMarket === 'us' ? 'selected' : ''}>美國</option>
-        </select>
+      <div class="stg-group">
+        <div class="stg-group-title"><span><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>股票資料庫</span>${_chevron}</div>
+        <div class="stg-group-body">
+          <div class="stg-db-row">
+            <div class="stg-db-name">台灣股票 <small>證交所 + 櫃買</small></div>
+            <span class="stg-db-info" id="stg-stockdb-tw-info">${_twDBInfo}</span>
+            <button class="stg-db-btn" id="stg-stockdb-tw-fetch">更新</button>
+          </div>
+          <div class="stg-db-row">
+            <div class="stg-db-name">台灣股期 <small>TAIFEX</small></div>
+            <span class="stg-db-info" id="stg-stockdb-fut-info">${_futDBInfo}</span>
+            <button class="stg-db-btn" id="stg-stockdb-fut-fetch">更新</button>
+          </div>
+          <div class="stg-db-row">
+            <div class="stg-db-name">美國股票 <small>SEC / NASDAQ</small></div>
+            <span class="stg-db-info" id="stg-stockdb-us-info">${_usDBInfo}</span>
+            <button class="stg-db-btn" id="stg-stockdb-us-fetch">更新</button>
+          </div>
+        </div>
       </div>
     </div>
+
+    <!-- ③ 交易費用 -->
     <div class="stg-section">
-      <h4><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>字體大小</h4>
-      <div class="stg-row">
-        <label>全站字體縮放<span class="stg-hint">調整所有文字大小</span></label>
-        <select class="stg-select" id="stg-font-scale">
-          <option value="xs" ${CFG.fontScale === 'xs' ? 'selected' : ''}>小 (14px)</option>
-          <option value="s" ${CFG.fontScale === 's' ? 'selected' : ''}>適中 (15px)</option>
-          <option value="m" ${CFG.fontScale === 'm' ? 'selected' : ''}>標準 (16px)</option>
-          <option value="l" ${CFG.fontScale === 'l' ? 'selected' : ''}>大 (17px)</option>
-          <option value="xl" ${CFG.fontScale === 'xl' ? 'selected' : ''}>特大 (18.5px)</option>
-        </select>
+      <h4><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>交易費用</h4>
+      <div class="stg-s-body">
+        <div class="stg-fee-cols">
+          <div class="stg-fee-col">
+            <div class="stg-sub-label">台灣股票</div>
+            <div class="stg-row">
+              <label>手續費折扣</label>
+              <select class="stg-select" id="stg-tw-fee-disc">
+                <option value="1" ${CFG.twFeeDisc === '1' ? 'selected' : ''}>全額 0.1425%</option>
+                <option value="0.6" ${CFG.twFeeDisc === '0.6' ? 'selected' : ''}>6折</option>
+                <option value="0.5" ${CFG.twFeeDisc === '0.5' ? 'selected' : ''}>5折</option>
+                <option value="0.38" ${CFG.twFeeDisc === '0.38' ? 'selected' : ''}>3.8折</option>
+                <option value="0.28" ${CFG.twFeeDisc === '0.28' ? 'selected' : ''}>2.8折</option>
+                <option value="0" ${CFG.twFeeDisc === '0' ? 'selected' : ''}>免手續費</option>
+              </select>
+            </div>
+            <div class="stg-row">
+              <label>證交稅率</label>
+              <select class="stg-select" id="stg-tw-tax-rate">
+                <option value="0.003" ${CFG.twTaxRate === '0.003' ? 'selected' : ''}>0.3% 股票</option>
+                <option value="0.001" ${CFG.twTaxRate === '0.001' ? 'selected' : ''}>0.1% ETF</option>
+                <option value="0.0015" ${CFG.twTaxRate === '0.0015' ? 'selected' : ''}>0.15% 當沖</option>
+              </select>
+            </div>
+            <div class="stg-sub-label">台灣期貨 / 選擇權</div>
+            <div class="stg-row">
+              <label>指數期貨<span class="stg-hint">NT$/口</span></label>
+              <input type="number" class="stg-input" id="stg-tw-fut-comm" value="${CFG.twFutComm}" step="any" min="0" placeholder="60">
+            </div>
+            <div class="stg-row">
+              <label>股票期貨<span class="stg-hint">NT$/口</span></label>
+              <input type="number" class="stg-input" id="stg-tw-stk-fut-comm" value="${CFG.twStkFutComm}" step="any" min="0" placeholder="40">
+            </div>
+            <div class="stg-row">
+              <label>選擇權<span class="stg-hint">NT$/口</span></label>
+              <input type="number" class="stg-input" id="stg-tw-opt-comm" value="${CFG.twOptComm}" step="any" min="0" placeholder="25">
+            </div>
+          </div>
+          <div class="stg-fee-col">
+            <div class="stg-sub-label">美國股票</div>
+            <div class="stg-row">
+              <label>Commission<span class="stg-hint">USD/筆</span></label>
+              <input type="number" class="stg-input" id="stg-us-comm" value="${CFG.usComm}" step="any" min="0" placeholder="0">
+            </div>
+            <div class="stg-sub-label">美國期貨 / 選擇權</div>
+            <div class="stg-row">
+              <label>期貨<span class="stg-hint">USD/口</span></label>
+              <input type="number" class="stg-input" id="stg-us-fut-comm" value="${CFG.usFutComm}" step="any" min="0" placeholder="2.25">
+            </div>
+            <div class="stg-row">
+              <label>選擇權<span class="stg-hint">USD/口</span></label>
+              <input type="number" class="stg-input" id="stg-us-opt-comm" value="${CFG.usOptComm}" step="any" min="0" placeholder="0.65">
+            </div>
+            <div class="stg-sub-label">交易紀錄預設</div>
+            <div class="stg-row">
+              <label>預設手續費</label>
+              <input type="number" class="stg-input" id="stg-default-fee" value="${CFG.defaultFee}" step="any" min="0" placeholder="不設定">
+            </div>
+            <div class="stg-row">
+              <label>預設交易稅</label>
+              <input type="number" class="stg-input" id="stg-default-tax" value="${CFG.defaultTax}" step="any" min="0" placeholder="不設定">
+            </div>
+          </div>
+        </div>
       </div>
-    </div>
-    <div class="stg-section">
-      <h4><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>交易手續費</h4>
-      <div class="stg-sub-label">台灣股票</div>
-      <div class="stg-row">
-        <label>手續費折扣<span class="stg-hint">券商電子下單折扣</span></label>
-        <select class="stg-select" id="stg-tw-fee-disc">
-          <option value="1" ${CFG.twFeeDisc === '1' ? 'selected' : ''}>全額 0.1425%</option>
-          <option value="0.6" ${CFG.twFeeDisc === '0.6' ? 'selected' : ''}>6折 0.0855%</option>
-          <option value="0.5" ${CFG.twFeeDisc === '0.5' ? 'selected' : ''}>5折 0.07125%</option>
-          <option value="0.38" ${CFG.twFeeDisc === '0.38' ? 'selected' : ''}>3.8折</option>
-          <option value="0.28" ${CFG.twFeeDisc === '0.28' ? 'selected' : ''}>2.8折 0.0399%</option>
-          <option value="0" ${CFG.twFeeDisc === '0' ? 'selected' : ''}>免手續費</option>
-        </select>
-      </div>
-      <div class="stg-row">
-        <label>證交稅率<span class="stg-hint">賣出時課徵</span></label>
-        <select class="stg-select" id="stg-tw-tax-rate">
-          <option value="0.003" ${CFG.twTaxRate === '0.003' ? 'selected' : ''}>0.3% 股票</option>
-          <option value="0.001" ${CFG.twTaxRate === '0.001' ? 'selected' : ''}>0.1% ETF</option>
-          <option value="0.0015" ${CFG.twTaxRate === '0.0015' ? 'selected' : ''}>0.15% 當沖減半</option>
-        </select>
-      </div>
-      <div class="stg-sub-label">台灣期貨</div>
-      <div class="stg-row">
-        <label>指數期貨手續費<span class="stg-hint">NT$/口·單邊</span></label>
-        <input type="number" class="stg-input" id="stg-tw-fut-comm" value="${CFG.twFutComm}" step="any" min="0" placeholder="60">
-      </div>
-      <div class="stg-row">
-        <label>股票期貨手續費<span class="stg-hint">NT$/口·單邊</span></label>
-        <input type="number" class="stg-input" id="stg-tw-stk-fut-comm" value="${CFG.twStkFutComm}" step="any" min="0" placeholder="40">
-      </div>
-      <div class="stg-sub-label">台灣選擇權</div>
-      <div class="stg-row">
-        <label>選擇權手續費<span class="stg-hint">NT$/口·單邊</span></label>
-        <input type="number" class="stg-input" id="stg-tw-opt-comm" value="${CFG.twOptComm}" step="any" min="0" placeholder="25">
-      </div>
-      <div class="stg-sub-label">美國股票</div>
-      <div class="stg-row">
-        <label>Commission<span class="stg-hint">每筆交易手續費 (USD)</span></label>
-        <input type="number" class="stg-input" id="stg-us-comm" value="${CFG.usComm}" step="any" min="0" placeholder="0">
-      </div>
-      <div class="stg-sub-label">美國期貨</div>
-      <div class="stg-row">
-        <label>Commission<span class="stg-hint">USD/口·單邊</span></label>
-        <input type="number" class="stg-input" id="stg-us-fut-comm" value="${CFG.usFutComm}" step="any" min="0" placeholder="2.25">
-      </div>
-      <div class="stg-sub-label">美國選擇權</div>
-      <div class="stg-row">
-        <label>Commission<span class="stg-hint">USD/口·單邊</span></label>
-        <input type="number" class="stg-input" id="stg-us-opt-comm" value="${CFG.usOptComm}" step="any" min="0" placeholder="0.65">
-      </div>
-      <div class="stg-sub-label">交易紀錄</div>
-      <div class="stg-row">
-        <label>預設手續費<span class="stg-hint">新增交易時自動帶入</span></label>
-        <input type="number" class="stg-input" id="stg-default-fee" value="${CFG.defaultFee}" step="any" min="0" placeholder="不設定">
-      </div>
-      <div class="stg-row">
-        <label>預設交易稅<span class="stg-hint">新增交易時自動帶入</span></label>
-        <input type="number" class="stg-input" id="stg-default-tax" value="${CFG.defaultTax}" step="any" min="0" placeholder="不設定">
-      </div>
-      <button class="stg-save-btn" id="stg-fee-save">儲存</button>
     </div>`;
+
+  // Collapsible group toggle
+  $$('.stg-group-title', body).forEach(t => t.addEventListener('click', () => t.parentElement.classList.toggle('open')));
 
   // Account actions
   $('#stg-login')?.addEventListener('click', () => {
@@ -2060,14 +2068,7 @@ function renderSettings() {
   };
   body.addEventListener('change', save);
   $('#stg-finnhub-key')?.addEventListener('input', debounce(save, 500));
-  $$('.stg-section:last-child .stg-input', body).forEach(el => el.addEventListener('input', debounce(save, 500)));
-  $('#stg-fee-save')?.addEventListener('click', () => {
-    save();
-    const btn = $('#stg-fee-save');
-    btn.textContent = '已儲存';
-    btn.classList.add('saved');
-    setTimeout(() => { btn.textContent = '儲存'; btn.classList.remove('saved'); }, 1500);
-  });
+  $$('input[type="number"].stg-input', body).forEach(el => el.addEventListener('input', debounce(save, 500)));
 
   // Stock DB fetch helpers
   const _stockDBFetch = async (btnId, infoId, fetchFn) => {

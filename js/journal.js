@@ -841,8 +841,7 @@ function renderJournal() {
   if (!root) return;
   root.innerHTML = `
     <div class="j-header">
-      <div class="j-header-left"><span class="j-user-badge"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>${currentUser?.username || ''}</span></div>
-      <div class="j-header-right">
+      <div class="j-header-left">
         <div class="j-view-toggle">
           <button class="j-vt-btn ${viewMode === 'list' ? 'active' : ''}" data-view="list"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>紀錄</button>
           <button class="j-vt-btn ${viewMode === 'calendar' ? 'active' : ''}" data-view="calendar"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>日曆</button>
@@ -857,7 +856,7 @@ function renderJournal() {
         </div>
         <button class="j-add-btn" id="j-add"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>新增交易</button>
       </div>
-    </div>
+    </div><!-- j-header -->
     <div id="j-dashboard"></div>
     <div class="j-filters" id="j-filters"></div>
     <div class="j-body" id="j-body"></div>
