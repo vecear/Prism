@@ -17,6 +17,14 @@ const WARN_SVG = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L1 
 const OK_SVG = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>';
 const PLACEHOLDER = '<div class="results-placeholder"><p>輸入參數即可即時計算</p></div>';
 
+// XSS escape helper
+function _esc(str) {
+  if (!str) return '';
+  const d = document.createElement('div');
+  d.textContent = str;
+  return d.innerHTML;
+}
+
 // ── Central index definitions ──
 const INDEX_DEFS = {
   taiex:    { name: '加權指數',  placeholder: '22000', market: 'tw', region: '台灣', chart: 'TWSE:TAIEX' },
@@ -62,6 +70,40 @@ const PriceService = {
     twse:     { name: 'TWSE 證交所',       desc: '台灣即時報價 (僅台灣市場)',       markets: 'tw',    needsKey: false },
     tpex:     { name: 'TPEX 櫃買中心',     desc: '台灣上櫃即時 (僅台灣上櫃)',       markets: 'tw',    needsKey: false },
     finnhub:  { name: 'Finnhub',           desc: '美國即時 (需免費 API Key)',       markets: 'us',    needsKey: true, keyHint: '至 finnhub.io 免費註冊取得' },
+  },
+
+  // ── CME 期貨合約月份解析 ──
+  // 季月合約: H=3月, M=6月, U=9月, Z=12月
+  // 到期日 = 合約月份第三個週五；距到期 ≤14 天自動換月至下一季
+  // Yahoo 上 CBOT 交易所的期貨用 .CBT 後綴，其餘用 .CME
+  _cmeExchange: { YM: 'CBT', MYM: 'CBT' },
+  // 取得當季 + 下季合約代號
+  _cmeContractPair(base) {
+    const now = new Date();
+    const quarters = [
+      { month: 3, code: 'H' }, { month: 6, code: 'M' },
+      { month: 9, code: 'U' }, { month: 12, code: 'Z' },
+    ];
+    function thirdFriday(year, month) {
+      const d = new Date(year, month - 1, 1);
+      const firstDay = d.getDay();
+      const firstFri = firstDay <= 5 ? (5 - firstDay + 1) : (5 + 7 - firstDay + 1);
+      return new Date(year, month - 1, firstFri + 14);
+    }
+    const exch = this._cmeExchange[base] || 'CME';
+    const all = [];
+    for (let yOff = 0; yOff <= 1; yOff++) {
+      const y = now.getFullYear() + yOff;
+      for (const q of quarters) {
+        const expiry = thirdFriday(y, q.month);
+        if ((expiry - now) / 864e5 > -1) {
+          all.push({ symbol: `${base}${q.code}${String(y).slice(-2)}.${exch}`, expiry });
+        }
+        if (all.length >= 2) break;
+      }
+      if (all.length >= 2) break;
+    }
+    return all;
   },
 
   // ── Yahoo Finance ──
@@ -142,6 +184,33 @@ const PriceService = {
   async fetchIndex(key) {
     // 台指期走專屬 TAIFEX MIS API
     if (key === 'txf') return await this.fetchTxfQuote();
+
+    // CME/CBOT 期貨：查當季+下季合約，取成交量較高者（=主力合約）
+    const cmeBases = { es: 'ES', nq: 'NQ', ym: 'YM', nkd: 'NKD' };
+    if (cmeBases[key]) {
+      try {
+        const pair = this._cmeContractPair(cmeBases[key]);
+        const results = await Promise.all(pair.map(async p => {
+          try {
+            const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(p.symbol)}?range=1d&interval=1d`;
+            const r = await this._proxyFetch(url);
+            const m = (await r.json())?.chart?.result?.[0]?.meta;
+            if (!m?.regularMarketPrice) return null;
+            const price = m.regularMarketPrice, prev = m.chartPreviousClose || m.previousClose || price;
+            const sourceTime = m.regularMarketTime ? m.regularMarketTime * 1000 : null;
+            return { price, prevClose: prev, change: price - prev, changePct: prev ? ((price - prev) / prev * 100) : 0, currency: m.currency || '', name: INDEX_DEFS[key]?.name || m.shortName || '', sourceTime, volume: m.regularMarketVolume || 0, symbol: p.symbol };
+          } catch { return null; }
+        }));
+        const valid = results.filter(Boolean);
+        if (valid.length) {
+          // 取成交量最高的合約
+          valid.sort((a, b) => b.volume - a.volume);
+          return valid[0];
+        }
+      } catch {}
+      // fallback 泛用符號
+      return await this.yahoo.fetchQuote(cmeBases[key] + '=F');
+    }
 
     const market = INDEX_DEFS[key]?.market || 'us';
     const provider = (market === 'tw' || market === 'us') ? this._getProvider(market) : this.yahoo;
@@ -326,9 +395,8 @@ const PriceService = {
     return marketType === '1' ? '夜盤 (15:00-05:00)' : '日盤 (08:45-13:45)';
   },
 
-  // ── TAIFEX 期貨即時報價 (通用) ──
-  async _taifexQuote(kindID, cid, forceMarketType) {
-    const marketType = forceMarketType ?? this._getTaifexMarketType();
+  // ── TAIFEX 取得報價原始資料 ──
+  async _taifexFetchRaw(kindID, cid, marketType) {
     const url = 'https://mis.taifex.com.tw/futures/api/getQuoteList';
     const payload = { MarketType: marketType, SymbolType: 'F', KindID: kindID, CID: cid, WithGreeks: 'N', ShowLimitPrices: 'N' };
     const postOpts = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) };
@@ -338,30 +406,64 @@ const PriceService = {
     if (!data) { try { const r = await this._fetchTimeout(`${API_BASE}/api/proxy?url=${encodeURIComponent(url)}`, 8000, postOpts); if (r.ok) data = await r.json(); } catch {} }
     if (!data) { try { const r = await this._fetchTimeout(`https://corsproxy.io/?url=${encodeURIComponent(url)}`, 10000, postOpts); if (r.ok) data = await r.json(); } catch {} }
     if (!data) { const getUrl = url + '?' + new URLSearchParams(payload).toString(); const r = await this._proxyFetch(getUrl, 10000); data = await r.json(); }
+    return data;
+  },
 
+  // ── 從 API 回傳資料解析報價 ──
+  _taifexParseQuote(data, marketType, cid) {
     const list = data?.RtData?.QuoteList;
-    if (!Array.isArray(list) || list.length === 0) throw new Error('無資料');
-    // 日盤合約以 -F 結尾，夜盤合約以 -M 結尾
+    if (!Array.isArray(list) || list.length === 0) return null;
     const suffix = marketType === '1' ? '-M' : '-F';
     const item = list.find(i => i.SymbolID && i.SymbolID.endsWith(suffix))
               || list.find(i => i.SymbolID && i.SymbolID.endsWith('-F'))
               || list[1] || list[0];
     const price = parseFloat(item.CLastPrice) || 0;
     const prev = parseFloat(item.CRefPrice) || price;
-    if (!price) throw new Error('尚無成交');
+    if (!price) return null;
     const change = parseFloat(item.CDiff) || (price - prev);
     const changePct = parseFloat(item.CDiffRate) || (prev ? (change / prev * 100) : 0);
     const contractName = item.DispCName || cid;
     let sourceTime = null;
     if (item.CTime && item.CTime.length >= 6) {
-      // CDate: "YYYYMMDD", CTime: "HHMMSS"
       const cd = item.CDate || new Date().toISOString().slice(0, 10).replace(/-/g, '');
       const y = cd.slice(0, 4), mo = cd.slice(4, 6), d = cd.slice(6, 8);
       const hh = item.CTime.slice(0, 2), mm = item.CTime.slice(2, 4), ss = item.CTime.slice(4, 6);
       const parsed = new Date(`${y}/${mo}/${d} ${hh}:${mm}:${ss}`);
+      // 夜盤 CTime 00:00~05:00 實際是隔天凌晨，CDate 仍為交易日 → +1 天
+      if (!isNaN(parsed) && marketType === '1' && parseInt(hh) < 5) {
+        parsed.setDate(parsed.getDate() + 1);
+      }
       sourceTime = isNaN(parsed) ? null : parsed.getTime();
     }
     return { price, prevClose: prev, change, changePct, currency: 'TWD', name: contractName, sourceTime, session: this._sessionLabel(marketType) };
+  },
+
+  // ── TAIFEX 期貨即時報價 (通用，自動取最新盤別) ──
+  async _taifexQuote(kindID, cid, forceMarketType) {
+    if (forceMarketType) {
+      // 指定盤別：直接查詢，不做雙盤比較
+      const data = await this._taifexFetchRaw(kindID, cid, forceMarketType);
+      const result = this._taifexParseQuote(data, forceMarketType, cid);
+      if (!result) throw new Error('無資料');
+      return result;
+    }
+    // 自動偵測：同時查日盤+夜盤，取最新報價（處理週末/颱風假/國定假日）
+    const [dayData, nightData] = await Promise.all([
+      this._taifexFetchRaw(kindID, cid, '0').catch(() => null),
+      this._taifexFetchRaw(kindID, cid, '1').catch(() => null),
+    ]);
+    const dayResult = dayData ? this._taifexParseQuote(dayData, '0', cid) : null;
+    const nightResult = nightData ? this._taifexParseQuote(nightData, '1', cid) : null;
+    if (!dayResult && !nightResult) throw new Error('無資料');
+    if (!dayResult) return nightResult;
+    if (!nightResult) return dayResult;
+    // 兩邊都有資料 → 比較 sourceTime 取較新的
+    if (nightResult.sourceTime && dayResult.sourceTime) {
+      return nightResult.sourceTime >= dayResult.sourceTime ? nightResult : dayResult;
+    }
+    // 無法比較時間 → 依當前時段偏好
+    const preferred = this._getTaifexMarketType();
+    return preferred === '1' ? nightResult : dayResult;
   },
 
   // ── TAIFEX 台指期即時報價 (支援日盤/夜盤自動切換) ──
@@ -391,6 +493,14 @@ const _quoteCache = {
     if (this._mem._ver !== this._VER) { this._mem = { _ver: this._VER }; this._save(); }
     if (!this._mem.indices) this._mem.indices = {};
     if (!this._mem.stocks) this._mem.stocks = {};
+    // 初次載入時清除過期項目（超過 TTL 2 倍）
+    const pruneAge = this._ttl() * 2;
+    const now = Date.now();
+    for (const bucket of ['indices', 'stocks']) {
+      const b = this._mem[bucket];
+      for (const k of Object.keys(b)) { if (b[k]?.time && now - b[k].time > pruneAge) delete b[k]; }
+    }
+    this._save();
     return this._mem;
   },
   _save() { try { localStorage.setItem(this._KEY, JSON.stringify(this._mem)); } catch {} },
@@ -516,7 +626,7 @@ function setupAutocomplete(inputId, listId, onSelect, market) {
     focusIdx = -1;
     if (items.length === 0) { list.classList.remove('open'); return; }
     list.innerHTML = items.map((r, i) =>
-      `<div class="sym-ac-item" data-i="${i}"><span class="sym-code">${r.symbol}</span><span class="sym-name">${r.name}</span><span class="sym-exch">${r.exchange}</span></div>`
+      `<div class="sym-ac-item" data-i="${i}"><span class="sym-code">${_esc(r.symbol)}</span><span class="sym-name">${_esc(r.name)}</span><span class="sym-exch">${_esc(r.exchange)}</span></div>`
     ).join('');
     list.classList.add('open');
   }, 200);
@@ -627,6 +737,7 @@ function wrapNumberInputs(container) {
 
 // ── Settings (persisted in localStorage) ──
 const DEFAULT_SETTINGS = {
+  theme: 'dark',               // 'dark' | 'light' | 'midnight' | 'emerald' | 'warm'
   autoFetch: true,
   refreshInterval: 10,
   indices: { taiex: true, txf: true, es: true, nq: true, ym: true, sox: true, nkd: true, kospi: true, shanghai: true, hsi: true },
@@ -1009,7 +1120,11 @@ function buildTickerBar() {
 }
 
 // 報價卡片拖曳排序（桌面 drag & 手機 touch）
+let _tickerDragAC = null;
 function _initTickerDrag(container) {
+  if (_tickerDragAC) _tickerDragAC.abort();
+  _tickerDragAC = new AbortController();
+  const sig = { signal: _tickerDragAC.signal };
   let dragEl = null, placeholder = null, touchStartY = 0, touchStartX = 0, isDragging = false;
 
   // ── Desktop drag ──
@@ -1020,7 +1135,7 @@ function _initTickerDrag(container) {
     chip.classList.add('ticker-dragging');
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', '');
-  });
+  }, sig);
   container.addEventListener('dragover', e => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
@@ -1030,12 +1145,12 @@ function _initTickerDrag(container) {
     const mid = rect.left + rect.width / 2;
     if (e.clientX < mid) container.insertBefore(dragEl, target);
     else container.insertBefore(dragEl, target.nextSibling);
-  });
+  }, sig);
   container.addEventListener('dragend', () => {
     if (dragEl) { dragEl.classList.remove('ticker-dragging'); dragEl = null; }
     _saveTickerOrder();
     _remeasureTickerRow();
-  });
+  }, sig);
 
   // ── Mobile touch ──
   container.addEventListener('touchstart', e => {
@@ -1045,7 +1160,7 @@ function _initTickerDrag(container) {
     touchStartX = t.clientX; touchStartY = t.clientY;
     isDragging = false;
     dragEl = chip;
-  }, { passive: true });
+  }, { passive: true, ...sig });
 
   container.addEventListener('touchmove', e => {
     if (!dragEl) return;
@@ -1067,7 +1182,7 @@ function _initTickerDrag(container) {
         else container.insertBefore(dragEl, el.nextSibling);
       }
     }
-  }, { passive: false });
+  }, { passive: false, ...sig });
 
   container.addEventListener('touchend', e => {
     if (dragEl) {
@@ -1080,7 +1195,7 @@ function _initTickerDrag(container) {
       dragEl = null;
       isDragging = false;
     }
-  });
+  }, sig);
 }
 
 function _remeasureTickerRow() {
@@ -1651,8 +1766,11 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
     if (_refreshTimer) { clearInterval(_refreshTimer); _refreshTimer = null; }
   } else {
-    if (CFG.refreshInterval > 0 && !_refreshTimer) {
-      _refreshTimer = setInterval(handleFetchIndices, CFG.refreshInterval * 1000);
+    if (CFG.refreshInterval > 0) {
+      // 回到頁面時，若快取過期則立刻刷新一次
+      const lastT = _quoteCache.lastIndexTime();
+      if (!lastT || Date.now() - lastT >= _quoteCache._ttl()) handleFetchIndices();
+      if (!_refreshTimer) _refreshTimer = setInterval(handleFetchIndices, CFG.refreshInterval * 1000);
     }
   }
 });
@@ -1716,7 +1834,18 @@ function renderSettings() {
         <button class="stg-save-btn" id="stg-login">登入 / 註冊</button>
       </div>`;
 
+  const curTheme = CFG.theme || 'dark';
   body.innerHTML = `
+    <div class="stg-section">
+      <h4><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>配色主題</h4>
+      <div class="stg-theme-grid">
+        <button type="button" class="stg-theme-btn ${curTheme==='dark'?'active':''}" data-theme="dark"><div class="stg-theme-swatch" data-sw="dark"></div><span class="stg-theme-label">深色</span></button>
+        <button type="button" class="stg-theme-btn ${curTheme==='light'?'active':''}" data-theme="light"><div class="stg-theme-swatch" data-sw="light"></div><span class="stg-theme-label">淺色</span></button>
+        <button type="button" class="stg-theme-btn ${curTheme==='midnight'?'active':''}" data-theme="midnight"><div class="stg-theme-swatch" data-sw="midnight"></div><span class="stg-theme-label">午夜藍</span></button>
+        <button type="button" class="stg-theme-btn ${curTheme==='emerald'?'active':''}" data-theme="emerald"><div class="stg-theme-swatch" data-sw="emerald"></div><span class="stg-theme-label">翡翠綠</span></button>
+        <button type="button" class="stg-theme-btn ${curTheme==='warm'?'active':''}" data-theme="warm"><div class="stg-theme-swatch" data-sw="warm"></div><span class="stg-theme-label">琥珀</span></button>
+      </div>
+    </div>
     <div class="stg-section">
       <h4><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>帳號</h4>
       ${accountHTML}
@@ -1882,6 +2011,15 @@ function renderSettings() {
     if (confirm('確定要重新載入頁面嗎？未儲存的輸入內容將會消失。')) location.reload();
   });
 
+  // Theme picker
+  $$('.stg-theme-btn', body).forEach(btn => btn.addEventListener('click', () => {
+    $$('.stg-theme-btn', body).forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    CFG.theme = btn.dataset.theme;
+    applyTheme(CFG.theme);
+    saveSettings(CFG);
+  }));
+
   // Update descriptions & show/hide Finnhub key row on source change
   const syncUI = () => {
     const tw = $('#stg-tw-source')?.value || 'twse';
@@ -1951,7 +2089,17 @@ function renderSettings() {
   $('#stg-stockdb-us-fetch')?.addEventListener('click', () => _stockDBFetch('stg-stockdb-us-fetch', 'stg-stockdb-us-info', () => StockDB.fetchUS()));
 }
 
+function applyTheme(theme) {
+  if (!theme || theme === 'dark') {
+    document.documentElement.removeAttribute('data-theme');
+  } else {
+    document.documentElement.setAttribute('data-theme', theme);
+  }
+}
+
 function applySettings() {
+  // Apply theme
+  applyTheme(CFG.theme);
   // Apply font scale
   document.documentElement.setAttribute('data-font-scale', CFG.fontScale || 'm');
 
@@ -2124,7 +2272,7 @@ function _displayStockInfo(q, code, market, infoEl) {
   const srcStr = q.sourceTime ? new Date(q.sourceTime).toLocaleTimeString('zh-TW', tFmt) : '';
   const timeLabel = srcStr ? `報價 ${srcStr} · 抓取 ${fetchStr}` : fetchStr;
   const tvUrl = `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(tvSym)}`;
-  infoEl.innerHTML = `<span class="si-row"><strong>${q.name || code}</strong> <span class="${chgCls}">${q.price.toFixed(2)} ${chgStr}</span></span><span class="si-row"><span class="tm" style="font-size:.6rem">${provName} ${timeLabel}</span> <a href="${tvUrl}" target="_blank" rel="noopener" style="color:var(--accent);font-size:.66rem;margin-left:4px">TradingView</a></span>`;
+  infoEl.innerHTML = `<span class="si-row"><strong>${_esc(q.name || code)}</strong> <span class="${chgCls}">${q.price.toFixed(2)} ${chgStr}</span></span><span class="si-row"><span class="tm" style="font-size:.6rem">${_esc(provName)} ${timeLabel}</span> <a href="${tvUrl}" target="_blank" rel="noopener" style="color:var(--accent);font-size:.66rem;margin-left:4px">TradingView</a></span>`;
 }
 
 function _fillStockPrice(q, force) {
@@ -2178,7 +2326,7 @@ function _setupMarginAutocomplete(input, market) {
     items = results;
     focusIdx = -1;
     list.innerHTML = results.map((r, i) =>
-      `<div class="sym-ac-item" data-i="${i}"><span class="sym-code">${r.code}</span><span class="sym-name">${r.name}</span>${r.leverage ? `<span class="sym-exch">${r.leverage > 0 ? '' : ''}${Math.abs(r.leverage)}x</span>` : ''}</div>`
+      `<div class="sym-ac-item" data-i="${i}"><span class="sym-code">${_esc(r.code)}</span><span class="sym-name">${_esc(r.name)}</span>${r.leverage ? `<span class="sym-exch">${r.leverage > 0 ? '' : ''}${Math.abs(r.leverage)}x</span>` : ''}</div>`
     ).join('');
     list.classList.add('open');
   };
@@ -2266,7 +2414,7 @@ function _setupFuturesAC(input) {
     if (!items.length) { close(); return; }
     focusIdx = -1;
     list.innerHTML = items.map((r, i) =>
-      `<div class="sym-ac-item" data-i="${i}"><span class="sym-code">${r.code}</span><span class="sym-name">${r.name}</span></div>`
+      `<div class="sym-ac-item" data-i="${i}"><span class="sym-code">${_esc(r.code)}</span><span class="sym-name">${_esc(r.name)}</span></div>`
     ).join('');
     list.classList.add('open');
   }, 150);
@@ -3097,7 +3245,7 @@ async function _fetchTaifexStockFutures(cid) {
       const fetchStr = new Date().toLocaleTimeString('zh-TW', tFmt);
       const srcStr = q.sourceTime ? new Date(q.sourceTime).toLocaleTimeString('zh-TW', tFmt) : '';
       const timeLabel = srcStr ? `報價 ${srcStr} · 抓取 ${fetchStr}` : `抓取 ${fetchStr}`;
-      infoEl.innerHTML = `<span class="si-row"><strong>${q.name || cid}</strong> <span class="${chgCls}">${q.price.toFixed(2)} ${chgStr}</span>${basisHtml}</span><span class="si-row"><span class="tm" style="font-size:.6rem">期交所 ${q.session || '日盤 (08:45-13:45)'} · ${timeLabel}</span></span>`;
+      infoEl.innerHTML = `<span class="si-row"><strong>${_esc(q.name || cid)}</strong> <span class="${chgCls}">${q.price.toFixed(2)} ${chgStr}</span>${basisHtml}</span><span class="si-row"><span class="tm" style="font-size:.6rem">期交所 ${q.session || '日盤 (08:45-13:45)'} · ${timeLabel}</span></span>`;
     }
     // Fill entry & live price
     const entryEl = $('#f-entry');
@@ -3139,7 +3287,7 @@ async function _fetchFuturesStockPrice(code) {
       const srcStr = q.sourceTime ? new Date(q.sourceTime).toLocaleTimeString('zh-TW', tFmt) : '';
       const provName = market === 'tw' ? PriceService.PROVIDER_INFO[CFG.twSource]?.name : PriceService.PROVIDER_INFO[CFG.usSource]?.name;
       const timeLabel = srcStr ? `報價 ${srcStr} · 抓取 ${fetchStr}` : `抓取 ${fetchStr}`;
-      infoEl.innerHTML = `<span class="si-row"><strong>${q.name || code}</strong> <span class="${chgCls}">${q.price.toFixed(2)} ${chgStr}</span></span><span class="si-row"><span class="tm" style="font-size:.6rem">${provName || 'API'} ${timeLabel}</span></span>`;
+      infoEl.innerHTML = `<span class="si-row"><strong>${_esc(q.name || code)}</strong> <span class="${chgCls}">${q.price.toFixed(2)} ${chgStr}</span></span><span class="si-row"><span class="tm" style="font-size:.6rem">${_esc(provName || 'API')} ${timeLabel}</span></span>`;
     }
     // Fill entry & live price
     const entryEl = $('#f-entry');

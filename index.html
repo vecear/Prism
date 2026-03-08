@@ -190,6 +190,8 @@
     </footer>
   </div>
   <script>
+  // Apply theme early to prevent flash
+  (function(){try{var s=JSON.parse(localStorage.getItem('tg-settings'));if(s&&s.theme&&s.theme!=='dark')document.documentElement.setAttribute('data-theme',s.theme);}catch{}})();
   // Generate apple-touch-icon PNG from canvas (iOS requires PNG)
   (function(){
     var s = [180, 192, 512];

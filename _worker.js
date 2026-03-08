@@ -5,11 +5,21 @@
 let dbInitPromise = null;
 async function ensureDB(db) {
   if (!dbInitPromise) {
-    dbInitPromise = db.batch([
-      db.prepare("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, salt TEXT NOT NULL, created_at TEXT DEFAULT (datetime('now')))"),
-      db.prepare("CREATE TABLE IF NOT EXISTS trades (id TEXT PRIMARY KEY, user_id INTEGER NOT NULL, date TEXT NOT NULL, market TEXT NOT NULL DEFAULT 'tw', type TEXT NOT NULL DEFAULT 'stock', symbol TEXT NOT NULL DEFAULT '', name TEXT NOT NULL DEFAULT '', direction TEXT NOT NULL DEFAULT 'long', status TEXT NOT NULL DEFAULT 'open', entry_price REAL, exit_price REAL, quantity REAL, contract_mul REAL, stop_loss REAL, take_profit REAL, fee REAL DEFAULT 0, tax REAL DEFAULT 0, tags TEXT DEFAULT '[]', notes TEXT DEFAULT '', created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')), FOREIGN KEY (user_id) REFERENCES users(id))"),
-      db.prepare("CREATE TABLE IF NOT EXISTS user_settings (user_id INTEGER PRIMARY KEY, data TEXT NOT NULL DEFAULT '{}', updated_at TEXT DEFAULT (datetime('now')), FOREIGN KEY (user_id) REFERENCES users(id))"),
-    ]);
+    dbInitPromise = (async () => {
+      await db.batch([
+        db.prepare("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, salt TEXT NOT NULL, created_at TEXT DEFAULT (datetime('now')))"),
+        db.prepare("CREATE TABLE IF NOT EXISTS trades (id TEXT PRIMARY KEY, user_id INTEGER NOT NULL, date TEXT NOT NULL, market TEXT NOT NULL DEFAULT 'tw', type TEXT NOT NULL DEFAULT 'stock', symbol TEXT NOT NULL DEFAULT '', name TEXT NOT NULL DEFAULT '', direction TEXT NOT NULL DEFAULT 'long', status TEXT NOT NULL DEFAULT 'open', entry_price REAL, exit_price REAL, quantity REAL, contract_mul REAL, stop_loss REAL, take_profit REAL, fee REAL DEFAULT 0, tax REAL DEFAULT 0, tags TEXT DEFAULT '[]', notes TEXT DEFAULT '', created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')), FOREIGN KEY (user_id) REFERENCES users(id))"),
+        db.prepare("CREATE TABLE IF NOT EXISTS user_settings (user_id INTEGER PRIMARY KEY, data TEXT NOT NULL DEFAULT '{}', updated_at TEXT DEFAULT (datetime('now')), FOREIGN KEY (user_id) REFERENCES users(id))"),
+      ]);
+      // v2 migration: add account column
+      try { await db.prepare("ALTER TABLE trades ADD COLUMN account TEXT NOT NULL DEFAULT ''").run(); } catch {}
+      // v3 migration: add image_url column
+      try { await db.prepare("ALTER TABLE trades ADD COLUMN image_url TEXT NOT NULL DEFAULT ''").run(); } catch {}
+      // v4 migration: add rating column (1-5 stars, 0=unrated)
+      try { await db.prepare("ALTER TABLE trades ADD COLUMN rating INTEGER NOT NULL DEFAULT 0").run(); } catch {}
+      // v5 migration: daily_journal table
+      try { await db.prepare("CREATE TABLE IF NOT EXISTS daily_journal (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, date TEXT NOT NULL, mood INTEGER DEFAULT 3, market_note TEXT DEFAULT '', plan TEXT DEFAULT '', review TEXT DEFAULT '', created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')), FOREIGN KEY (user_id) REFERENCES users(id), UNIQUE(user_id, date))").run(); } catch {}
+    })();
   }
   return dbInitPromise;
 }
@@ -121,7 +131,7 @@ async function getUser(request, env) {
 }
 
 // ── CORS Proxy (migrated from functions/api/proxy.js) ──
-const PROXY_ALLOWED = ['mis.twse.com.tw','mis.taifex.com.tw','query1.finance.yahoo.com','query2.finance.yahoo.com','finnhub.io','www.taifex.com.tw','openapi.taifex.com.tw','openapi.twse.com.tw','www.tpex.org.tw','www.sec.gov','api.nasdaq.com'];
+const PROXY_ALLOWED = ['mis.twse.com.tw','mis.taifex.com.tw','query1.finance.yahoo.com','query2.finance.yahoo.com','finnhub.io','www.taifex.com.tw','openapi.taifex.com.tw','openapi.twse.com.tw','www.tpex.org.tw','www.sec.gov','api.nasdaq.com','production.dataviz.cnn.io'];
 
 async function handleProxy(request) {
   const url = new URL(request.url);
@@ -135,7 +145,10 @@ async function handleProxy(request) {
     const fetchOpts = { method: request.method, headers: {} };
     const ct = request.headers.get('content-type');
     if (ct) fetchOpts.headers['Content-Type'] = ct;
-    if (request.method === 'POST') fetchOpts.body = await request.text();
+    if (request.method === 'POST') {
+      fetchOpts.body = await request.text();
+      if (fetchOpts.body.length > 65536) return jsonErr(400, 'Request body too large');
+    }
     fetchOpts.headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
     fetchOpts.headers['Accept'] = 'application/json, text/plain, */*';
     const resp = await fetch(target, fetchOpts);
@@ -206,6 +219,7 @@ async function handleGetTrades(request, env) {
     entryPrice: row.entry_price, exitPrice: row.exit_price, quantity: row.quantity,
     contractMul: row.contract_mul, stopLoss: row.stop_loss, takeProfit: row.take_profit,
     fee: row.fee, tax: row.tax, tags: JSON.parse(row.tags || '[]'), notes: row.notes,
+    account: row.account || '', imageUrl: row.image_url || '', rating: row.rating || 0,
     createdAt: row.created_at, updatedAt: row.updated_at,
   }));
   return jsonRes({ trades });
@@ -216,17 +230,19 @@ async function handleCreateTrade(request, env) {
   if (!user) return jsonErr(401, '未登入');
   let body;
   try { body = await request.json(); } catch { return jsonErr(400, '無效的請求格式'); }
+  if (JSON.stringify(body).length > 32768) return jsonErr(400, '交易資料過大');
   if (!body.symbol?.trim()) return jsonErr(400, '交易代號不可為空');
   if (!body.entryPrice && body.entryPrice !== 0) return jsonErr(400, '進場價格不可為空');
   const id = body.id || (Date.now().toString(36) + Math.random().toString(36).slice(2, 7));
   const now = new Date().toISOString();
   const db = env.DB;
-  await db.prepare(`INSERT INTO trades (id, user_id, date, market, type, symbol, name, direction, status, entry_price, exit_price, quantity, contract_mul, stop_loss, take_profit, fee, tax, tags, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(
+  await db.prepare(`INSERT INTO trades (id, user_id, date, market, type, symbol, name, direction, status, entry_price, exit_price, quantity, contract_mul, stop_loss, take_profit, fee, tax, tags, notes, account, image_url, rating, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(
     id, user.sub, body.date || now, body.market || 'tw', body.type || 'stock',
     body.symbol || '', body.name || '', body.direction || 'long', body.status || 'open',
     body.entryPrice ?? null, body.exitPrice ?? null, body.quantity ?? null,
     body.contractMul ?? null, body.stopLoss ?? null, body.takeProfit ?? null,
-    body.fee ?? 0, body.tax ?? 0, JSON.stringify(body.tags || []), body.notes || '', now, now
+    body.fee ?? 0, body.tax ?? 0, JSON.stringify(body.tags || []), body.notes || '',
+    body.account || '', body.imageUrl || '', body.rating ?? 0, now, now
   ).run();
   return jsonRes({ id }, 201);
 }
@@ -239,13 +255,15 @@ async function handleUpdateTrade(request, env, tradeId) {
   if (!existing) return jsonErr(404, '找不到此交易紀錄');
   let body;
   try { body = await request.json(); } catch { return jsonErr(400, '無效的請求格式'); }
+  if (JSON.stringify(body).length > 32768) return jsonErr(400, '交易資料過大');
   const now = new Date().toISOString();
-  await db.prepare(`UPDATE trades SET date=?, market=?, type=?, symbol=?, name=?, direction=?, status=?, entry_price=?, exit_price=?, quantity=?, contract_mul=?, stop_loss=?, take_profit=?, fee=?, tax=?, tags=?, notes=?, updated_at=? WHERE id=? AND user_id=?`).bind(
+  await db.prepare(`UPDATE trades SET date=?, market=?, type=?, symbol=?, name=?, direction=?, status=?, entry_price=?, exit_price=?, quantity=?, contract_mul=?, stop_loss=?, take_profit=?, fee=?, tax=?, tags=?, notes=?, account=?, image_url=?, rating=?, updated_at=? WHERE id=? AND user_id=?`).bind(
     body.date, body.market || 'tw', body.type || 'stock',
     body.symbol || '', body.name || '', body.direction || 'long', body.status || 'open',
     body.entryPrice ?? null, body.exitPrice ?? null, body.quantity ?? null,
     body.contractMul ?? null, body.stopLoss ?? null, body.takeProfit ?? null,
-    body.fee ?? 0, body.tax ?? 0, JSON.stringify(body.tags || []), body.notes || '', now,
+    body.fee ?? 0, body.tax ?? 0, JSON.stringify(body.tags || []), body.notes || '',
+    body.account || '', body.imageUrl || '', body.rating ?? 0, now,
     tradeId, user.sub
   ).run();
   return jsonRes({ ok: true });
@@ -274,7 +292,30 @@ async function handleSaveSettings(request, env) {
   try { body = await request.json(); } catch { return jsonErr(400, '無效的請求格式'); }
   const now = new Date().toISOString();
   const data = JSON.stringify(body.settings || {});
+  if (data.length > 65536) return jsonErr(400, '設定資料過大');
   await env.DB.prepare('INSERT INTO user_settings (user_id, data, updated_at) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET data=?, updated_at=?').bind(user.sub, data, now, data, now).run();
+  return jsonRes({ ok: true });
+}
+
+// ── Daily Journal ──
+async function handleGetDailyJournals(request, env) {
+  const user = await getUser(request, env);
+  if (!user) return jsonErr(401, '未登入');
+  const { results } = await env.DB.prepare('SELECT * FROM daily_journal WHERE user_id = ? ORDER BY date DESC LIMIT 100').bind(user.sub).all();
+  return jsonRes({ journals: results.map(r => ({ id: r.id, date: r.date, mood: r.mood, marketNote: r.market_note, plan: r.plan, review: r.review })) });
+}
+
+async function handleSaveDailyJournal(request, env) {
+  const user = await getUser(request, env);
+  if (!user) return jsonErr(401, '未登入');
+  let body;
+  try { body = await request.json(); } catch { return jsonErr(400, '無效的請求格式'); }
+  if (!body.date) return jsonErr(400, '日期不可為空');
+  const now = new Date().toISOString();
+  await env.DB.prepare(`INSERT INTO daily_journal (user_id, date, mood, market_note, plan, review, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(user_id, date) DO UPDATE SET mood=?, market_note=?, plan=?, review=?, updated_at=?`).bind(
+    user.sub, body.date, body.mood ?? 3, body.marketNote || '', body.plan || '', body.review || '', now,
+    body.mood ?? 3, body.marketNote || '', body.plan || '', body.review || '', now
+  ).run();
   return jsonRes({ ok: true });
 }
 
@@ -310,11 +351,14 @@ export default {
         if (path === '/api/trades' && method === 'POST') return await handleCreateTrade(request, env);
         if (path === '/api/settings' && method === 'GET') return await handleGetSettings(request, env);
         if (path === '/api/settings' && method === 'PUT') return await handleSaveSettings(request, env);
+        if (path === '/api/daily-journal' && method === 'GET') return await handleGetDailyJournals(request, env);
+        if (path === '/api/daily-journal' && method === 'PUT') return await handleSaveDailyJournal(request, env);
 
         // /api/trades/:id
         const tradeMatch = path.match(/^\/api\/trades\/([^/]+)$/);
         if (tradeMatch) {
           const tradeId = tradeMatch[1];
+          if (tradeId.length > 50) return jsonErr(400, 'Invalid trade ID');
           if (method === 'PUT') return await handleUpdateTrade(request, env, tradeId);
           if (method === 'DELETE') return await handleDeleteTrade(request, env, tradeId);
         }
