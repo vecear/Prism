@@ -1212,7 +1212,8 @@ function _remeasureTickerRow() {
   requestAnimationFrame(() => {
     const chips = document.querySelectorAll('.ticker-chip');
     if (chips.length) {
-      const maxH = Math.max(...[...chips].map(c => c.offsetHeight));
+      let maxH = 0;
+      for (const c of chips) { const h = c.offsetHeight; if (h > maxH) maxH = h; }
       document.querySelector('.ticker-strip')?.style.setProperty('--ticker-row-h', (maxH + 4) + 'px');
     }
   });

@@ -52,6 +52,7 @@ async function loadTrades() {
   liveQuotes = {}; // 重新載入時清除舊報價
 }
 
+function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
 // ── Format helpers ──
 function fmtNum(n, d = 0) { return n == null || isNaN(n) ? '—' : Number(n).toLocaleString('zh-TW', { minimumFractionDigits: d, maximumFractionDigits: d }); }
 function fmtDate(iso) {
@@ -1681,14 +1682,6 @@ function renderDiary() {
       if (el) el.addEventListener('input', () => _triggerDiaryAutoSave(editDate));
     });
 
-    // Mobile tab switching
-    $$('.j-diary-tab', body).forEach(tab => tab.addEventListener('click', () => {
-      $$('.j-diary-tab', body).forEach(t => t.classList.remove('active'));
-      $$('.j-diary-tab-pane', body).forEach(p => p.classList.remove('active'));
-      tab.classList.add('active');
-      $(`.j-diary-tab-pane[data-pane="${tab.dataset.pane}"]`, body)?.classList.add('active');
-    }));
-
     // Diary search
     let _showStarredOnly = false;
     const _filterHistory = () => {
@@ -1714,8 +1707,9 @@ function renderDiary() {
       const next = historyEntries.slice(_historyShown, _historyShown + 30);
       list.insertAdjacentHTML('beforeend', next.map(j => _renderDiaryEntryCard(j, moodEmojis)).join(''));
       _historyShown += 30;
-      // Re-bind click on new entries
-      $$('.j-diary-entry[data-date]', list).forEach(el => {
+      // Re-bind click on new entries only
+      const allEntries = $$('.j-diary-entry[data-date]', list);
+      allEntries.slice(-next.length).forEach(el => {
         el.onclick = () => { _diaryEditingDate = el.dataset.date; renderDiary(); };
       });
       if (_historyShown >= historyEntries.length) $('#jd-load-more')?.remove();
@@ -2063,7 +2057,8 @@ function openTradeForm(id, prefill) {
   });
 
   const updatePV=()=>{const p=$('#jf-pl-preview');if(!p)return;const en=parseFloat($('#jf-entry')?.value),ex=parseFloat($('#jf-exit')?.value),q=parseFloat($('#jf-qty')?.value),fe=parseFloat($('#jf-fee')?.value)||0,ta=parseFloat($('#jf-tax')?.value)||0,di=$('#jf-dir')?.value==='long'?1:-1,mu=['futures','options'].includes($('#jf-type2')?.value)?(parseFloat($('#jf-mul')?.value)||1):1;if(isNaN(en)||isNaN(ex)||isNaN(q)){p.innerHTML='';return;}const g=di*(ex-en)*q*mu,n=g-fe-ta;p.innerHTML=`<div class="j-pl-box ${n>=0?'j-pl-profit':'j-pl-loss'}"><span>預估損益</span><strong>${fmtNum(n,0)}</strong><span class="j-pl-detail">毛利 ${fmtNum(g,0)} - 費用 ${fmtNum(fe+ta,0)}</span></div>`;};
-  $$('#jf-entry,#jf-exit,#jf-qty,#jf-fee,#jf-tax,#jf-mul',modal).forEach(el=>{if(el)el.addEventListener('input',updatePV);});
+  const debouncedPV = debounce(updatePV, 150);
+  $$('#jf-entry,#jf-exit,#jf-qty,#jf-fee,#jf-tax,#jf-mul',modal).forEach(el=>{if(el)el.addEventListener('input',debouncedPV);});
   $('#jf-dir')?.addEventListener('change',updatePV);$('#jf-type2')?.addEventListener('change',updatePV);updatePV();
 
   // Save template
