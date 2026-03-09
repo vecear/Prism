@@ -34,9 +34,12 @@ async function ensureDB(db) {
 }
 
 // ── CORS ──
-function corsHeaders() {
+function corsHeaders(request) {
+  const origin = request?.headers?.get('Origin') || '';
+  const allowed = ['https://prism-7t8.pages.dev', 'http://localhost:8788', 'http://127.0.0.1:8788'];
+  const allowOrigin = allowed.includes(origin) ? origin : allowed[0];
   return {
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': allowOrigin,
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Max-Age': '86400',
@@ -150,7 +153,7 @@ async function handleProxy(request) {
   if (!target) return jsonErr(400, 'Missing ?url= parameter');
   let targetUrl;
   try { targetUrl = new URL(target); } catch { return jsonErr(400, 'Invalid URL'); }
-  if (!PROXY_ALLOWED.includes(targetUrl.hostname)) return jsonErr(403, `Host not allowed: ${targetUrl.hostname}`);
+  if (!PROXY_ALLOWED.includes(targetUrl.hostname)) return jsonErr(403, 'Host not allowed');
   if (targetUrl.protocol !== 'https:') return jsonErr(403, 'Only HTTPS allowed');
   try {
     const fetchOpts = { method: request.method, headers: {} };
@@ -166,14 +169,30 @@ async function handleProxy(request) {
     const body = await resp.arrayBuffer();
     return new Response(body, {
       status: resp.status,
-      headers: { ...corsHeaders(), 'Content-Type': resp.headers.get('Content-Type') || 'application/json', 'Cache-Control': 'public, max-age=30' },
+      headers: { ...corsHeaders(request), 'Content-Type': resp.headers.get('Content-Type') || 'application/json', 'Cache-Control': 'public, max-age=30' },
     });
-  } catch (e) { return jsonErr(502, `Fetch failed: ${e.message}`); }
+  } catch (e) { console.error('[Proxy Error]', e); return jsonErr(502, 'Proxy fetch failed'); }
+}
+
+// ── Simple In-Memory Rate Limiter (per-worker instance) ──
+const _rateLimits = new Map();
+function checkRateLimit(key, maxRequests, windowMs) {
+  const now = Date.now();
+  const entry = _rateLimits.get(key);
+  if (!entry || now - entry.start > windowMs) {
+    _rateLimits.set(key, { start: now, count: 1 });
+    return true;
+  }
+  entry.count++;
+  if (entry.count > maxRequests) return false;
+  return true;
 }
 
 // ── API Route Handlers ──
 
 async function handleRegister(request, env) {
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  if (!checkRateLimit(`reg:${ip}`, 5, 60000)) return jsonErr(429, '請求過於頻繁，請稍後再試');
   let body;
   try { body = await request.json(); } catch { return jsonErr(400, '無效的請求格式'); }
   const { username, password } = body;
@@ -197,6 +216,8 @@ async function handleRegister(request, env) {
 }
 
 async function handleLoginPost(request, env) {
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  if (!checkRateLimit(`login:${ip}`, 10, 60000)) return jsonErr(429, '請求過於頻繁，請稍後再試');
   let body;
   try { body = await request.json(); } catch { return jsonErr(400, '無效的請求格式'); }
   const { username, password } = body;
@@ -342,7 +363,7 @@ export default {
 
     // CORS preflight
     if (method === 'OPTIONS' && path.startsWith('/api/')) {
-      return new Response(null, { status: 204, headers: corsHeaders() });
+      return new Response(null, { status: 204, headers: corsHeaders(request) });
     }
 
     // Only handle /api/* routes in worker — catch all errors to avoid HTML fallback
@@ -379,7 +400,8 @@ export default {
 
         return jsonErr(404, 'API route not found');
       } catch (e) {
-        return jsonErr(500, e.message || 'Internal server error');
+        console.error('[Prism API Error]', e);
+        return jsonErr(500, 'Internal server error');
       }
     }
 

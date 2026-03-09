@@ -35,6 +35,17 @@
   --z-bottom-nav: 100;
 }
 
+/* ── Auto Light Theme (system preference, overridden by data-theme) ── */
+@media(prefers-color-scheme:light){
+  html:not([data-theme]) {
+    --bg0: #f0f2f5;--bg1: #ffffff;--bg2: #f5f7fa;--bg3: #e8ecf1;--bdr: #d4dbe5;--bdr2: #bcc6d4;
+    --t1: #1a2332;--t2: #4a5d75;--t3: #8494a7;--accent: #0284c7;--accent-d: rgba(2,132,199,.08);
+    --green: #16a34a;--green-d: rgba(22,163,74,.06);--red: #dc2626;--red-d: rgba(220,38,38,.06);
+    --yellow: #ca8a04;--yellow-d: rgba(202,138,4,.06);--orange: #ea580c;--orange-d: rgba(234,88,12,.06);
+    --shadow-sm: 0 1px 3px rgba(0,0,0,.06);--shadow-md: 0 4px 12px rgba(0,0,0,.08);--shadow-lg: 0 8px 24px rgba(0,0,0,.1);
+  }
+}
+
 /* ── Theme: Light (淺色) ── */
 html[data-theme="light"] {
   --bg0: #f0f2f5;
@@ -609,14 +620,15 @@ input[type="number"]{-moz-appearance:textfield}
   .sent-chg{font-size:.6rem}
 
   /* Main tabs: fixed bottom nav bar — app style */
-  .main-tabs{position:fixed;bottom:0;left:0;right:0;z-index:var(--z-bottom-nav);border-top:1px solid var(--bdr2);border-bottom:none;gap:0;flex-wrap:nowrap;padding:4px 8px calc(4px + env(safe-area-inset-bottom));overflow:visible;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);background:var(--bg0)}
+  .main-tabs{position:fixed;bottom:0;left:0;right:0;z-index:var(--z-bottom-nav);border-top:1px solid var(--bdr2);border-bottom:none;gap:0;flex-wrap:nowrap;padding:4px 8px calc(4px + env(safe-area-inset-bottom, 0px));overflow:visible;background:var(--bg0)}
+  @supports (backdrop-filter:blur(1px)){.main-tabs{backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);background:color-mix(in srgb, var(--bg0) 85%, transparent)}}
   .tab-icon{display:block;width:22px;height:22px;margin:0 auto 2px;opacity:.5;transition:opacity var(--dur)}
   .main-tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:4px 2px 2px;font-size:0;min-height:auto;border:none;bottom:auto;text-align:center;line-height:1;color:var(--t3);background:none;border-radius:8px;transition:color var(--dur),background var(--dur);-webkit-tap-highlight-color:transparent}
   .main-tab .tab-label{display:block;font-size:.6rem;font-weight:600;letter-spacing:.2px}
   .main-tab:last-child{border-right:none}
   .main-tab.active{color:var(--accent);background:none}
   .main-tab.active .tab-icon{opacity:1}
-  .main-content{padding-bottom:calc(72px + env(safe-area-inset-bottom));min-height:calc(100dvh - 100px)}
+  .main-content{padding-bottom:calc(72px + env(safe-area-inset-bottom, 0px));min-height:calc(100dvh - 100px)}
   .site-footer{padding-bottom:calc(72px + env(safe-area-inset-bottom))}
 
   /* Controls: compact toggle buttons */

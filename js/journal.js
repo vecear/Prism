@@ -41,20 +41,21 @@ async function api(path, opts = {}) {
   const headers = { 'Content-Type': 'application/json' };
   if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
   const res = await fetch(`${API}${path}`, { ...opts, headers: { ...headers, ...opts.headers } });
-  const data = await res.json();
+  let data;
+  try { data = await res.json(); } catch { throw new Error(`HTTP ${res.status}: 伺服器回應格式錯誤`); }
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
   return data;
 }
 
 async function loadTrades() {
   try { const data = await api('/trades'); trades = data.trades || []; }
-  catch { trades = []; }
+  catch (e) { console.warn('[Journal] Load trades failed:', e.message); trades = []; }
   liveQuotes = {}; // 重新載入時清除舊報價
 }
 
 function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
 // ── Format helpers ──
-function fmtNum(n, d = 0) { return n == null || isNaN(n) ? '—' : Number(n).toLocaleString('zh-TW', { minimumFractionDigits: d, maximumFractionDigits: d }); }
+function fmtNum(n, d = 0) { return n == null || isNaN(n) || !isFinite(n) ? '—' : Number(n).toLocaleString('zh-TW', { minimumFractionDigits: d, maximumFractionDigits: d }); }
 function fmtDate(iso) {
   if (!iso) return '—';
   const d = new Date(iso);
@@ -386,11 +387,11 @@ async function batchClose() {
       const idx = trades.findIndex(x => x.id === id);
       if (idx >= 0) trades[idx] = data;
       closed++;
-    } catch {}
+    } catch (e) { console.warn('[Journal] Batch close error:', e.message); }
   }
   batchSelected.clear();
   batchMode = false;
-  alert(`已平倉 ${closed} 筆`);
+  if (window._showToast) window._showToast(`已平倉 ${closed} 筆`); else alert(`已平倉 ${closed} 筆`);
   renderJournal();
 }
 
@@ -1128,7 +1129,7 @@ function getFilteredTrades() {
   if(f.account&&f.account!=='all') list=list.filter(t=>t.account===f.account);
   if(f.status&&f.status!=='all') list=list.filter(t=>t.status===f.status);
   if(f.dateFrom) list=list.filter(t=>t.date>=f.dateFrom);
-  if(f.dateTo) list=list.filter(t=>t.date<=f.dateTo+'T23:59');
+  if(f.dateTo) list=list.filter(t=>t.date<=f.dateTo+'T23:59:59');
   if(f.search){const s=f.search.toLowerCase();list=list.filter(t=>(t.symbol+t.name+t.notes).toLowerCase().includes(s));}
   const{field,asc}=sortState;
   list.sort((a,b)=>{let va,vb;if(field==='date'){va=a.date;vb=b.date;}else if(field==='symbol'){va=a.symbol;vb=b.symbol;}else if(field==='pl'){const pa=calcPL(a),pb=calcPL(b);va=pa?pa.net:-Infinity;vb=pb?pb.net:-Infinity;}else{va=a[field];vb=b[field];}if(va<vb)return asc?-1:1;if(va>vb)return asc?1:-1;return 0;});

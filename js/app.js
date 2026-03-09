@@ -2,10 +2,9 @@
    Prism (v3 Live)
    ================================================================ */
 // ── Global Error Handler ──
-window.onerror = function(msg, src, line, col) {
-  console.error(`[Prism Error] ${msg} at ${src}:${line}:${col}`);
-  return false;
-};
+window.addEventListener('error', function(e) {
+  console.error(`[Prism Error] ${e.message} at ${e.filename}:${e.lineno}:${e.colno}`);
+});
 window.addEventListener('unhandledrejection', function(e) {
   console.error('[Prism] Unhandled promise rejection:', e.reason);
 });
@@ -15,9 +14,9 @@ const API_BASE = (location.protocol === 'file:' || location.hostname === 'localh
   ? CLOUD_ORIGIN : '';
 const $ = (s, c = document) => c.querySelector(s);
 const $$ = (s, c = document) => [...c.querySelectorAll(s)];
-const fmt = (n, d = 0) => n == null || isNaN(n) ? '—' : Number(n).toLocaleString('zh-TW', { minimumFractionDigits: d, maximumFractionDigits: d });
-const fP = (n, d = 2) => n == null || isNaN(n) ? '—' : Number(n).toFixed(d) + '%';
-const fM = (n, c = 'NT$', d = 0) => n == null || isNaN(n) ? '—' : (n < 0 ? '-' : '') + c + ' ' + fmt(Math.abs(n), d);
+const fmt = (n, d = 0) => n == null || isNaN(n) || !isFinite(n) ? '—' : Number(n).toLocaleString('zh-TW', { minimumFractionDigits: d, maximumFractionDigits: d });
+const fP = (n, d = 2) => n == null || isNaN(n) || !isFinite(n) ? '—' : Number(n).toFixed(d) + '%';
+const fM = (n, c = 'NT$', d = 0) => n == null || isNaN(n) || !isFinite(n) ? '—' : (n < 0 ? '-' : '') + c + ' ' + fmt(Math.abs(n), d);
 const gV = id => { const e = document.getElementById(id); return e ? (parseFloat(e.value) || 0) : NaN; };
 const gVraw = id => { const e = document.getElementById(id); return e ? e.value : ''; };
 const riskLvl = (v, s, c, d) => v >= s ? 'safe' : v >= c ? 'caution' : v >= d ? 'danger' : 'critical';
@@ -66,9 +65,9 @@ const PriceService = {
   },
 
   async _proxyFetch(url, timeout = 8000) {
-    try { const r = await this._fetchTimeout(url, Math.min(timeout, 4000)); if (r.ok) return r; } catch {}
+    try { const r = await this._fetchTimeout(url, Math.min(timeout, 4000)); if (r.ok) return r; } catch (e) { console.debug('[Prism] Direct fetch failed:', url, e.message); }
     for (const mk of this.PROXIES) {
-      try { const r = await this._fetchTimeout(mk(url), timeout); if (r.ok) return r; } catch {}
+      try { const r = await this._fetchTimeout(mk(url), timeout); if (r.ok) return r; } catch (e) { console.debug('[Prism] Proxy fetch failed:', e.message); }
     }
     throw new Error('無法連線');
   },
@@ -512,7 +511,7 @@ const _quoteCache = {
     this._save();
     return this._mem;
   },
-  _save() { try { localStorage.setItem(this._KEY, JSON.stringify(this._mem)); } catch {} },
+  _save() { try { localStorage.setItem(this._KEY, JSON.stringify(this._mem)); } catch (e) { console.warn('[Prism] Cache save failed:', e.message); } },
   // TTL: 依設定的 refreshInterval；若為 0（關閉自動更新）則 30 分鐘
   _ttl() { return (CFG.refreshInterval > 0 ? CFG.refreshInterval * 1000 : 1800000); },
   getIndex(key) {
@@ -550,13 +549,14 @@ const _quoteCache = {
 
 // ── Smart TAIFEX session check (skip fetches outside trading hours) ──
 function _isTaifexTradingDay() {
-  const now = new Date();
+  // Use Taipei timezone for accurate session detection
+  const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
   const day = now.getDay(); // 0=Sun, 6=Sat
   if (day === 0 || day === 6) return false;
   const h = now.getHours();
   // TAIFEX day session: 8:45-13:45, after-hours: 15:00-次日5:00
-  // Margin data updates after 14:30, so skip 6:00-8:30
-  return !(h >= 6 && h < 8);
+  // Margin data updates after 14:30; skip 5:00-8:00 (no session, no updates)
+  return h < 5 || h >= 8;
 }
 
 // ── TAIFEX margin fetch handler (指數 + 股期保證金) ──
@@ -802,17 +802,17 @@ function loadSettings() {
 // Keys that stay local-only (not synced to cloud)
 const LOCAL_ONLY_KEYS = ['fontScale'];
 function saveSettings(s) {
-  localStorage.setItem('tg-settings', JSON.stringify(s));
+  try { localStorage.setItem('tg-settings', JSON.stringify(s)); }
+  catch (e) { console.warn('[Prism] localStorage save failed:', e.message); }
   // Sync to server if logged in (fire-and-forget)
   const token = localStorage.getItem('prism_token');
   if (token) {
-    const cloud = { ...s };
-    LOCAL_ONLY_KEYS.forEach(k => delete cloud[k]);
+    const cloud = Object.fromEntries(Object.entries(s).filter(([k]) => !LOCAL_ONLY_KEYS.includes(k)));
     fetch(`${API_BASE}/api/settings`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
       body: JSON.stringify({ settings: cloud }),
-    }).catch(() => {});
+    }).catch(e => console.debug('[Prism] Settings sync failed:', e.message));
   }
 }
 // Load settings from server (called after login)
@@ -832,7 +832,7 @@ async function loadSettingsFromServer() {
       localStorage.setItem('tg-settings', JSON.stringify(CFG));
       applySettings();
     }
-  } catch {}
+  } catch (e) { console.warn('[Prism] Cloud settings load failed:', e.message); }
 }
 window.loadSettingsFromServer = loadSettingsFromServer;
 let CFG = loadSettings();
@@ -1035,12 +1035,16 @@ const StockDB = {
     const presets = (ETF_PRESETS[market] || []).filter(p =>
       p.code.toUpperCase().includes(q) || p.name.toUpperCase().includes(q)
     ).map(p => ({ code: p.code, name: p.name, leverage: p.leverage, source: 'preset' }));
-    // Then local DB
-    const local = list.filter(s =>
-      s.code.toUpperCase().includes(q) || s.name.toUpperCase().includes(q)
-    ).filter(s => !presets.find(p => p.code === s.code))
-    .slice(0, 15)
-    .map(s => ({ code: s.code, name: s.name, source: 'db' }));
+    // Then local DB — use Set for O(1) dedup
+    const presetCodes = new Set(presets.map(p => p.code));
+    const local = [];
+    for (const s of list) {
+      if (local.length >= 15) break;
+      if (presetCodes.has(s.code)) continue;
+      if (s.code.toUpperCase().includes(q) || s.name.toUpperCase().includes(q)) {
+        local.push({ code: s.code, name: s.name, source: 'db' });
+      }
+    }
     return [...presets, ...local].slice(0, 12);
   },
 
@@ -1052,12 +1056,14 @@ const StockDB = {
     const results = Object.entries(STOCK_FUTURES).filter(([k, v]) =>
       k.toUpperCase().includes(q) || v.name.includes(query) || v.stock.includes(query)
     ).map(([k, v]) => ({ code: k, name: `${v.name} (${v.stock})`, mul: v.mul, stock: v.stock }));
-    // Add from TAIFEX database (skip duplicates)
+    // Add from TAIFEX database (skip duplicates) — use Set for O(1) lookup
+    const seen = new Set(results.map(r => r.code));
     const taifex = this.getTaifexFutures();
     for (const f of taifex) {
-      if (results.find(r => r.code === f.code)) continue;
+      if (seen.has(f.code)) continue;
       if (f.code.toUpperCase().includes(q) || f.name.includes(query) || f.stock.includes(query)) {
         results.push({ code: f.code, name: `${f.name} (${f.stock})`, mul: f.mul, stock: f.stock });
+        seen.add(f.code);
       }
     }
     return results.slice(0, 12);
@@ -1377,7 +1383,7 @@ async function _fetchFearGreed() {
     const fg = await PriceService.fetchFearGreed();
     _quoteCache.setFearGreed(fg);
     _renderSentimentStrip();
-  } catch {}
+  } catch (e) { console.debug('[Prism] Fear & Greed fetch failed:', e.message); }
 }
 
 // ================================================================
@@ -2160,7 +2166,7 @@ function renderSettings() {
     const val = input?.value?.trim();
     if (!val) return;
     if (!CFG.checklist) CFG.checklist = [];
-    if (CFG.checklist.length >= 20) { alert('最多 20 個檢查項目'); return; }
+    if (CFG.checklist.length >= 20) { if (window._showToast) window._showToast('最多 20 個檢查項目'); return; }
     CFG.checklist.push(val);
     input.value = '';
     saveSettings(CFG);
@@ -2180,6 +2186,10 @@ function applyTheme(theme) {
   } else {
     document.documentElement.setAttribute('data-theme', theme);
   }
+  // Update meta theme-color to match current theme
+  const themeColors = { dark: '#0e1117', light: '#f0f2f5', midnight: '#0a0f1e', emerald: '#071210', warm: '#141008' };
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.content = themeColors[theme || 'dark'] || '#0e1117';
 }
 
 function applySettings() {
@@ -2267,7 +2277,7 @@ async function handleFetchIndices(updateForms) {
     _updateTickerTime(results);
     _renderSentimentStrip();
     _fetchFearGreed();
-  } catch (e) {}
+  } catch (e) { console.warn('[Prism] Index fetch error:', e.message); }
   btn.classList.remove('loading');
 }
 
@@ -4017,6 +4027,8 @@ document.addEventListener('keydown', e => {
     if (!_toastEl) {
       _toastEl = document.createElement('div');
       _toastEl.className = 'network-toast';
+      _toastEl.setAttribute('role', 'status');
+      _toastEl.setAttribute('aria-live', 'polite');
       document.body.appendChild(_toastEl);
     }
     return _toastEl;
@@ -4029,6 +4041,7 @@ document.addEventListener('keydown', e => {
     clearTimeout(t._timer);
     t._timer = setTimeout(() => t.classList.remove('show'), 3500);
   }
+  window._showToast = showToast;
   window.addEventListener('online', () => showToast('網路已恢復連線', 'online'));
   window.addEventListener('offline', () => showToast('網路連線已中斷，部分功能可能無法使用', 'offline'));
 })();
@@ -4105,15 +4118,20 @@ document.addEventListener('click', e => {
 //  SCROLL INDICATOR for horizontal stress tables
 // ================================================================
 (function() {
-  const observer = new MutationObserver(() => {
+  let _stDebounce = null;
+  const bindScrollIndicators = () => {
     document.querySelectorAll('.st-wrap').forEach(wrap => {
       if (wrap._scrollBound) return;
       wrap._scrollBound = true;
       wrap.addEventListener('scroll', function() {
         const atEnd = this.scrollLeft + this.clientWidth >= this.scrollWidth - 4;
         this.classList.toggle('scrolled-end', atEnd);
-      });
+      }, { passive: true });
     });
+  };
+  const observer = new MutationObserver(() => {
+    clearTimeout(_stDebounce);
+    _stDebounce = setTimeout(bindScrollIndicators, 150);
   });
   observer.observe(document.body, { childList: true, subtree: true });
 })();
