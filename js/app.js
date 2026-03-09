@@ -1,6 +1,14 @@
 /* ================================================================
    Prism (v3 Live)
    ================================================================ */
+// ── Global Error Handler ──
+window.onerror = function(msg, src, line, col) {
+  console.error(`[Prism Error] ${msg} at ${src}:${line}:${col}`);
+  return false;
+};
+window.addEventListener('unhandledrejection', function(e) {
+  console.error('[Prism] Unhandled promise rejection:', e.reason);
+});
 // API base: local file / localhost → cloud; deployed → same origin
 const CLOUD_ORIGIN = 'https://prism-7t8.pages.dev';
 const API_BASE = (location.protocol === 'file:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')
@@ -539,6 +547,17 @@ const _quoteCache = {
   },
   setFearGreed(data) { this._load().fearGreed = { data, time: Date.now() }; this._save(); },
 };
+
+// ── Smart TAIFEX session check (skip fetches outside trading hours) ──
+function _isTaifexTradingDay() {
+  const now = new Date();
+  const day = now.getDay(); // 0=Sun, 6=Sat
+  if (day === 0 || day === 6) return false;
+  const h = now.getHours();
+  // TAIFEX day session: 8:45-13:45, after-hours: 15:00-次日5:00
+  // Margin data updates after 14:30, so skip 6:00-8:30
+  return !(h >= 6 && h < 8);
+}
 
 // ── TAIFEX margin fetch handler (指數 + 股期保證金) ──
 window.fetchTaifexMarginBtn = async function() {
@@ -2022,6 +2041,22 @@ function renderSettings() {
         <div id="stg-checklist-items">${(CFG.checklist||[]).map((item,i)=>`<div class="stg-cl-item" data-idx="${i}"><span>${item}</span><button class="stg-cl-del" data-idx="${i}" title="刪除">&times;</button></div>`).join('')}</div>
         <div class="stg-cl-add"><input type="text" id="stg-cl-input" placeholder="輸入檢查項目，按 Enter 新增" maxlength="50"><button id="stg-cl-add-btn" class="stg-save-btn" style="padding:5px 12px;font-size:.78rem">新增</button></div>
       </div>
+    </div>
+    <div class="stg-section stg-reset-section">
+      <h4><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>重設</h4>
+      <div class="stg-s-body">
+        <p style="color:var(--t3);font-size:.78rem;margin:0 0 8px">將所有設定恢復為預設值（主題、報價源、手續費等）</p>
+        <button class="stg-save-btn stg-reset-btn" id="stg-reset-defaults" style="background:var(--red);border-color:var(--red)">恢復預設值</button>
+      </div>
+    </div>
+    <div class="stg-section stg-shortcuts-section">
+      <h4><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h8M6 16h.01M18 16h.01"/></svg>鍵盤快捷鍵</h4>
+      <div class="stg-s-body">
+        <div style="font-size:.8rem;color:var(--t2);line-height:1.8">
+          <div><kbd>1</kbd>~<kbd>6</kbd> 切換分頁（股票/期貨/選擇權/紀錄/說明/設定）</div>
+          <div><kbd>R</kbd> 重新整理報價</div>
+        </div>
+      </div>
     </div>`;
 
   // Collapsible group toggle
@@ -2134,6 +2169,9 @@ function renderSettings() {
   $('#stg-cl-add-btn')?.addEventListener('click', addChecklistItem);
   $('#stg-cl-input')?.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addChecklistItem(); } });
   refreshChecklist();
+
+  // Reset to defaults button
+  $('#stg-reset-defaults')?.addEventListener('click', () => window._resetSettingsToDefaults());
 }
 
 function applyTheme(theme) {
@@ -3947,3 +3985,183 @@ function buildOptionsStress(isCall, buyer, prem, strike, mul, qty, ul, cur) {
   }
   return `<div class="st-wrap"><table class="st"><thead><tr><th>結算價</th><th>內含價值</th><th>損益</th><th>狀態</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
+
+// ================================================================
+//  KEYBOARD SHORTCUTS
+// ================================================================
+document.addEventListener('keydown', e => {
+  // Don't fire when typing in inputs
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+  if (e.target.isContentEditable) return;
+
+  const tabs = ['margin', 'futures', 'options', 'journal', 'guide', 'settings'];
+  const key = parseInt(e.key);
+  if (key >= 1 && key <= 6) {
+    const tab = tabs[key - 1];
+    const tabBtn = $(`.main-tab[data-tab="${tab}"]`);
+    if (tabBtn) { tabBtn.click(); e.preventDefault(); }
+  }
+  // R to refresh quotes
+  if (e.key === 'r' || e.key === 'R') {
+    const btn = $('#btn-fetch-indices');
+    if (btn && !btn.classList.contains('loading')) { btn.click(); e.preventDefault(); }
+  }
+});
+
+// ================================================================
+//  NETWORK STATUS TOAST
+// ================================================================
+(function() {
+  let _toastEl = null;
+  function _getToast() {
+    if (!_toastEl) {
+      _toastEl = document.createElement('div');
+      _toastEl.className = 'network-toast';
+      document.body.appendChild(_toastEl);
+    }
+    return _toastEl;
+  }
+  function showToast(msg, type) {
+    const t = _getToast();
+    t.textContent = msg;
+    t.className = 'network-toast ' + (type || '');
+    t.classList.add('show');
+    clearTimeout(t._timer);
+    t._timer = setTimeout(() => t.classList.remove('show'), 3500);
+  }
+  window.addEventListener('online', () => showToast('網路已恢復連線', 'online'));
+  window.addEventListener('offline', () => showToast('網路連線已中斷，部分功能可能無法使用', 'offline'));
+})();
+
+// ================================================================
+//  PULL-TO-REFRESH (Mobile)
+// ================================================================
+(function() {
+  let _startY = 0, _pulling = false, _indicator = null;
+  function _getIndicator() {
+    if (!_indicator) {
+      _indicator = document.createElement('div');
+      _indicator.className = 'pull-refresh-indicator';
+      _indicator.textContent = '下拉更新報價';
+      const app = document.getElementById('app');
+      if (app) app.prepend(_indicator);
+    }
+    return _indicator;
+  }
+  document.addEventListener('touchstart', e => {
+    if (window.scrollY === 0 && e.touches.length === 1) {
+      _startY = e.touches[0].clientY;
+      _pulling = true;
+    }
+  }, { passive: true });
+  document.addEventListener('touchmove', e => {
+    if (!_pulling) return;
+    const dy = e.touches[0].clientY - _startY;
+    const ind = _getIndicator();
+    if (dy > 10 && dy < 120 && window.scrollY === 0) {
+      ind.style.transform = `translateY(${Math.min(dy * 0.5, 50)}px)`;
+      ind.style.opacity = Math.min(dy / 80, 1);
+      ind.textContent = dy > 60 ? '放開更新報價' : '下拉更新報價';
+    } else {
+      ind.style.transform = '';
+      ind.style.opacity = 0;
+    }
+  }, { passive: true });
+  document.addEventListener('touchend', () => {
+    if (!_pulling) return;
+    _pulling = false;
+    const ind = _getIndicator();
+    const released = parseFloat(ind.style.opacity) >= 0.75;
+    ind.style.transform = '';
+    ind.style.opacity = 0;
+    if (released) {
+      const btn = document.getElementById('btn-fetch-indices');
+      if (btn && !btn.classList.contains('loading')) btn.click();
+    }
+  }, { passive: true });
+})();
+
+// ================================================================
+//  HAPTIC FEEDBACK (Mobile bottom nav)
+// ================================================================
+document.addEventListener('click', e => {
+  const tab = e.target.closest('.main-tab');
+  if (tab && navigator.vibrate) navigator.vibrate(10);
+});
+
+// ================================================================
+//  COLLAPSIBLE FORMULA SECTIONS
+// ================================================================
+document.addEventListener('click', e => {
+  const h4 = e.target.closest('.fb > h4');
+  if (!h4) return;
+  const fb = h4.parentElement;
+  if (fb && fb.classList.contains('fb')) {
+    fb.classList.toggle('collapsed');
+  }
+});
+
+// ================================================================
+//  SCROLL INDICATOR for horizontal stress tables
+// ================================================================
+(function() {
+  const observer = new MutationObserver(() => {
+    document.querySelectorAll('.st-wrap').forEach(wrap => {
+      if (wrap._scrollBound) return;
+      wrap._scrollBound = true;
+      wrap.addEventListener('scroll', function() {
+        const atEnd = this.scrollLeft + this.clientWidth >= this.scrollWidth - 4;
+        this.classList.toggle('scrolled-end', atEnd);
+      });
+    });
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+})();
+
+// ================================================================
+//  RESET SETTINGS TO DEFAULTS
+// ================================================================
+window._resetSettingsToDefaults = function() {
+  if (!confirm('確定要將所有設定恢復為預設值嗎？此操作無法還原。')) return;
+  Object.assign(CFG, { ...DEFAULT_SETTINGS });
+  saveSettings(CFG);
+  applySettings();
+  window._stgRendered = false;
+  renderSettings();
+  window._stgRendered = true;
+};
+
+// ================================================================
+//  AUTO-FILL TRADE RECORD FROM CALCULATOR
+// ================================================================
+window._getCalcParamsForRecord = function(tab) {
+  const params = {};
+  if (tab === 'margin') {
+    params.market = S.margin.market;
+    params.type = 'stock';
+    const price = gV('m-price');
+    const qty = gV('m-shares');
+    if (price) params.entry_price = price;
+    if (qty) params.quantity = qty;
+    const symbol = gVraw('m-symbol');
+    if (symbol) params.symbol = symbol;
+  } else if (tab === 'futures') {
+    params.market = S.futures.market;
+    params.type = 'futures';
+    const entry = gV('f-entry');
+    const qty = gV('f-qty');
+    if (entry) params.entry_price = entry;
+    if (qty) params.quantity = qty;
+  } else if (tab === 'options') {
+    params.market = S.options.market;
+    params.type = 'options';
+    const premium = gV('o-prem');
+    const qty = gV('o-qty');
+    if (premium) params.entry_price = premium;
+    if (qty) params.quantity = qty;
+  }
+  params.direction = (tab === 'margin') ? S.margin.direction :
+                     (tab === 'futures') ? S.futures.direction :
+                     S.options.side;
+  return params;
+};

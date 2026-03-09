@@ -3,7 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>Prism</title>
+  <title>Prism — 交易風險計算工具</title>
+  <meta name="description" content="Prism 是一站式交易風險計算工具，支援台灣與美國股票、期貨、選擇權的保證金計算、損益分析與交易日誌。">
+  <meta name="keywords" content="交易計算器,保證金計算,期貨計算,選擇權計算,風險管理,台股,美股">
+  <!-- Open Graph -->
+  <meta property="og:title" content="Prism — 交易風險計算工具">
+  <meta property="og:description" content="一站式交易風險計算：股票、期貨、選擇權保證金與損益分析">
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="zh_TW">
   <!-- Favicon -->
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <!-- iOS Web App -->
@@ -12,6 +19,14 @@
   <meta name="apple-mobile-web-app-title" content="Prism">
   <meta name="theme-color" content="#0e1117">
   <link rel="manifest" href="manifest.json">
+  <!-- Preconnect for external APIs -->
+  <link rel="preconnect" href="https://mis.twse.com.tw" crossorigin>
+  <link rel="preconnect" href="https://query1.finance.yahoo.com" crossorigin>
+  <link rel="dns-prefetch" href="https://mis.twse.com.tw">
+  <link rel="dns-prefetch" href="https://query1.finance.yahoo.com">
+  <link rel="dns-prefetch" href="https://www.taifex.com.tw">
+  <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+TC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/style.css">
 </head>
@@ -184,9 +199,10 @@
   <script>
   // Apply theme early to prevent flash
   (function(){try{var s=JSON.parse(localStorage.getItem('tg-settings'));if(s&&s.theme&&s.theme!=='dark')document.documentElement.setAttribute('data-theme',s.theme);}catch{}})();
-  // Generate apple-touch-icon PNG from canvas (iOS requires PNG)
+  // Generate apple-touch-icon PNG from canvas (iOS requires PNG) — deferred
   (function(){
-    var s = [180, 192, 512];
+    var gen = function() {
+    var s = [180];
     s.forEach(function(sz){
       var c = document.createElement('canvas'); c.width = sz; c.height = sz;
       var x = c.getContext('2d'), r = sz * 0.1875;
@@ -211,14 +227,18 @@
       // Inject as link
       var url = c.toDataURL('image/png');
       if(sz === 180){ var l=document.createElement('link'); l.rel='apple-touch-icon'; l.href=url; document.head.appendChild(l); }
-      if(sz === 192 || sz === 512){
-        // Also save for manifest (browsers cache from link tags)
-        var l2=document.createElement('link'); l2.rel='icon'; l2.type='image/png'; l2.sizes=sz+'x'+sz; l2.href=url; document.head.appendChild(l2);
-      }
     });
+    };
+    if ('requestIdleCallback' in window) { requestIdleCallback(gen); } else { setTimeout(gen, 100); }
   })();
   </script>
-  <script src="js/app.js"></script>
-  <script src="js/journal.js"></script>
+  <script>
+  // Register Service Worker for PWA offline support
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(function(){});
+  }
+  </script>
+  <script src="js/app.js" defer></script>
+  <script src="js/journal.js" defer></script>
 </body>
 </html>

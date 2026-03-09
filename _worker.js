@@ -128,7 +128,9 @@ async function verifyPassword(password, hash, saltHex) {
 
 function getJwtSecret(env) {
   const s = env.JWT_SECRET;
-  if (!s) console.warn('[Prism] JWT_SECRET 未設定，使用不安全的預設值！請設定 env.JWT_SECRET');
+  if (!s) {
+    console.error('[Prism] CRITICAL: JWT_SECRET 未設定！請立即設定 env.JWT_SECRET，否則認證不安全。');
+  }
   return s || 'prism-default-secret-change-me';
 }
 
