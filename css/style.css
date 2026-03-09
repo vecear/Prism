@@ -615,8 +615,8 @@ input[type="number"]{-moz-appearance:textfield}
   .main-tab:last-child{border-right:none}
   .main-tab.active{color:var(--accent);background:none}
   .main-tab.active .tab-icon{opacity:1}
-  .main-content{padding-bottom:64px;min-height:calc(100dvh - 100px)}
-  .site-footer{padding-bottom:64px}
+  .main-content{padding-bottom:calc(72px + env(safe-area-inset-bottom));min-height:calc(100dvh - 100px)}
+  .site-footer{padding-bottom:calc(72px + env(safe-area-inset-bottom))}
 
   /* Controls: compact toggle buttons */
   .controls-bar{flex-direction:row;flex-wrap:wrap;gap:3px;padding:4px 0}
