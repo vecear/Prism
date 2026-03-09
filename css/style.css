@@ -1014,6 +1014,11 @@ input[type="number"]{-moz-appearance:textfield}
 .j-dash-item+.j-dash-item::before{content:'';position:absolute;left:0;top:20%;bottom:20%;width:1px;background:var(--bdr)}
 .j-dash-label{font-size:.7rem;color:var(--t3);font-weight:600;white-space:nowrap;flex-shrink:0;text-transform:uppercase;letter-spacing:.3px}
 .j-dash-value{font-family:var(--mono);font-size:.95rem;font-weight:700;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.j-dash-refresh{flex:0 0 auto;padding:8px 6px}
+.j-refresh-quotes-btn{display:flex;align-items:center;justify-content:center;width:32px;height:32px;background:none;border:1px solid var(--bdr);border-radius:6px;color:var(--t3);cursor:pointer;transition:color var(--dur),border-color var(--dur),background-color var(--dur)}
+.j-refresh-quotes-btn:hover{color:var(--accent);border-color:var(--accent);background:var(--accent-d)}
+.j-refresh-quotes-btn.loading{pointer-events:none;opacity:.6}
+.j-refresh-quotes-btn.loading svg{animation:spin .8s linear infinite}
 
 /* ── Journal Responsive ── */
 @media(max-width:768px){
@@ -1081,6 +1086,8 @@ input[type="number"]{-moz-appearance:textfield}
   .j-dash-item+.j-dash-item::before{top:15%;bottom:15%}
   .j-dash-label{font-size:.62rem;letter-spacing:.2px}
   .j-dash-value{font-size:.82rem}
+  .j-dash-refresh{grid-column:-1;padding:4px;display:flex;align-items:center;justify-content:center}
+  .j-refresh-quotes-btn{width:28px;height:28px}
   .j-csv-btns{display:none}
   .j-quick-filters{gap:4px;padding:6px 0}
   .j-qf-chip{padding:4px 10px;font-size:.72rem}

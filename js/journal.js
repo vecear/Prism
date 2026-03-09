@@ -521,9 +521,13 @@ function resolveQuoteSymbol(t) {
   return { method: 'stock', code: sym, market: mkt };
 }
 
-async function fetchOpenTradeQuotes() {
+async function fetchOpenTradeQuotes(force = false) {
   if (typeof PriceService === 'undefined') return;
   const openTrades = trades.filter(t => t.status === 'open' && t.symbol && t.entryPrice);
+  if (force) {
+    // Clear cached quotes for open trades so they get re-fetched
+    for (const t of openTrades) delete liveQuotes[getLiveQuoteKey(t)];
+  }
   const seen = new Set();
   const toFetch = [];
   for (const t of openTrades) {
@@ -926,12 +930,14 @@ function renderDashboard() {
   const winCount = closed.filter(t => { const pl = calcPL(t); return pl && pl.net > 0; }).length;
   const lossCount = closed.filter(t => { const pl = calcPL(t); return pl && pl.net <= 0; }).length;
 
+  const hasOpen = openCount > 0;
   el.innerHTML = `<div class="j-dashboard">
     <div class="j-dash-item"><span class="j-dash-label">今日</span><span class="j-dash-value ${cls(todayPL)}">${fmtNum(todayPL, 0)}</span></div>
     <div class="j-dash-item"><span class="j-dash-label">本週</span><span class="j-dash-value ${cls(weekPL)}">${fmtNum(weekPL, 0)}</span></div>
     <div class="j-dash-item"><span class="j-dash-label">本月</span><span class="j-dash-value ${cls(monthPL)}">${fmtNum(monthPL, 0)}</span></div>
     <div class="j-dash-item"><span class="j-dash-label">未實現</span><span class="j-dash-value ${cls(unrealized)}">${unrealized ? fmtNum(unrealized, 0) : '—'}</span></div>
     <div class="j-dash-item"><span class="j-dash-label">持倉</span><span class="j-dash-value">${openCount}</span></div>
+    ${hasOpen ? `<div class="j-dash-item j-dash-refresh"><button class="j-refresh-quotes-btn" id="j-refresh-quotes" title="更新未平倉報價"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 4v6h6"/><path d="M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg></button></div>` : ''}
   </div>
   <div class="j-quick-filters" id="j-quick-filters">
     <button class="j-qf-chip" data-qf="all">全部<span class="j-qf-count">${trades.length}</span></button>
@@ -940,6 +946,22 @@ function renderDashboard() {
     <button class="j-qf-chip" data-qf="winners">獲利<span class="j-qf-count">${winCount}</span></button>
     <button class="j-qf-chip" data-qf="losers">虧損<span class="j-qf-count">${lossCount}</span></button>
   </div>`;
+
+  // Bind refresh quotes button
+  $('#j-refresh-quotes')?.addEventListener('click', async () => {
+    const btn = $('#j-refresh-quotes');
+    if (!btn || btn.disabled) return;
+    btn.disabled = true;
+    btn.classList.add('loading');
+    try {
+      await fetchOpenTradeQuotes(true);
+      renderDashboard();
+      if (viewMode === 'list') renderTradeList();
+      checkSLTPAlerts();
+    } catch {}
+    btn.disabled = false;
+    btn.classList.remove('loading');
+  });
 }
 
 // ================================================================
