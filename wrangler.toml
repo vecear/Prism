@@ -1,5 +1,6 @@
 name = "prism"
 compatibility_date = "2024-01-01"
+pages_build_output_dir = "."
 
 # Pages project — static assets served from root
 # Functions auto-detected from /functions directory

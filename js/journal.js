@@ -51,6 +51,22 @@ async function loadTrades() {
   try { const data = await api('/trades'); trades = data.trades || []; }
   catch (e) { console.warn('[Journal] Load trades failed:', e.message); trades = []; }
   liveQuotes = {}; // 重新載入時清除舊報價
+  // One-time cleanup: strip price/quote junk from trade names
+  if (trades.length && !localStorage.getItem('j-name-cleaned')) {
+    const dirtyTrades = [];
+    for (const t of trades) {
+      if (!t.name) continue;
+      const m = t.name.match(/^(.+?)\s+\d[\d,.]+\s/);
+      if (m) { t.name = m[1].replace(/,\s*$/, '').trim(); dirtyTrades.push(t); }
+    }
+    if (dirtyTrades.length) {
+      console.log(`[Journal] Cleaning ${dirtyTrades.length} trade name(s)…`);
+      await Promise.all(dirtyTrades.map(t =>
+        api(`/trades/${t.id}`, { method: 'PUT', body: JSON.stringify(t) }).catch(() => {})
+      ));
+    }
+    localStorage.setItem('j-name-cleaned', '1');
+  }
 }
 
 function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
@@ -727,7 +743,7 @@ window.PrismJournal = {
       trade.type = 'stock';
       trade.direction = (dir === 'short') ? 'short' : 'long';
       trade.symbol = document.getElementById('m-symbol')?.value || '';
-      trade.name = document.querySelector('.stock-info')?.textContent?.split('|')[0]?.trim() || '';
+      trade.name = document.querySelector('.stock-info strong')?.textContent?.trim() || '';
       const spu = tw ? 1000 : 1;
       const qty = _gv('m-qty');
       trade.quantity = qty ? String(qty * spu) : '';
@@ -1169,8 +1185,8 @@ function renderTradeList() {
   }
   h+=`<div class="j-summary-bar"><span>共 <strong>${filtered.length}</strong> 筆</span>${cp.length?`<span>已平倉損益：<strong class="${tn>=0?'tg':'tr'}">${fmtNum(tn,0)}</strong></span><span>勝率：<strong>${wr}%</strong> (${wins}/${cp.length})</span>`:''}${unrealizedCount?`<span>未實現損益：<strong class="${unrealizedTotal>=0?'tg':'tr'}">${fmtNum(unrealizedTotal,0)}</strong> <small>(${unrealizedCount}筆持倉)</small></span>`:openTrades.length?`<span>持倉中：<strong>${openTrades.length}</strong> 筆</span>`:''}</div>`;
 
-  // Desktop: table view
-  h+=`<div class="j-table-wrap"><table class="j-table"><thead><tr>${batchMode?'<th><input type="checkbox" id="jb-all"></th>':''}<th class="j-th-sort" data-sort="date">日期 ${si('date')}</th><th>市場</th><th>類型</th><th class="j-th-sort" data-sort="symbol">代號 ${si('symbol')}</th><th>方向</th><th>進場</th><th>出場</th><th>數量</th><th class="j-th-sort" data-sort="pl">損益 ${si('pl')}</th><th>狀態</th><th>標籤</th><th></th></tr></thead><tbody>`;
+  // Desktop: table view (condensed — 7 columns instead of 13)
+  h+=`<div class="j-table-wrap"><table class="j-table"><thead><tr>${batchMode?'<th><input type="checkbox" id="jb-all"></th>':''}<th class="j-th-sort" data-sort="date">日期 ${si('date')}</th><th class="j-th-sort" data-sort="symbol">標的 ${si('symbol')}</th><th>價格</th><th>數量</th><th class="j-th-sort" data-sort="pl">損益 ${si('pl')}</th><th>狀態</th><th></th></tr></thead><tbody>`;
   for(const t of filtered){
     let plStr='—',plC='tm',plExtra='';
     if(t.status==='open'){
@@ -1179,7 +1195,8 @@ function renderTradeList() {
       else if(lq&&lq.error){plStr='<span class="j-live-price" title="'+esc(lq.error)+'">無法取得報價</span>';}
       else{plStr='<span class="j-pl-loading" data-key="'+qk+'">查詢中…</span>';}
     }else{const pl=calcPL(t);if(pl){plStr=fmtNum(pl.net,0);plC=pl.net>0?'tg':pl.net<0?'tr':'';}}
-  h+=`<tr class="j-row" data-id="${t.id}">${batchMode?`<td><input type="checkbox" class="j-batch-cb" data-id="${t.id}" ${batchSelected.has(t.id)?'checked':''}></td>`:''}<td class="j-td-date">${fmtDate(t.date)}</td><td><span class="j-badge j-badge-${t.market}">${ML[t.market]||t.market}</span></td><td><span class="j-badge j-badge-type">${TL[t.type]||t.type}</span></td><td class="j-td-sym"><strong>${esc(t.symbol)}</strong>${t.name?`<span class="j-sym-name">${esc(t.name)}</span>`:''}</td><td><span class="${DC[t.direction]}">${DL[t.direction]}</span></td><td class="j-td-num">${fmtNum(parseFloat(t.entryPrice),2)}</td><td class="j-td-num">${t.exitPrice?fmtNum(parseFloat(t.exitPrice),2):'—'}</td><td class="j-td-num">${t.quantity||'—'}</td><td class="j-td-num ${plC}">${plStr}${plExtra}</td><td><span class="j-status j-status-${t.status}">${SL[t.status]}</span></td><td class="j-td-tags">${(t.tags||[]).map(tag=>`<span class="j-tag">${esc(tag)}</span>`).join('')}</td><td class="j-td-actions">${t.status==='open'?`<button class="j-act-btn j-act-close" data-id="${t.id}" title="快速平倉"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></button>`:''}<button class="j-act-btn j-act-dup" data-id="${t.id}" title="複製交易"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button>${t.status==='open'&&parseFloat(t.quantity)>1?`<button class="j-act-btn j-act-partial" data-id="${t.id}" title="部分平倉"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 3h5v5"/><path d="M8 21H3v-5"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg></button>`:''}<button class="j-act-btn j-act-view" data-id="${t.id}" title="檢視"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button><button class="j-act-btn j-act-edit" data-id="${t.id}" title="編輯"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button><button class="j-act-btn j-act-del" data-id="${t.id}" title="刪除"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button></td></tr>`;}
+    const tagHtml=(t.tags||[]).length?`<div class="j-td-tags-inline">${t.tags.map(tag=>`<span class="j-tag">${esc(tag)}</span>`).join('')}</div>`:'';
+  h+=`<tr class="j-row" data-id="${t.id}">${batchMode?`<td><input type="checkbox" class="j-batch-cb" data-id="${t.id}" ${batchSelected.has(t.id)?'checked':''}></td>`:''}<td class="j-td-date">${fmtDate(t.date)}</td><td class="j-td-sym"><div class="j-sym-row"><strong>${esc(t.symbol)}</strong><span class="j-badge j-badge-${t.market}">${ML[t.market]||t.market}</span><span class="j-badge j-badge-type">${TL[t.type]||t.type}</span><span class="${DC[t.direction]}">${DL[t.direction]}</span></div>${t.name?`<span class="j-sym-name">${esc(t.name)}</span>`:''}</td><td class="j-td-price"><span class="j-td-num">${fmtNum(parseFloat(t.entryPrice),2)}</span><span class="j-price-arrow">→</span><span class="j-td-num">${t.exitPrice?fmtNum(parseFloat(t.exitPrice),2):'—'}</span></td><td class="j-td-num">${t.quantity||'—'}</td><td class="j-td-num ${plC}">${plStr}${plExtra}</td><td><span class="j-status j-status-${t.status}">${SL[t.status]}</span>${tagHtml}</td><td class="j-td-actions"><div class="j-actions-wrap">${t.status==='open'?`<button class="j-act-btn j-act-close" data-id="${t.id}" title="快速平倉"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></button>`:''}<button class="j-act-btn j-act-dup" data-id="${t.id}" title="複製交易"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button>${t.status==='open'&&parseFloat(t.quantity)>1?`<button class="j-act-btn j-act-partial" data-id="${t.id}" title="部分平倉"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 3h5v5"/><path d="M8 21H3v-5"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg></button>`:''}<button class="j-act-btn j-act-view" data-id="${t.id}" title="檢視"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button><button class="j-act-btn j-act-edit" data-id="${t.id}" title="編輯"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button><button class="j-act-btn j-act-del" data-id="${t.id}" title="刪除"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button></div></td></tr>`;}
   h+='</tbody></table></div>';
 
   // Mobile: card view

@@ -834,39 +834,43 @@ input[type="number"]{-moz-appearance:textfield}
 /* ── Trade Table ── */
 /* Card list — hidden on desktop, shown on mobile */
 .j-card-list{display:none}
-.j-table-wrap{overflow-x:auto;border:1px solid var(--bdr);border-radius:var(--r);box-shadow:var(--shadow-sm)}
+.j-table-wrap{overflow-x:auto;border-top:1px solid var(--bdr);border-bottom:1px solid var(--bdr);box-shadow:var(--shadow-sm);width:100vw;margin-left:calc(-50vw + 50%);margin-bottom:80px}
 .j-table{width:100%;border-collapse:collapse;font-size:.84rem}
-.j-table thead th{padding:9px 12px;background:var(--bg1);color:var(--t2);font-weight:600;text-align:left;border-bottom:1px solid var(--bdr);white-space:nowrap;position:sticky;top:0;z-index:1;font-size:.78rem;text-transform:uppercase;letter-spacing:.3px}
-.j-table tbody td{padding:8px 12px;border-bottom:1px solid var(--bdr);white-space:nowrap;vertical-align:middle}
-.j-table tbody tr{cursor:pointer;transition:background var(--dur)}
+.j-table thead th{padding:8px 10px;background:var(--bg1);color:var(--t2);font-weight:600;text-align:center;border-bottom:1px solid var(--bdr);white-space:nowrap;position:sticky;top:0;z-index:1;font-size:.78rem;text-transform:uppercase;letter-spacing:.3px}
+.j-table tbody td{padding:7px 10px;vertical-align:middle;text-align:center}
+.j-table tbody tr{cursor:pointer;transition:background var(--dur);border-bottom:1px solid var(--bdr)}
 .j-table tbody tr:nth-child(even){background:rgba(128,128,128,.03)}
 .j-table tbody tr:hover{background:var(--bg3)}
-.j-table tbody tr:last-child td{border-bottom:none}
+.j-table tbody tr:last-child{border-bottom:none}
 .j-th-sort{cursor:pointer;user-select:none}
 .j-th-sort:hover{color:var(--accent)}
 .j-sort-icon{font-size:.6rem;margin-left:2px;opacity:.4}
 .j-sort-icon.active{opacity:1;color:var(--accent)}
-.j-td-date{font-family:var(--mono);font-size:.82rem;color:var(--t2)}
+.j-td-date{font-family:var(--mono);font-size:.82rem;color:var(--t2);white-space:nowrap}
+.j-td-sym{min-width:120px}
+.j-sym-row{display:flex;align-items:center;gap:5px;flex-wrap:wrap;justify-content:center}
 .j-td-sym strong{color:var(--accent);font-family:var(--mono);font-size:.88rem}
-.j-sym-name{display:block;font-size:.76rem;color:var(--t3);font-weight:400}
-.j-td-num{font-family:var(--mono);text-align:right}
-.j-td-tags{max-width:140px;overflow:hidden}
-.j-td-actions{display:flex;gap:3px;justify-content:flex-end}
+.j-sym-name{display:block;font-size:.76rem;color:var(--t3);font-weight:400;text-align:center}
+.j-td-price{white-space:nowrap;font-family:var(--mono);text-align:center}
+.j-price-arrow{color:var(--t3);margin:0 3px;font-size:.76rem}
+.j-td-num{font-family:var(--mono);text-align:center}
+.j-td-tags-inline{display:flex;flex-wrap:wrap;gap:2px;margin-top:4px;justify-content:center}
+.j-td-actions .j-actions-wrap{display:flex;gap:3px;justify-content:center}
 
 /* ── Badges ── */
-.j-badge{display:inline-block;padding:3px 8px;border-radius:3px;font-size:.76rem;font-weight:600}
+.j-badge{display:inline-block;padding:2px 6px;border-radius:3px;font-size:.72rem;font-weight:600}
 .j-badge-tw{background:rgba(0,180,216,.12);color:var(--accent)}
 .j-badge-us{background:rgba(124,77,255,.12);color:#b388ff}
 .j-badge-type{background:var(--bg3);color:var(--t2)}
-.j-dir-long{color:var(--green);font-weight:600;font-size:.84rem}
-.j-dir-short{color:var(--red);font-weight:600;font-size:.84rem}
+.j-dir-long{color:var(--green);font-weight:600;font-size:.78rem}
+.j-dir-short{color:var(--red);font-weight:600;font-size:.78rem}
 .j-status{padding:3px 8px;border-radius:3px;font-size:.76rem;font-weight:600}
 .j-status-open{background:var(--accent-d);color:var(--accent)}
 .j-status-closed{background:var(--bg3);color:var(--t3)}
-.j-tag{display:inline-block;padding:3px 10px;background:var(--yellow-d);border:1px solid rgba(255,214,0,.2);border-radius:12px;font-size:.76rem;color:var(--yellow);font-weight:500;margin:1px 2px}
+.j-tag{display:inline-block;padding:2px 8px;background:var(--yellow-d);border:1px solid rgba(255,214,0,.2);border-radius:12px;font-size:.72rem;color:var(--yellow);font-weight:500;margin:1px 2px}
 
 /* ── Action Buttons ── */
-.j-act-btn{display:flex;align-items:center;justify-content:center;width:36px;height:36px;background:none;border:1px solid transparent;border-radius:6px;color:var(--t3);cursor:pointer;transition:color var(--dur),border-color var(--dur),background-color var(--dur),transform .1s}
+.j-act-btn{display:flex;align-items:center;justify-content:center;width:30px;height:30px;background:none;border:1px solid transparent;border-radius:5px;color:var(--t3);cursor:pointer;transition:color var(--dur),border-color var(--dur),background-color var(--dur),transform .1s}
 .j-act-btn:hover{color:var(--accent);border-color:var(--accent);background:var(--accent-d);transform:scale(1.08)}
 .j-act-btn:active{transform:scale(.95)}
 .j-act-del:hover{color:var(--red);border-color:var(--red);background:var(--red-d)}
