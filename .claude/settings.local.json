@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -n \"$$.*\\\\$\\\\\\(\" /c/Users/wseu/Desktop/Code/Prism/js/journal.js | head -20)",
+      "Bash(grep -n \"$$.*\\\\$\\\\\\(\" /c/Users/wseu/Desktop/Code/Prism/js/app.js | head -20)",
+      "Bash(grep -n '\\\\$\\\\$.*\\\\$\\(' /c/Users/wseu/Desktop/Code/Prism/js/app.js)",
+      "Bash(grep -n '^\\\\s*\\\\$\\(`' /c/Users/wseu/Desktop/Code/Prism/js/app.js | head -20)"
+    ]
+  }
+}

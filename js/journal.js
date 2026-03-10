@@ -243,7 +243,8 @@ function applyTemplate(tpl) {
   if ($('#jf-fee')) $('#jf-fee').value = tpl.fee || '';
   if ($('#jf-tax')) $('#jf-tax').value = tpl.tax || '';
   if ($('#jf-account')) $('#jf-account').value = tpl.account || '';
-  $$('.j-tag-btn', $('#jf-tags')).forEach(b => b.classList.toggle('active', (tpl.tags || []).includes(b.dataset.tag)));
+  const tagsEl = $('#jf-tags');
+  if (tagsEl) $$('.j-tag-btn', tagsEl).forEach(b => b.classList.toggle('active', (tpl.tags || []).includes(b.dataset.tag)));
 }
 function deleteTemplate(name) {
   const templates = getTemplates().filter(t => t.name !== name);
@@ -328,17 +329,18 @@ async function partialCloseTrade(id) {
   if (isNaN(closeQty) || closeQty <= 0 || closeQty > totalQty) { alert('數量無效'); return; }
 
   const lq = liveQuotes[getLiveQuoteKey(t)];
-  const exitPrice = lq?.price || parseFloat(prompt('請輸入平倉價格：') || '');
-  if (!exitPrice || isNaN(exitPrice)) { alert('價格無效'); return; }
+  const exitPrice = (lq?.price != null && !isNaN(lq.price)) ? lq.price : parseFloat(prompt('請輸入平倉價格：') || '');
+  if (exitPrice == null || isNaN(exitPrice)) { alert('價格無效'); return; }
 
   const remainQty = totalQty - closeQty;
   const feeRatio = closeQty / totalQty;
   const origFee = parseFloat(t.fee) || 0, origTax = parseFloat(t.tax) || 0;
 
-  // Create closed trade for the closed portion
-  const closedData = { ...t, id: undefined, quantity: closeQty, exitPrice, status: 'closed', fee: Math.round(origFee * feeRatio), tax: Math.round(origTax * feeRatio), date: localISOString() };
+  // Create closed trade for the closed portion (floor for closed, remainder gets rest to keep total exact)
+  const closedFee = Math.floor(origFee * feeRatio), closedTax = Math.floor(origTax * feeRatio);
+  const closedData = { ...t, id: undefined, quantity: closeQty, exitPrice, status: 'closed', fee: closedFee, tax: closedTax, date: localISOString() };
   // Update original trade with remaining qty
-  const remainData = { ...t, quantity: remainQty, fee: Math.round(origFee * (1 - feeRatio)), tax: Math.round(origTax * (1 - feeRatio)) };
+  const remainData = { ...t, quantity: remainQty, fee: origFee - closedFee, tax: origTax - closedTax };
 
   try {
     await api('/trades', { method: 'POST', body: JSON.stringify(closedData) });
@@ -361,13 +363,17 @@ function toggleBatchMode() {
 async function batchDelete() {
   if (!batchSelected.size) return;
   if (!confirm(`確定要刪除 ${batchSelected.size} 筆交易？`)) return;
-  try {
-    await Promise.all([...batchSelected].map(id => api(`/trades/${id}`, { method: 'DELETE' })));
-    trades = trades.filter(t => !batchSelected.has(t.id));
-    batchSelected.clear();
-    batchMode = false;
-    renderJournal();
-  } catch (e) { alert('批次刪除失敗：' + e.message); }
+  const deletedIds = new Set();
+  const errors = [];
+  await Promise.all([...batchSelected].map(async id => {
+    try { await api(`/trades/${id}`, { method: 'DELETE' }); deletedIds.add(id); }
+    catch (e) { errors.push(`${id}: ${e.message}`); }
+  }));
+  trades = trades.filter(t => !deletedIds.has(t.id));
+  batchSelected.clear();
+  batchMode = false;
+  renderJournal();
+  if (errors.length) alert(`${deletedIds.size} 筆已刪除，${errors.length} 筆失敗`);
 }
 
 async function batchAddTag() {
@@ -391,17 +397,23 @@ async function batchAddTag() {
 async function batchClose() {
   const openIds = [...batchSelected].filter(id => { const t = trades.find(x => x.id === id); return t?.status === 'open'; });
   if (!openIds.length) { alert('沒有選取持倉中的交易'); return; }
-  if (!confirm(`以即時報價平倉 ${openIds.length} 筆持倉？`)) return;
-  let closed = 0;
+  // Snapshot trade data and quotes before confirm to avoid stale references
+  const closeJobs = [];
   for (const id of openIds) {
     const t = trades.find(x => x.id === id);
+    if (!t) continue;
     const lq = liveQuotes[getLiveQuoteKey(t)];
     if (!lq?.price) continue;
+    closeJobs.push({ id, data: { ...t, exitPrice: lq.price, status: 'closed' } });
+  }
+  if (!closeJobs.length) { alert('無法取得即時報價'); return; }
+  if (!confirm(`以即時報價平倉 ${closeJobs.length} 筆持倉？`)) return;
+  let closed = 0;
+  for (const job of closeJobs) {
     try {
-      const data = { ...t, exitPrice: lq.price, status: 'closed' };
-      await api(`/trades/${id}`, { method: 'PUT', body: JSON.stringify(data) });
-      const idx = trades.findIndex(x => x.id === id);
-      if (idx >= 0) trades[idx] = data;
+      await api(`/trades/${job.id}`, { method: 'PUT', body: JSON.stringify(job.data) });
+      const idx = trades.findIndex(x => x.id === job.id);
+      if (idx >= 0) trades[idx] = job.data;
       closed++;
     } catch (e) { console.warn('[Journal] Batch close error:', e.message); }
   }
@@ -538,8 +550,10 @@ function resolveQuoteSymbol(t) {
   return { method: 'stock', code: sym, market: mkt };
 }
 
+let _fetchQuotesVersion = 0;
 async function fetchOpenTradeQuotes(force = false) {
   if (typeof PriceService === 'undefined') return;
+  const thisVersion = ++_fetchQuotesVersion;
   const openTrades = trades.filter(t => t.status === 'open' && t.symbol && t.entryPrice);
   if (force) {
     // Clear cached quotes for open trades so they get re-fetched
@@ -588,12 +602,14 @@ async function fetchOpenTradeQuotes(force = false) {
       } else {
         q = await PriceService.fetchStockQuote(target.code, target.market);
       }
+      if (thisVersion !== _fetchQuotesVersion) return; // stale request
       if (q && q.price) {
         liveQuotes[key] = { price: q.price, time: Date.now() };
       } else {
         liveQuotes[key] = { price: null, time: Date.now(), error: '無報價' };
       }
     } catch (e) {
+      if (thisVersion !== _fetchQuotesVersion) return;
       liveQuotes[key] = { price: null, time: Date.now(), error: e.message };
     }
   }));
@@ -733,7 +749,8 @@ window.PrismJournal = {
     let trade = newTrade();
     trade.status = 'open'; // default to open position
 
-    const _gv = id => parseFloat(document.getElementById(id)?.value) || 0;
+    const _gv = id => { const v = parseFloat(document.getElementById(id)?.value); return isNaN(v) ? 0 : v; };
+    const _gvOrNull = id => { const v = parseFloat(document.getElementById(id)?.value); return isNaN(v) ? null : v; };
 
     if (tabType === 'margin') {
       const market = document.querySelector('[data-group="margin-market"] .toggle-btn.active')?.dataset.value || 'tw';
@@ -749,12 +766,12 @@ window.PrismJournal = {
       trade.quantity = qty ? String(qty * spu) : '';
       if (dir === 'short') {
         trade.entryPrice = document.getElementById('m-sell-price')?.value || '';
-        const cp = _gv('m-current-price') || _gv('m-sell-price');
-        trade.exitPrice = cp ? String(cp) : '';
+        const cp = _gvOrNull('m-current-price') ?? _gvOrNull('m-sell-price');
+        trade.exitPrice = cp != null ? String(cp) : '';
       } else {
         trade.entryPrice = document.getElementById('m-buy-price')?.value || '';
-        const cp = _gv('m-current-price') || _gv('m-buy-price');
-        trade.exitPrice = cp ? String(cp) : '';
+        const cp = _gvOrNull('m-current-price') ?? _gvOrNull('m-buy-price');
+        trade.exitPrice = cp != null ? String(cp) : '';
       }
       // Calculate fees & tax
       const ts = qty * spu;
@@ -788,8 +805,8 @@ window.PrismJournal = {
       const sel = document.getElementById('f-contract');
       if (sel) { trade.symbol = sel.value; trade.name = sel.options[sel.selectedIndex]?.text || ''; }
       // Exit price: f-current → f-live-price → f-entry
-      const exitVal = _gv('f-current') || _gv('f-live-price') || _gv('f-entry');
-      if (exitVal) trade.exitPrice = String(exitVal);
+      const exitVal = _gvOrNull('f-current') ?? _gvOrNull('f-live-price') ?? _gvOrNull('f-entry');
+      if (exitVal != null) trade.exitPrice = String(exitVal);
       // Fee & tax
       const entry = _gv('f-entry'), qty = _gv('f-qty'), mul = _gv('f-mul');
       const fComm = _gv('f-comm');
@@ -1656,6 +1673,9 @@ function renderDiary() {
     const _triggerDiaryAutoSave = (date) => {
       if (_diaryAutoSaveTimer) clearTimeout(_diaryAutoSaveTimer);
       _diaryAutoSaveTimer = setTimeout(async () => {
+        // Verify we're still editing the same date
+        if (_diaryEditingDate !== null && _diaryEditingDate !== date) return;
+        if (_diaryEditingDate === null && date !== new Date().toISOString().slice(0, 10)) return;
         try {
           const v = _getDiaryFormValues();
           await saveDailyJournal(date, v.mood, v.marketNote, v.plan, v.review, v.discipline, v.tags, v.takeaway, v.starred);
@@ -2214,8 +2234,8 @@ function openTradeDetail(id) {
   ${t.account?`<div class="j-detail-item" style="grid-column:1/-1"><span class="j-dl">帳戶</span><span class="j-dv">${esc(t.account)}</span></div>`:''}
   ${t.rating?`<div class="j-detail-item"><span class="j-dl">自評</span><span class="j-dv">${ratingHTML(t.rating)}</span></div>`:''}
   ${(t.reviewDiscipline||t.reviewTiming||t.reviewSizing)?`<div class="j-detail-review" style="grid-column:1/-1"><span class="j-dl">覆盤評分</span><div class="j-detail-rv-scores"><span>紀律 <strong>${t.reviewDiscipline||0}</strong>/5</span><span>時機 <strong>${t.reviewTiming||0}</strong>/5</span><span>倉位 <strong>${t.reviewSizing||0}</strong>/5</span></div></div>`:''}
-  ${t.notes?`<div class="j-detail-notes"><h4>策略筆記</h4><div class="j-notes-content">${esc(t.notes).replace(/\n/g,'<br>')}</div></div>`:''}
-  ${t.imageUrl?`<div class="j-detail-notes"><h4>交易截圖</h4><img src="${esc(t.imageUrl)}" class="j-detail-img" alt="交易截圖" loading="lazy" onerror="this.style.display='none'"></div>`:''}
+  ${t.notes?`<div class="j-detail-notes"><h4>策略筆記</h4><div class="j-notes-content" style="white-space:pre-wrap">${esc(t.notes)}</div></div>`:''}
+  ${t.imageUrl && /^https?:\/\//.test(t.imageUrl)?`<div class="j-detail-notes"><h4>交易截圖</h4><img src="${esc(t.imageUrl)}" class="j-detail-img" alt="交易截圖" loading="lazy" onerror="this.style.display='none'"></div>`:''}
   </div><div class="j-modal-footer">${t.status==='open'?`<button class="j-btn-cancel j-detail-close-btn" id="jd-quick-close" style="color:var(--red);border-color:var(--red)">快速平倉</button>`:''}<button class="j-btn-cancel" id="jd-calc" title="在計算器中開啟">計算器</button><button class="j-btn-cancel" id="jd-dup" title="複製為新交易">複製</button><span style="flex:1"></span><button class="j-btn-cancel" id="jd-back">關閉</button><button class="j-btn-save" id="jd-edit">編輯</button></div>`;
   overlay.classList.add('open');modal.classList.add('open');
   const cl=()=>{overlay.classList.remove('open');modal.classList.remove('open');};

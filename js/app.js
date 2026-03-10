@@ -1687,7 +1687,7 @@ function init() {
     $$('.main-tab').forEach(x => x.classList.remove('active'));
     b.classList.add('active');
     $$('.tab-content').forEach(x => x.classList.remove('active'));
-    $(`#tab-${b.dataset.tab}`).classList.add('active');
+    $(`#tab-${b.dataset.tab}`)?.classList.add('active');
     window.scrollTo(0, 0);
     S.activeTab = b.dataset.tab; _saveState();
     if (b.dataset.tab === 'guide') renderGuide();
@@ -2153,13 +2153,15 @@ function renderSettings() {
   const refreshChecklist = () => {
     const container = $('#stg-checklist-items');
     if (!container) return;
-    container.innerHTML = (CFG.checklist||[]).map((item,i)=>`<div class="stg-cl-item" data-idx="${i}"><span>${item}</span><button class="stg-cl-del" data-idx="${i}" title="刪除">&times;</button></div>`).join('');
-    $$('.stg-cl-del', container).forEach(btn => btn.addEventListener('click', () => {
+    container.innerHTML = (CFG.checklist||[]).map((item,i)=>`<div class="stg-cl-item" data-idx="${i}"><span>${_esc(item)}</span><button class="stg-cl-del" data-idx="${i}" title="刪除">&times;</button></div>`).join('');
+    container.onclick = (e) => {
+      const btn = e.target.closest('.stg-cl-del');
+      if (!btn) return;
       const idx = parseInt(btn.dataset.idx);
       CFG.checklist.splice(idx, 1);
       saveSettings(CFG);
       refreshChecklist();
-    }));
+    };
   };
   const addChecklistItem = () => {
     const input = $('#stg-cl-input');
@@ -2822,8 +2824,8 @@ function calcMargin() {
       const taxRate = parseFloat($('#m-tax-rate')?.value || '0.003');
       buyFee = Math.round(Math.max(20, tc * feeRate));
       sellFee = Math.round(Math.max(20, cv * feeRate));
-      sellTax = Math.round(cv * taxRate);
-      interest = Math.round(tl * intRate * holdDays / 365);
+      sellTax = Math.round(cv * taxRate * 100) / 100;
+      interest = Math.round(tl * intRate * holdDays / 365 * 100) / 100;
     } else {
       const comm = gV('m-comm') || 0;
       buyFee = comm; sellFee = comm;
@@ -2874,7 +2876,7 @@ function calcMargin() {
           interest > 0 ? { name: 'Margin Interest', detail: `${fM(tl,cur)} × ${(intRate*100).toFixed(1)}% × ${holdDays}d`, amt: fM(interest, cur) } : null,
         ],
         fM(totalFees, cur),
-        { label: '淨損益(税後)', value: (netPL >= 0 ? '+' : '') + fM(netPL, cur) + ` (報酬率 ${(netPL / te * 100).toFixed(1)}%)`, positive: netPL >= 0 }
+        { label: '淨損益(税後)', value: (netPL >= 0 ? '+' : '') + fM(netPL, cur) + (te > 0 ? ` (報酬率 ${(netPL / te * 100).toFixed(1)}%)` : ''), positive: netPL >= 0 }
       ) : ''}`;
 
     const steps = [30, 25, 20, 15, 10, 5, 0, -5, -10, -15, -20, -25, -30, -35, -40, -45, -50];
@@ -3522,7 +3524,8 @@ function calcFutures() {
 
   // ★ 初始權益數: 使用者輸入 or 預設=3倍原始保證金
   const rawEq = gVraw('f-equity');
-  const initEq = rawEq !== '' ? parseFloat(rawEq) : tIM * 3;
+  const parsedEq = parseFloat(rawEq);
+  const initEq = (rawEq !== '' && !isNaN(parsedEq)) ? parsedEq : tIM * 3;
   const excessMargin = initEq - tIM;  // 超額保證金
 
   const pd = long ? (curr - entry) : (entry - curr);
@@ -3573,8 +3576,8 @@ function calcFutures() {
       ${mc('目前權益數', fM(eq, cur), '初始權益 + 損益', eq <= tMM ? 'h-red' : 'h-accent')}
       ${mc('可承受虧損(至追繳)', fM(maxLossToCall, cur), `${fmt(ptToCall, 2)} ${u}`)}
       ${mgLabel('風險警示')}
-      ${mc('追繳點位', fmt(callLvl, 2) + ' ' + u, dC > 0 ? `距目前 ${fmt(dC, 2)} ${u} (${fP(dC / curr * 100)})` : '已追繳!', 'h-yellow')}
-      ${mc('砍倉點位(RI≤25%)', fmt(forcedLvl, 2) + ' ' + u, dF > 0 ? `距目前 ${fmt(dF, 2)} ${u} (${fP(dF / curr * 100)})` : '已砍倉!', 'h-red')}
+      ${mc('追繳點位', fmt(callLvl, 2) + ' ' + u, dC > 0 ? `距目前 ${fmt(dC, 2)} ${u}${curr ? ' (' + fP(dC / curr * 100) + ')' : ''}` : '已追繳!', 'h-yellow')}
+      ${mc('砍倉點位(RI≤25%)', fmt(forcedLvl, 2) + ' ' + u, dF > 0 ? `距目前 ${fmt(dF, 2)} ${u}${curr ? ' (' + fP(dF / curr * 100) + ')' : ''}` : '已砍倉!', 'h-red')}
     </div>
     ${futFees > 0 ? costTable(
       tw ? [
@@ -3741,7 +3744,7 @@ async function _fetchOptionsStockPrice(code) {
       const fetchStr = new Date().toLocaleTimeString('zh-TW', tFmt);
       const srcStr = q.sourceTime ? new Date(q.sourceTime).toLocaleTimeString('zh-TW', tFmt) : '';
       const timeLabel = srcStr ? `報價 ${srcStr} · 抓取 ${fetchStr}` : fetchStr;
-      infoEl.innerHTML = `<span class="si-row"><strong>${q.name || code}</strong> <span class="${chgCls}">${q.price.toFixed(2)} ${chgStr}</span></span><span class="si-row"><span class="tm" style="font-size:.6rem">${timeLabel}</span></span>`;
+      infoEl.innerHTML = `<span class="si-row"><strong>${_esc(q.name || code)}</strong> <span class="${chgCls}">${q.price.toFixed(2)} ${chgStr}</span></span><span class="si-row"><span class="tm" style="font-size:.6rem">${timeLabel}</span></span>`;
     }
     const ulEl = $('#o-ul');
     if (ulEl) { ulEl.value = q.price.toFixed(2); ulEl.dispatchEvent(new Event('input', { bubbles: true })); }

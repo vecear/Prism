@@ -3,6 +3,7 @@
   "short_name": "Prism",
   "description": "一站式交易風險計算：股票、期貨、選擇權保證金與損益分析",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#0e1117",
   "theme_color": "#0e1117",
