@@ -4,7 +4,9 @@
       "Bash(grep -n \"$$.*\\\\$\\\\\\(\" /c/Users/wseu/Desktop/Code/Prism/js/journal.js | head -20)",
       "Bash(grep -n \"$$.*\\\\$\\\\\\(\" /c/Users/wseu/Desktop/Code/Prism/js/app.js | head -20)",
       "Bash(grep -n '\\\\$\\\\$.*\\\\$\\(' /c/Users/wseu/Desktop/Code/Prism/js/app.js)",
-      "Bash(grep -n '^\\\\s*\\\\$\\(`' /c/Users/wseu/Desktop/Code/Prism/js/app.js | head -20)"
+      "Bash(grep -n '^\\\\s*\\\\$\\(`' /c/Users/wseu/Desktop/Code/Prism/js/app.js | head -20)",
+      "Bash(openssl rand:*)",
+      "Bash(echo \"MZrM9h/KNFIE6E2+LrqPCwSet12m0oidy5e+c67K+yw=\" | npx wrangler pages secret put JWT_SECRET --project-name prism 2>&1)"
     ]
   }
 }
