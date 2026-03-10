@@ -34,8 +34,10 @@ async function ensureDB(db) {
 }
 
 // ── CORS ──
+let _currentRequest = null;
 function corsHeaders(request) {
-  const origin = request?.headers?.get('Origin') || '';
+  const req = request || _currentRequest;
+  const origin = req?.headers?.get('Origin') || '';
   const allowed = ['https://prism-7t8.pages.dev', 'http://localhost:8788', 'http://127.0.0.1:8788'];
   const allowOrigin = allowed.includes(origin) ? origin : allowed[0];
   return {
@@ -357,6 +359,7 @@ async function handleSaveDailyJournal(request, env) {
 // ── Router ──
 export default {
   async fetch(request, env, ctx) {
+    _currentRequest = request;
     const url = new URL(request.url);
     const path = url.pathname;
     const method = request.method;
