@@ -38,7 +38,7 @@ let _currentRequest = null;
 function corsHeaders(request) {
   const req = request || _currentRequest;
   const origin = req?.headers?.get('Origin') || '';
-  const allowed = ['https://prism-7t8.pages.dev', 'http://localhost:8788', 'http://127.0.0.1:8788'];
+  const allowed = ['https://prism-7t8.pages.dev', 'http://localhost:8788', 'http://127.0.0.1:8788', 'http://localhost:3000', 'http://127.0.0.1:3000'];
   const allowOrigin = allowed.includes(origin) ? origin : allowed[0];
   return {
     'Access-Control-Allow-Origin': allowOrigin,
