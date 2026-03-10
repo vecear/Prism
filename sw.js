@@ -1,5 +1,5 @@
 // Prism Service Worker — Stale-while-revalidate for static assets, network-first for API
-const CACHE_NAME = 'prism-v2';
+const CACHE_NAME = 'prism-v3';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -50,7 +50,7 @@ self.addEventListener('fetch', event => {
       const fetchPromise = fetch(event.request).then(response => {
         if (response.ok) {
           const clone = response.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+          caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone)).catch(() => {});
         }
         return response;
       }).catch(() => cached);

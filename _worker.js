@@ -47,14 +47,14 @@ function corsHeaders(request) {
     'Access-Control-Max-Age': '86400',
   };
 }
-function jsonRes(data, status = 200) {
+function jsonRes(data, status = 200, request) {
   return new Response(JSON.stringify(data), {
-    status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...corsHeaders() },
+    status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...corsHeaders(request) },
   });
 }
-function jsonErr(status, message) {
+function jsonErr(status, message, request) {
   return new Response(JSON.stringify({ error: message }), {
-    status, headers: { 'Content-Type': 'application/json', ...corsHeaders() },
+    status, headers: { 'Content-Type': 'application/json', ...corsHeaders(request) },
   });
 }
 
@@ -135,15 +135,18 @@ function getJwtSecret(env) {
   const s = env.JWT_SECRET;
   if (!s) {
     console.error('[Prism] CRITICAL: JWT_SECRET 未設定！請立即設定 env.JWT_SECRET，否則認證不安全。');
+    return null;
   }
-  return s || 'prism-default-secret-change-me';
+  return s;
 }
 
 async function getUser(request, env) {
   const auth = request.headers.get('Authorization');
   if (!auth || !auth.startsWith('Bearer ')) return null;
+  const secret = getJwtSecret(env);
+  if (!secret) return null;
   const token = auth.slice(7);
-  return await verifyJWT(token, getJwtSecret(env));
+  return await verifyJWT(token, secret);
 }
 
 // ── CORS Proxy (migrated from functions/api/proxy.js) ──
@@ -208,11 +211,17 @@ async function handleRegister(request, env) {
   const existing = await db.prepare('SELECT id FROM users WHERE username = ?').bind(username).first();
   if (existing) return jsonErr(409, '此使用者名稱已被註冊');
 
+  const secret = getJwtSecret(env);
+  if (!secret) return jsonErr(500, '伺服器未正確設定認證密鑰');
   const { hash, salt } = await hashPassword(password);
-  await db.prepare('INSERT INTO users (username, password_hash, salt) VALUES (?, ?, ?)').bind(username, hash, salt).run();
+  try {
+    await db.prepare('INSERT INTO users (username, password_hash, salt) VALUES (?, ?, ?)').bind(username, hash, salt).run();
+  } catch (e) {
+    if (e.message?.includes('UNIQUE')) return jsonErr(409, '此使用者名稱已被註冊');
+    throw e;
+  }
   const newUser = await db.prepare('SELECT id FROM users WHERE username = ?').bind(username).first();
   const userId = newUser.id;
-  const secret = getJwtSecret(env);
   const token = await signJWT({ sub: userId, username }, secret);
   return jsonRes({ token, user: { id: userId, username } }, 201);
 }
@@ -232,6 +241,7 @@ async function handleLoginPost(request, env) {
   if (!valid) return jsonErr(401, '使用者名稱或密碼錯誤');
 
   const secret = getJwtSecret(env);
+  if (!secret) return jsonErr(500, '伺服器未正確設定認證密鑰');
   const token = await signJWT({ sub: user.id, username: user.username }, secret);
   return jsonRes({ token, user: { id: user.id, username: user.username } });
 }
@@ -252,7 +262,7 @@ async function handleGetTrades(request, env) {
     symbol: row.symbol, name: row.name, direction: row.direction, status: row.status,
     entryPrice: row.entry_price, exitPrice: row.exit_price, quantity: row.quantity,
     contractMul: row.contract_mul, stopLoss: row.stop_loss, takeProfit: row.take_profit,
-    fee: row.fee, tax: row.tax, tags: JSON.parse(row.tags || '[]'), notes: row.notes,
+    fee: row.fee, tax: row.tax, tags: (() => { try { return JSON.parse(row.tags || '[]'); } catch { return []; } })(), notes: row.notes,
     account: row.account || '', imageUrl: row.image_url || '', rating: row.rating || 0,
     reviewDiscipline: row.review_discipline || 0, reviewTiming: row.review_timing || 0, reviewSizing: row.review_sizing || 0,
     createdAt: row.created_at, updatedAt: row.updated_at,
@@ -268,18 +278,31 @@ async function handleCreateTrade(request, env) {
   if (JSON.stringify(body).length > 32768) return jsonErr(400, '交易資料過大');
   if (!body.symbol?.trim()) return jsonErr(400, '交易代號不可為空');
   if (!body.entryPrice && body.entryPrice !== 0) return jsonErr(400, '進場價格不可為空');
-  const id = body.id || (Date.now().toString(36) + Math.random().toString(36).slice(2, 7));
+  const VALID_MARKETS = ['tw', 'us'];
+  const VALID_TYPES = ['stock', 'etf', 'futures', 'options'];
+  const VALID_DIRS = ['long', 'short'];
+  const VALID_STATUS = ['open', 'closed'];
+  const market = VALID_MARKETS.includes(body.market) ? body.market : 'tw';
+  const type = VALID_TYPES.includes(body.type) ? body.type : 'stock';
+  const direction = VALID_DIRS.includes(body.direction) ? body.direction : 'long';
+  const status = VALID_STATUS.includes(body.status) ? body.status : 'open';
+  const id = crypto.randomUUID();
   const now = new Date().toISOString();
   const db = env.DB;
-  await db.prepare(`INSERT INTO trades (id, user_id, date, market, type, symbol, name, direction, status, entry_price, exit_price, quantity, contract_mul, stop_loss, take_profit, fee, tax, tags, notes, account, image_url, rating, review_discipline, review_timing, review_sizing, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(
-    id, user.sub, body.date || now, body.market || 'tw', body.type || 'stock',
-    body.symbol || '', body.name || '', body.direction || 'long', body.status || 'open',
-    body.entryPrice ?? null, body.exitPrice ?? null, body.quantity ?? null,
-    body.contractMul ?? null, body.stopLoss ?? null, body.takeProfit ?? null,
-    body.fee ?? 0, body.tax ?? 0, JSON.stringify(body.tags || []), body.notes || '',
-    body.account || '', body.imageUrl || '', body.rating ?? 0,
-    body.reviewDiscipline ?? 0, body.reviewTiming ?? 0, body.reviewSizing ?? 0, now, now
-  ).run();
+  try {
+    await db.prepare(`INSERT INTO trades (id, user_id, date, market, type, symbol, name, direction, status, entry_price, exit_price, quantity, contract_mul, stop_loss, take_profit, fee, tax, tags, notes, account, image_url, rating, review_discipline, review_timing, review_sizing, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(
+      id, user.sub, body.date || now, market, type,
+      String(body.symbol || '').slice(0, 20), String(body.name || '').slice(0, 100), direction, status,
+      body.entryPrice ?? null, body.exitPrice ?? null, body.quantity ?? null,
+      body.contractMul ?? null, body.stopLoss ?? null, body.takeProfit ?? null,
+      body.fee ?? 0, body.tax ?? 0, JSON.stringify(Array.isArray(body.tags) ? body.tags.slice(0, 20) : []), String(body.notes || '').slice(0, 5000),
+      String(body.account || '').slice(0, 50), String(body.imageUrl || '').slice(0, 500), body.rating ?? 0,
+      body.reviewDiscipline ?? 0, body.reviewTiming ?? 0, body.reviewSizing ?? 0, now, now
+    ).run();
+  } catch (e) {
+    console.error('[Prism] Create trade error:', e);
+    return jsonErr(500, '建立交易失敗');
+  }
   return jsonRes({ id }, 201);
 }
 
@@ -292,17 +315,27 @@ async function handleUpdateTrade(request, env, tradeId) {
   let body;
   try { body = await request.json(); } catch { return jsonErr(400, '無效的請求格式'); }
   if (JSON.stringify(body).length > 32768) return jsonErr(400, '交易資料過大');
+  if (!body.date) return jsonErr(400, '日期不可為空');
+  const VALID_MARKETS = ['tw', 'us'];
+  const VALID_TYPES = ['stock', 'etf', 'futures', 'options'];
+  const VALID_DIRS = ['long', 'short'];
+  const VALID_STATUS = ['open', 'closed'];
   const now = new Date().toISOString();
-  await db.prepare(`UPDATE trades SET date=?, market=?, type=?, symbol=?, name=?, direction=?, status=?, entry_price=?, exit_price=?, quantity=?, contract_mul=?, stop_loss=?, take_profit=?, fee=?, tax=?, tags=?, notes=?, account=?, image_url=?, rating=?, review_discipline=?, review_timing=?, review_sizing=?, updated_at=? WHERE id=? AND user_id=?`).bind(
-    body.date, body.market || 'tw', body.type || 'stock',
-    body.symbol || '', body.name || '', body.direction || 'long', body.status || 'open',
-    body.entryPrice ?? null, body.exitPrice ?? null, body.quantity ?? null,
-    body.contractMul ?? null, body.stopLoss ?? null, body.takeProfit ?? null,
-    body.fee ?? 0, body.tax ?? 0, JSON.stringify(body.tags || []), body.notes || '',
-    body.account || '', body.imageUrl || '', body.rating ?? 0,
-    body.reviewDiscipline ?? 0, body.reviewTiming ?? 0, body.reviewSizing ?? 0, now,
-    tradeId, user.sub
-  ).run();
+  try {
+    await db.prepare(`UPDATE trades SET date=?, market=?, type=?, symbol=?, name=?, direction=?, status=?, entry_price=?, exit_price=?, quantity=?, contract_mul=?, stop_loss=?, take_profit=?, fee=?, tax=?, tags=?, notes=?, account=?, image_url=?, rating=?, review_discipline=?, review_timing=?, review_sizing=?, updated_at=? WHERE id=? AND user_id=?`).bind(
+      body.date, VALID_MARKETS.includes(body.market) ? body.market : 'tw', VALID_TYPES.includes(body.type) ? body.type : 'stock',
+      String(body.symbol || '').slice(0, 20), String(body.name || '').slice(0, 100), VALID_DIRS.includes(body.direction) ? body.direction : 'long', VALID_STATUS.includes(body.status) ? body.status : 'open',
+      body.entryPrice ?? null, body.exitPrice ?? null, body.quantity ?? null,
+      body.contractMul ?? null, body.stopLoss ?? null, body.takeProfit ?? null,
+      body.fee ?? 0, body.tax ?? 0, JSON.stringify(Array.isArray(body.tags) ? body.tags.slice(0, 20) : []), String(body.notes || '').slice(0, 5000),
+      String(body.account || '').slice(0, 50), String(body.imageUrl || '').slice(0, 500), body.rating ?? 0,
+      body.reviewDiscipline ?? 0, body.reviewTiming ?? 0, body.reviewSizing ?? 0, now,
+      tradeId, user.sub
+    ).run();
+  } catch (e) {
+    console.error('[Prism] Update trade error:', e);
+    return jsonErr(500, '更新交易失敗');
+  }
   return jsonRes({ ok: true });
 }
 
@@ -310,8 +343,13 @@ async function handleDeleteTrade(request, env, tradeId) {
   const user = await getUser(request, env);
   if (!user) return jsonErr(401, '未登入');
   const db = env.DB;
-  const result = await db.prepare('DELETE FROM trades WHERE id = ? AND user_id = ?').bind(tradeId, user.sub).run();
-  if (result.meta.changes === 0) return jsonErr(404, '找不到此交易紀錄');
+  try {
+    const result = await db.prepare('DELETE FROM trades WHERE id = ? AND user_id = ?').bind(tradeId, user.sub).run();
+    if (result.meta.changes === 0) return jsonErr(404, '找不到此交易紀錄');
+  } catch (e) {
+    console.error('[Prism] Delete trade error:', e);
+    return jsonErr(500, '刪除交易失敗');
+  }
   return jsonRes({ ok: true });
 }
 
@@ -319,7 +357,9 @@ async function handleGetSettings(request, env) {
   const user = await getUser(request, env);
   if (!user) return jsonErr(401, '未登入');
   const row = await env.DB.prepare('SELECT data FROM user_settings WHERE user_id = ?').bind(user.sub).first();
-  return jsonRes({ settings: row ? JSON.parse(row.data) : {} });
+  let settings = {};
+  if (row) { try { settings = JSON.parse(row.data); } catch {} }
+  return jsonRes({ settings });
 }
 
 async function handleSaveSettings(request, env) {
@@ -339,7 +379,7 @@ async function handleGetDailyJournals(request, env) {
   const user = await getUser(request, env);
   if (!user) return jsonErr(401, '未登入');
   const { results } = await env.DB.prepare('SELECT * FROM daily_journal WHERE user_id = ? ORDER BY date DESC LIMIT 100').bind(user.sub).all();
-  return jsonRes({ journals: results.map(r => ({ id: r.id, date: r.date, mood: r.mood, marketNote: r.market_note, plan: r.plan, review: r.review, discipline: r.discipline || 0, tags: JSON.parse(r.tags || '[]'), takeaway: r.takeaway || '', starred: r.starred || 0 })) });
+  return jsonRes({ journals: results.map(r => ({ id: r.id, date: r.date, mood: r.mood, marketNote: r.market_note, plan: r.plan, review: r.review, discipline: r.discipline || 0, tags: (() => { try { return JSON.parse(r.tags || '[]'); } catch { return []; } })(), takeaway: r.takeaway || '', starred: r.starred || 0 })) });
 }
 
 async function handleSaveDailyJournal(request, env) {
@@ -396,7 +436,7 @@ export default {
         const tradeMatch = path.match(/^\/api\/trades\/([^/]+)$/);
         if (tradeMatch) {
           const tradeId = tradeMatch[1];
-          if (tradeId.length > 50) return jsonErr(400, 'Invalid trade ID');
+          if (tradeId.length > 50 || !/^[a-zA-Z0-9_-]+$/.test(tradeId)) return jsonErr(400, 'Invalid trade ID');
           if (method === 'PUT') return await handleUpdateTrade(request, env, tradeId);
           if (method === 'DELETE') return await handleDeleteTrade(request, env, tradeId);
         }
