@@ -225,8 +225,8 @@
 
   </div>
   <script>
-  // Apply theme early to prevent flash
-  (function(){try{var s=JSON.parse(localStorage.getItem('tg-settings'));if(s&&s.theme&&s.theme!=='dark')document.documentElement.setAttribute('data-theme',s.theme);}catch{}})();
+  // Apply theme & color mode early to prevent flash
+  (function(){try{var s=JSON.parse(localStorage.getItem('tg-settings'));if(s&&s.theme&&s.theme!=='dark')document.documentElement.setAttribute('data-theme',s.theme);if(s&&s.colorMode==='red-up'){var TC={dark:{g:'#00c853',gd:'rgba(0,200,83,.08)',r:'#ff1744',rd:'rgba(255,23,68,.08)'},light:{g:'#16a34a',gd:'rgba(22,163,74,.06)',r:'#dc2626',rd:'rgba(220,38,38,.06)'},midnight:{g:'#22c55e',gd:'rgba(34,197,94,.08)',r:'#ef4444',rd:'rgba(239,68,68,.08)'},emerald:{g:'#34d399',gd:'rgba(52,211,153,.10)',r:'#f43f5e',rd:'rgba(244,63,94,.10)'},warm:{g:'#22c55e',gd:'rgba(34,197,94,.10)',r:'#ef4444',rd:'rgba(239,68,68,.10)'}};var t=TC[s.theme||'dark']||TC.dark;var e=document.documentElement.style;e.setProperty('--green',t.r);e.setProperty('--green-d',t.rd);e.setProperty('--red',t.g);e.setProperty('--red-d',t.gd);}}catch{}})();
   // Generate apple-touch-icon PNG from canvas (iOS requires PNG) — deferred
   (function(){
     var gen = function() {
