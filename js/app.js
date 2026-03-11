@@ -768,6 +768,7 @@ const DEFAULT_SETTINGS = {
   usSource: 'yahoo',       // 'yahoo' | 'finnhub'
   finnhubKey: '',
   fontScale: 'm',          // 'xs' | 's' | 'm' | 'l' | 'xl'
+  colorMode: 'green-up',   // 'green-up' (綠漲紅跌) | 'red-up' (紅漲綠跌)
   // 台灣股票
   twFeeDisc: '0.5',        // 手續費折扣
   twTaxRate: '0.003',      // 證交稅率
@@ -2431,6 +2432,13 @@ function renderSettings() {
             <option value="xl" ${CFG.fontScale === 'xl' ? 'selected' : ''}>特大</option>
           </select>
         </div>
+        <div class="stg-row">
+          <label>漲跌顏色</label>
+          <select class="stg-select" id="stg-color-mode">
+            <option value="green-up" ${(CFG.colorMode||'green-up') === 'green-up' ? 'selected' : ''}>綠漲紅跌</option>
+            <option value="red-up" ${CFG.colorMode === 'red-up' ? 'selected' : ''}>紅漲綠跌</option>
+          </select>
+        </div>
       </div>
       <div class="stg-group open">
         <div class="stg-group-title"><span><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>帳號</span>${_chevron}</div>
@@ -2619,6 +2627,7 @@ function renderSettings() {
     btn.classList.add('active');
     CFG.theme = btn.dataset.theme;
     applyTheme(CFG.theme);
+    applyColorMode(CFG.colorMode);
     saveSettings(CFG);
   }));
 
@@ -2643,6 +2652,7 @@ function renderSettings() {
     CFG.refreshInterval = parseInt($('#stg-refresh')?.value || '0', 10);
     CFG.defaultMarket = $('#stg-default-market')?.value || 'tw';
     CFG.fontScale = $('#stg-font-scale')?.value || 'm';
+    CFG.colorMode = $('#stg-color-mode')?.value || 'green-up';
     CFG.twFeeDisc = $('#stg-tw-fee-disc')?.value || '0.5';
     CFG.twTaxRate = $('#stg-tw-tax-rate')?.value || '0.003';
     CFG.twFutComm = $('#stg-tw-fut-comm')?.value || '60';
@@ -2728,11 +2738,37 @@ function applyTheme(theme) {
   if (meta) meta.content = themeColors[theme || 'dark'] || '#0e1117';
 }
 
+// Each theme's original green/red values for color mode swap
+const _THEME_COLORS = {
+  dark:     { g: '#00c853', gd: 'rgba(0,200,83,.08)',    r: '#ff1744', rd: 'rgba(255,23,68,.08)' },
+  light:    { g: '#16a34a', gd: 'rgba(22,163,74,.06)',   r: '#dc2626', rd: 'rgba(220,38,38,.06)' },
+  midnight: { g: '#22c55e', gd: 'rgba(34,197,94,.08)',   r: '#ef4444', rd: 'rgba(239,68,68,.08)' },
+  emerald:  { g: '#34d399', gd: 'rgba(52,211,153,.10)',  r: '#f43f5e', rd: 'rgba(244,63,94,.10)' },
+  warm:     { g: '#22c55e', gd: 'rgba(34,197,94,.10)',   r: '#ef4444', rd: 'rgba(239,68,68,.10)' },
+};
+function applyColorMode(mode) {
+  const el = document.documentElement;
+  const t = _THEME_COLORS[CFG.theme || 'dark'] || _THEME_COLORS.dark;
+  if (mode === 'red-up') {
+    el.style.setProperty('--green', t.r);
+    el.style.setProperty('--green-d', t.rd);
+    el.style.setProperty('--red', t.g);
+    el.style.setProperty('--red-d', t.gd);
+  } else {
+    el.style.setProperty('--green', t.g);
+    el.style.setProperty('--green-d', t.gd);
+    el.style.setProperty('--red', t.r);
+    el.style.setProperty('--red-d', t.rd);
+  }
+}
+
 function applySettings() {
   // Apply theme
   applyTheme(CFG.theme);
   // Apply font scale
   document.documentElement.setAttribute('data-font-scale', CFG.fontScale || 'm');
+  // Apply color mode (green-up / red-up) — swap --green and --red CSS vars
+  applyColorMode(CFG.colorMode);
 
   // Rebuild ticker bar if order changed (e.g. synced from server)
   if (CFG.tickerOrder) {
