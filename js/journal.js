@@ -522,7 +522,7 @@ function exportReport() {
 // Resolve how to fetch live quote for a given trade
 function resolveQuoteSymbol(t) {
   const sym = t.symbol, mkt = t.market;
-  if (mkt === 'crypto') return { method: 'binance', symbol: sym };
+  if (mkt === 'crypto') return { method: 'binance', symbol: sym.endsWith('USDT') ? sym : sym + 'USDT' };
   if (t.type === 'stock' || t.type === 'etf') return { method: 'stock', code: sym, market: mkt };
   if (t.type === 'futures') {
     if (mkt === 'tw') {
