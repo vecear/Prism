@@ -150,7 +150,7 @@ async function getUser(request, env) {
 }
 
 // ── CORS Proxy (migrated from functions/api/proxy.js) ──
-const PROXY_ALLOWED = ['mis.twse.com.tw','mis.taifex.com.tw','query1.finance.yahoo.com','query2.finance.yahoo.com','finnhub.io','www.taifex.com.tw','openapi.taifex.com.tw','openapi.twse.com.tw','www.tpex.org.tw','www.sec.gov','api.nasdaq.com','production.dataviz.cnn.io'];
+const PROXY_ALLOWED = ['mis.twse.com.tw','mis.taifex.com.tw','query1.finance.yahoo.com','query2.finance.yahoo.com','finnhub.io','www.taifex.com.tw','openapi.taifex.com.tw','openapi.twse.com.tw','www.tpex.org.tw','www.sec.gov','api.nasdaq.com','production.dataviz.cnn.io','api.binance.com'];
 
 async function handleProxy(request) {
   const url = new URL(request.url);
@@ -278,7 +278,7 @@ async function handleCreateTrade(request, env) {
   if (JSON.stringify(body).length > 32768) return jsonErr(400, '交易資料過大');
   if (!body.symbol?.trim()) return jsonErr(400, '交易代號不可為空');
   if (!body.entryPrice && body.entryPrice !== 0) return jsonErr(400, '進場價格不可為空');
-  const VALID_MARKETS = ['tw', 'us'];
+  const VALID_MARKETS = ['tw', 'us', 'crypto'];
   const VALID_TYPES = ['stock', 'etf', 'futures', 'options'];
   const VALID_DIRS = ['long', 'short'];
   const VALID_STATUS = ['open', 'closed'];
@@ -316,7 +316,7 @@ async function handleUpdateTrade(request, env, tradeId) {
   try { body = await request.json(); } catch { return jsonErr(400, '無效的請求格式'); }
   if (JSON.stringify(body).length > 32768) return jsonErr(400, '交易資料過大');
   if (!body.date) return jsonErr(400, '日期不可為空');
-  const VALID_MARKETS = ['tw', 'us'];
+  const VALID_MARKETS = ['tw', 'us', 'crypto'];
   const VALID_TYPES = ['stock', 'etf', 'futures', 'options'];
   const VALID_DIRS = ['long', 'short'];
   const VALID_STATUS = ['open', 'closed'];
