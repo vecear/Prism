@@ -844,9 +844,11 @@ const S = _savedS || {
   margin: { market: 'tw', direction: 'cash' },
   futures: { market: 'tw', direction: 'long', product: 'index' },
   options: { market: 'tw', side: 'buyer', product: 'index' },
+  crypto: { mode: 'spot', direction: 'long' },
   activeTab: 'margin'
 };
 if (!S.activeTab) S.activeTab = 'margin';
+if (!S.crypto) S.crypto = { mode: 'spot', direction: 'long' };
 function _saveState() { localStorage.setItem('prism_state', JSON.stringify(S)); }
 
 // ── Presets ──
@@ -1398,7 +1400,7 @@ function renderGuide() {
 <table class="guide-table">
 <tr><th>時段</th><th>時間</th><th>說明</th></tr>
 <tr><td>盤前試撮</td><td>08:30 – 09:00</td><td>僅揭示模擬成交價，不實際成交</td></tr>
-<tr><td>普通交易</td><td>09:00 – 13:30</td><td>主要交易時段，逐筆撮合（每 5 秒集合競價已改為逐筆）</td></tr>
+<tr><td>普通交易</td><td>09:00 – 13:30</td><td>主要交易時段，逐筆撮合</td></tr>
 <tr><td>盤後定價</td><td>13:40 – 14:30</td><td>以收盤價撮合，適合大額不想影響盤面的交易</td></tr>
 <tr><td>零股交易</td><td>09:00 – 13:30</td><td>盤中零股，每 1~3 分鐘集合競價撮合一次</td></tr>
 </table>
@@ -1426,6 +1428,17 @@ function renderGuide() {
 <tr><td>ETF 證交稅</td><td>0.1%</td><td>ETF 優惠稅率（僅賣出）</td></tr>
 </table>
 <div class="guide-tip">以買進 100 張、每股 50 元為例：手續費 = 50 × 1000 × 100 × 0.1425% = 7,125 元（未折扣）。</div>
+</div>
+<div class="guide-card">
+<h4>當沖交易</h4>
+<table class="guide-table">
+<tr><th></th><th>現股當沖</th><th>資券當沖</th></tr>
+<tr><td>資格</td><td>開戶滿 3 個月、最近一年成交 10 筆、簽署風險同意書</td><td>需開立信用帳戶</td></tr>
+<tr><td>稅率</td><td colspan="2">證交稅 0.15%（減半優惠，延長至 2027 年底）</td></tr>
+<tr><td>標的</td><td>券商公告的可現沖標的</td><td>融資融券標的</td></tr>
+<tr><td>沖銷方式</td><td>先買後賣 or 先賣後買（當日沖銷）</td><td>融資買+融券賣 同日沖銷</td></tr>
+</table>
+<div class="guide-warn">當沖未在收盤前沖銷，現股當沖會變成普通買進（需 T+2 交割）；資券當沖則維持融資/融券部位。</div>
 </div>
 <div class="guide-card">
 <h4>融資融券（信用交易）</h4>
@@ -1476,6 +1489,18 @@ function renderGuide() {
 </table>
 <p><strong>PDT 規則</strong>：帳戶淨值低於 $25,000 時，5 個營業日內不得超過 3 次當沖交易（Day Trade），否則帳戶會被限制 90 天。</p>
 <div class="guide-tip">美股券商通常不收固定手續費（如 Firstrade、Webull），但會有 SEC Fee（賣出時約 $8.00 / 百萬美元）。</div>
+</div>
+<div class="guide-card">
+<h4>台灣投資人稅務須知</h4>
+<table class="guide-table">
+<tr><th>項目</th><th>說明</th></tr>
+<tr><td>W-8BEN</td><td>開戶時需填寫，證明非美國稅務居民，享有租稅協定優惠</td></tr>
+<tr><td>股息預扣稅</td><td>美國股息預扣 30%（台灣無租稅協定，無法降低）</td></tr>
+<tr><td>資本利得稅</td><td>非美國人免繳美國資本利得稅</td></tr>
+<tr><td>台灣海外所得</td><td>年度海外所得超過 NT$1,000,000 需申報基本稅額（最低稅負制）</td></tr>
+<tr><td>遺產稅</td><td>持有美國資產（含美股）超過 $60,000，過世時美國可課遺產稅（最高 40%）</td></tr>
+</table>
+<div class="guide-warn">股息預扣稅 30% 無法退稅，高殖利率股票的實際報酬率會明顯降低。可考慮愛爾蘭註冊的 ETF（如 CSPX）僅預扣 15%。</div>
 </div>`;
 
   const twFutures = `<div class="guide-card">
@@ -1524,6 +1549,31 @@ function renderGuide() {
 </table>
 </div>`;
 
+  const twFuturesExtra = `<div class="guide-card">
+<h4>股票期貨</h4>
+<table class="guide-table">
+<tr><th>項目</th><th>規格</th></tr>
+<tr><td>標的</td><td>個股（如台積電、鴻海等）</td></tr>
+<tr><td>契約乘數</td><td>2,000 股（= 2 張）</td></tr>
+<tr><td>原始保證金</td><td>約契約價值 13.5%（個股期貨）</td></tr>
+<tr><td>維持保證金</td><td>約契約價值 10.35%</td></tr>
+<tr><td>交易稅</td><td>十萬分之 4（比指數期貨的十萬分之 2 高）</td></tr>
+<tr><td>到期日</td><td>每月第 3 個週三</td></tr>
+</table>
+<div class="guide-tip">股票期貨槓桿約 7.4 倍（= 1/13.5%），比融資 2.5 倍高出許多。適合有方向性看法且能承受較大波動的交易者。</div>
+</div>
+<div class="guide-card">
+<h4>轉倉（換月）</h4>
+<p>期貨合約有到期日，長期持有需要<strong>轉倉</strong>：平掉近月合約 → 開新遠月合約。</p>
+<ul>
+<li><strong>時機</strong>：通常在結算前 1~3 天，當遠月合約成交量開始超過近月時</li>
+<li><strong>價差</strong>：近月 vs 遠月有價差（正價差=遠月較貴，逆價差=遠月較便宜），轉倉有成本</li>
+<li><strong>費用</strong>：轉倉 = 平倉 + 開倉，需付兩次手續費和期交稅</li>
+</ul>
+<div class="guide-warn">結算日忘記轉倉，部位會以最後結算價強制平倉（現金結算）。</div>
+</div>`;
+  const twFuturesCombined = twFutures + twFuturesExtra;
+
   const usFutures = `<div class="guide-card">
 <h4>交易時間</h4>
 <p>CME（芝加哥商品交易所）期貨幾乎 <strong>24 小時交易</strong>：</p>
@@ -1555,6 +1605,26 @@ function renderGuide() {
 <li>美國期貨為 <strong>每日結算（Mark to Market）</strong>，盈虧每日入帳</li>
 </ul>
 </div>`;
+
+  const usFuturesExtra = `<div class="guide-card">
+<h4>費用</h4>
+<table class="guide-table">
+<tr><th>券商</th><th>Commission (per side)</th><th>說明</th></tr>
+<tr><td>Interactive Brokers</td><td>$0.85 / 口</td><td>含交易所費；Micro 合約同價</td></tr>
+<tr><td>TD Ameritrade</td><td>$2.25 / 口</td><td>含交易所費</td></tr>
+<tr><td>AMP Futures</td><td>$0.25~0.75 / 口</td><td>需另加交易所費 ~$1.18</td></tr>
+</table>
+<div class="guide-tip">以 IB 交易 1 口 MES 來回為例：$0.85 × 2 = $1.70，佔 Micro 合約保證金 $1,265 的 0.13%，成本相對低廉。</div>
+</div>
+<div class="guide-card">
+<h4>合約換月 (Roll)</h4>
+<p>CME 指數期貨為<strong>季月合約</strong>（3/6/9/12 月到期），代碼後綴：H=3月, M=6月, U=9月, Z=12月。</p>
+<ul>
+<li><strong>Roll Date</strong>：通常在到期前第 2 個週四，成交量會從近月轉移至下季合約</li>
+<li>本工具會自動偵測主力合約，到期前 14 天自動切換至下一季報價</li>
+</ul>
+</div>`;
+  const usFuturesCombined = usFutures + usFuturesExtra;
 
   const options = `<div class="guide-card">
 <h4>選擇權基本概念</h4>
@@ -1604,6 +1674,118 @@ function renderGuide() {
 </table>
 </div>`;
 
+  const optionsExtra = `<div class="guide-card">
+<h4>價內 / 價平 / 價外</h4>
+<table class="guide-table">
+<tr><th>狀態</th><th>Call</th><th>Put</th><th>特性</th></tr>
+<tr><td><strong>價內 ITM</strong></td><td>標的價 > 履約價</td><td>標的價 < 履約價</td><td>Delta 高、有內含價值、權利金較貴</td></tr>
+<tr><td><strong>價平 ATM</strong></td><td colspan="2">標的價 ≈ 履約價</td><td>時間價值最大、Gamma 最高</td></tr>
+<tr><td><strong>價外 OTM</strong></td><td>標的價 < 履約價</td><td>標的價 > 履約價</td><td>Delta 低、純時間價值、權利金便宜但到期歸零機率高</td></tr>
+</table>
+</div>
+<div class="guide-card">
+<h4>常見策略簡介</h4>
+<table class="guide-table">
+<tr><th>策略</th><th>組成</th><th>觀點</th><th>最大風險</th></tr>
+<tr><td>Covered Call</td><td>持有現股 + 賣 Call</td><td>小漲或盤整</td><td>股票下跌</td></tr>
+<tr><td>Protective Put</td><td>持有現股 + 買 Put</td><td>保險（防下跌）</td><td>權利金成本</td></tr>
+<tr><td>Bull Call Spread</td><td>買低 Call + 賣高 Call</td><td>溫和看漲</td><td>淨權利金</td></tr>
+<tr><td>Bear Put Spread</td><td>買高 Put + 賣低 Put</td><td>溫和看跌</td><td>淨權利金</td></tr>
+<tr><td>Straddle</td><td>買同價 Call + Put</td><td>預期大波動</td><td>兩份權利金</td></tr>
+<tr><td>Iron Condor</td><td>賣 OTM Call/Put + 買更 OTM Call/Put</td><td>盤整、低波動</td><td>價差 - 權利金</td></tr>
+</table>
+<div class="guide-tip">Spread 策略的優點是限定最大風險，適合賣方入門。但也限制了最大獲利。</div>
+</div>`;
+  const optionsCombined = options + optionsExtra;
+
+  const crypto = `<div class="guide-card">
+<h4>交易時間</h4>
+<p>加密貨幣市場 <strong>24/7 全天候交易</strong>，無休市日。資金費率每 8 小時結算一次（00:00, 08:00, 16:00 UTC）。</p>
+</div>
+<div class="guide-card">
+<h4>現貨 vs 永續合約</h4>
+<table class="guide-table">
+<tr><th></th><th>現貨 Spot</th><th>永續合約 Perp</th></tr>
+<tr><td>持有</td><td>擁有實際幣種</td><td>僅持有合約部位</td></tr>
+<tr><td>槓桿</td><td>1x（無槓桿）</td><td>1x ~ 125x</td></tr>
+<tr><td>做空</td><td>需借幣賣出</td><td>直接開空單</td></tr>
+<tr><td>到期日</td><td>無</td><td>無（永續）</td></tr>
+<tr><td>資金費率</td><td>無</td><td>每 8hr 結算</td></tr>
+<tr><td>爆倉風險</td><td>無（最多歸零）</td><td>有，保證金歸零即強平</td></tr>
+</table>
+</div>
+<div class="guide-card">
+<h4>保證金模式</h4>
+<table class="guide-table">
+<tr><th></th><th>逐倉 Isolated</th><th>全倉 Cross</th></tr>
+<tr><td>保證金範圍</td><td>僅該倉位的保證金</td><td>帳戶全部可用餘額</td></tr>
+<tr><td>爆倉影響</td><td>僅損失該倉保證金</td><td>可能損失帳戶全部資金</td></tr>
+<tr><td>適用場景</td><td>控制單筆風險</td><td>避免頻繁被強平</td></tr>
+</table>
+<div class="guide-tip">新手建議使用逐倉模式，可明確控制每筆交易的最大損失。</div>
+</div>
+<div class="guide-card">
+<h4>資金費率 (Funding Rate)</h4>
+<ul>
+<li><strong>正費率</strong>：多方付給空方（市場偏多時常見）</li>
+<li><strong>負費率</strong>：空方付給多方（市場偏空時常見）</li>
+<li>費用 = 倉位名義價值 × 費率，每 8 小時結算</li>
+</ul>
+<div class="guide-warn">高槓桿 + 高資金費率會快速侵蝕獲利。長期持倉務必注意累計資金費成本。</div>
+</div>
+<div class="guide-card">
+<h4>強平價格（逐倉）</h4>
+<p>做多強平價 ≈ 進場價 × (1 − 1/槓桿 + 維持保證金率)</p>
+<p>做空強平價 ≈ 進場價 × (1 + 1/槓桿 − 維持保證金率)</p>
+<div class="guide-tip">維持保證金率依交易所和倉位層級不同而異（Binance BTC 預設約 0.4%）。實際強平價請以交易所顯示為準。</div>
+</div>
+<div class="guide-card">
+<h4>常見手續費 (Binance)</h4>
+<table class="guide-table">
+<tr><th>等級</th><th>Maker</th><th>Taker</th></tr>
+<tr><td>現貨 (一般)</td><td>0.10%</td><td>0.10%</td></tr>
+<tr><td>現貨 (BNB 抵扣)</td><td>0.075%</td><td>0.075%</td></tr>
+<tr><td>合約 (一般)</td><td>0.02%</td><td>0.05%</td></tr>
+<tr><td>合約 (VIP 1)</td><td>0.016%</td><td>0.04%</td></tr>
+</table>
+</div>`;
+
+  const cryptoExtra = `<div class="guide-card">
+<h4>槓桿倍數 vs 爆倉距離</h4>
+<table class="guide-table">
+<tr><th>槓桿</th><th>保證金比例</th><th>做多爆倉跌幅</th><th>做空爆倉漲幅</th></tr>
+<tr><td>2x</td><td>50%</td><td>≈ -49.6%</td><td>≈ +50.4%</td></tr>
+<tr><td>3x</td><td>33.3%</td><td>≈ -33.1%</td><td>≈ +33.7%</td></tr>
+<tr><td>5x</td><td>20%</td><td>≈ -19.6%</td><td>≈ +20.4%</td></tr>
+<tr><td>10x</td><td>10%</td><td>≈ -9.6%</td><td>≈ +10.4%</td></tr>
+<tr><td>20x</td><td>5%</td><td>≈ -4.6%</td><td>≈ +5.4%</td></tr>
+<tr><td>50x</td><td>2%</td><td>≈ -1.6%</td><td>≈ +2.4%</td></tr>
+<tr><td>100x</td><td>1%</td><td>≈ -0.6%</td><td>≈ +1.4%</td></tr>
+<tr><td>125x</td><td>0.8%</td><td>≈ -0.4%</td><td>≈ +1.2%</td></tr>
+</table>
+<div class="guide-warn">BTC 日常波動 3~5% 很常見，20x 以上的槓桿在幾分鐘內就可能爆倉。</div>
+</div>
+<div class="guide-card">
+<h4>風險警示</h4>
+<ul>
+<li><span class="warn">交易所風險</span>：中心化交易所可能倒閉、被駭或凍結提款（如 FTX 事件）。不要把所有資金放在同一交易所</li>
+<li><span class="warn">私鑰管理</span>：「Not your keys, not your coins」。大額資金建議轉到冷錢包自行保管</li>
+<li><span class="warn">插針 / 閃崩</span>：加密貨幣市場流動性不如傳統金融，可能出現瞬間大幅波動（插針），高槓桿部位極易被掃</li>
+<li><span class="warn">監管風險</span>：各國對加密貨幣的監管政策隨時可能改變，影響交易和提領</li>
+<li><span class="warn">穩定幣脫鉤</span>：USDT/USDC 等穩定幣可能面臨脫鉤風險，影響帳戶價值</li>
+</ul>
+</div>
+<div class="guide-card">
+<h4>台灣加密貨幣稅務</h4>
+<ul>
+<li>目前台灣尚無針對加密貨幣的專法課稅</li>
+<li>財政部將加密貨幣交易所得歸類為<strong>財產交易所得</strong>，併入綜合所得稅申報</li>
+<li>海外交易所所得屬於<strong>海外所得</strong>，年度超過 NT$1,000,000 需申報基本稅額</li>
+</ul>
+<div class="guide-tip">建議保留所有交易紀錄和出入金記錄，以備報稅需要。本工具的交易紀錄功能可以幫助你追蹤。</div>
+</div>`;
+  const cryptoCombined = crypto + cryptoExtra;
+
   const risk = `<div class="guide-card">
 <h4>維持率的意義</h4>
 <p>維持率（Maintenance Ratio）是衡量你帳戶安全程度的核心指標：</p>
@@ -1645,12 +1827,356 @@ function renderGuide() {
 <li><span class="warn">忽略夜盤風險</span>：期貨夜盤流動性較差，遇到國際事件可能跳空</li>
 <li><span class="warn">融券軋空</span>：融券做空遇到軋空行情，理論上虧損無上限</li>
 <li><span class="warn">賣方裸賣選擇權</span>：看似穩定收租，但一次黑天鵝可能賠掉多年獲利</li>
+<li><span class="warn">加密貨幣高槓桿</span>：125x 槓桿下，標的僅波動 0.4% 就爆倉，幾乎等於賭博</li>
 </ul>
+</div>
+<div class="guide-card">
+<h4>各市場槓桿 & 強平機制對照</h4>
+<table class="guide-table">
+<tr><th>市場</th><th>常見槓桿</th><th>追繳/強平觸發</th><th>處理方式</th></tr>
+<tr><td>台股融資</td><td>2.5x</td><td>維持率 < 130%</td><td>2 日內補繳至 166%，否則砍倉</td></tr>
+<tr><td>美股 Margin</td><td>2x (Reg T)</td><td>Maintenance < 25%</td><td>Margin Call，未補繳即強平</td></tr>
+<tr><td>台灣期貨</td><td>~7-15x</td><td>權益 < 維持保證金</td><td>次日中午前補繳，RI ≤ 25% 即時砍倉</td></tr>
+<tr><td>美國期貨</td><td>~10-20x</td><td>Equity < Maintenance</td><td>Margin Call，通常 T+1 前補繳</td></tr>
+<tr><td>加密貨幣合約</td><td>1-125x</td><td>保證金 < 維持保證金</td><td>即時強平（自動化，無補繳時間）</td></tr>
+</table>
+<div class="guide-warn">加密貨幣合約的強平是即時自動執行，不像傳統市場有補繳時間。一旦觸發強平價格，保證金立即歸零。</div>
 </div>`;
 
+  // ── 投資入門 (NEW) ──
+  const intro = `<div class="guide-card">
+<h4>什麼是投資？</h4>
+<p>投資是將資金投入資產，期望未來獲得報酬的行為。報酬來源有兩種：</p>
+<ul>
+<li><strong>資本利得</strong>：買低賣高的價差（如 100 元買進、120 元賣出 → 賺 20 元）</li>
+<li><strong>被動收入</strong>：持有期間的配息/利息（如股票股利、債券利息）</li>
+</ul>
+<p>投資 vs 投機 vs 賭博的關鍵差異在於<strong>有無分析依據和風險管理</strong>。</p>
+</div>
+<div class="guide-card">
+<h4>常見投資商品比較</h4>
+<table class="guide-table">
+<tr><th>商品</th><th>風險等級</th><th>槓桿</th><th>適合對象</th><th>最低門檻</th></tr>
+<tr><td>銀行定存</td><td>極低</td><td>無</td><td>保守型、緊急預備金</td><td>1 元</td></tr>
+<tr><td>債券 / 債券 ETF</td><td>低~中</td><td>無</td><td>穩健配息</td><td>~1,000 元</td></tr>
+<tr><td>股票</td><td>中</td><td>無 (現股)</td><td>長期投資、價值投資</td><td>零股 ~數十元</td></tr>
+<tr><td>ETF</td><td>低~中</td><td>無 (原型)</td><td>被動投資、分散風險</td><td>~數千元</td></tr>
+<tr><td>期貨</td><td>高</td><td>7~20x</td><td>避險、短線交易</td><td>~2 萬 (微台)</td></tr>
+<tr><td>選擇權</td><td>高~極高</td><td>可達數十倍</td><td>避險、策略交易</td><td>~數千元</td></tr>
+<tr><td>加密貨幣</td><td>極高</td><td>1~125x</td><td>高風險投機</td><td>~10 USDT</td></tr>
+</table>
+</div>
+<div class="guide-card">
+<h4>下單類型</h4>
+<table class="guide-table">
+<tr><th>類型</th><th>說明</th><th>適用情境</th></tr>
+<tr><td><strong>市價單 (Market)</strong></td><td>以當下最佳價格立即成交</td><td>急需成交、流動性高的標的</td></tr>
+<tr><td><strong>限價單 (Limit)</strong></td><td>指定價格，到價才成交</td><td>不急、想控制成本</td></tr>
+<tr><td><strong>停損單 (Stop)</strong></td><td>價格觸及設定值後，轉為市價單送出</td><td>保護部位、突破追價</td></tr>
+<tr><td><strong>停損限價 (Stop-Limit)</strong></td><td>觸及停損價後，以限價單送出</td><td>避免市價單滑價過大</td></tr>
+<tr><td><strong>MIT (觸價單)</strong></td><td>價格觸及後自動轉市價</td><td>期貨常用，進場或出場</td></tr>
+</table>
+</div>
+<div class="guide-card">
+<h4>委託條件（台股）</h4>
+<table class="guide-table">
+<tr><th>條件</th><th>全名</th><th>說明</th></tr>
+<tr><td><strong>ROD</strong></td><td>Rest of Day</td><td>當日有效，未成交部分保留至收盤（預設）</td></tr>
+<tr><td><strong>IOC</strong></td><td>Immediate or Cancel</td><td>立即成交，未成交部分取消（允許部分成交）</td></tr>
+<tr><td><strong>FOK</strong></td><td>Fill or Kill</td><td>全部成交或全部取消（不允許部分成交）</td></tr>
+</table>
+<div class="guide-tip">零股交易只支援限價 ROD。盤後定價只支援限價，且價格固定為收盤價。</div>
+</div>
+<div class="guide-card">
+<h4>如何看懂報價 — 五檔明細</h4>
+<table class="guide-table">
+<tr><th>賣量</th><th>賣價</th><th></th><th>買價</th><th>買量</th></tr>
+<tr><td>150</td><td>101.5</td><td>賣五</td><td></td><td></td></tr>
+<tr><td>200</td><td>101.0</td><td>賣四</td><td></td><td></td></tr>
+<tr><td>80</td><td>100.5</td><td>賣三</td><td></td><td></td></tr>
+<tr><td>50</td><td>100.0</td><td>賣二</td><td></td><td></td></tr>
+<tr><td>30</td><td>99.5</td><td>賣一(最佳賣)</td><td></td><td></td></tr>
+<tr><td></td><td></td><td>買一(最佳買)</td><td>99.0</td><td>45</td></tr>
+<tr><td></td><td></td><td>買二</td><td>98.5</td><td>120</td></tr>
+<tr><td></td><td></td><td>買三</td><td>98.0</td><td>200</td></tr>
+</table>
+<ul>
+<li><strong>買一 (Bid)</strong>：目前市場願意付出的最高買價</li>
+<li><strong>賣一 (Ask)</strong>：目前市場願意接受的最低賣價</li>
+<li><strong>價差 (Spread)</strong>：賣一 - 買一 = 99.5 - 99.0 = 0.5，價差越小流動性越好</li>
+<li>掛市價買進 → 成交在 99.5（賣一）；掛市價賣出 → 成交在 99.0（買一）</li>
+</ul>
+</div>
+<div class="guide-card">
+<h4>基本面分析 — 看公司體質</h4>
+<p>基本面分析的核心是回答：<strong>「這家公司值多少錢？」</strong></p>
+<table class="guide-table">
+<tr><th>指標</th><th>公式</th><th>怎麼看</th></tr>
+<tr><td><strong>EPS (每股盈餘)</strong></td><td>淨利 ÷ 股數</td><td>越高越好，代表每股賺多少錢</td></tr>
+<tr><td><strong>P/E (本益比)</strong></td><td>股價 ÷ EPS</td><td>越低可能越便宜；但低 P/E 可能是衰退股</td></tr>
+<tr><td><strong>P/B (股價淨值比)</strong></td><td>股價 ÷ 每股淨值</td><td>< 1 表示股價低於帳面價值，可能被低估</td></tr>
+<tr><td><strong>ROE (股東權益報酬率)</strong></td><td>淨利 ÷ 股東權益</td><td>> 15% 通常很優秀；巴菲特最重視的指標</td></tr>
+<tr><td><strong>殖利率</strong></td><td>每股股利 ÷ 股價</td><td>> 4% 算高殖利率；要看配息是否穩定</td></tr>
+<tr><td><strong>負債比</strong></td><td>總負債 ÷ 總資產</td><td>> 60% 需留意財務風險</td></tr>
+<tr><td><strong>營收年增率</strong></td><td>(今年營收 - 去年) ÷ 去年</td><td>成長股的核心指標，持續正成長為佳</td></tr>
+<tr><td><strong>自由現金流</strong></td><td>營業現金流 - 資本支出</td><td>正數代表公司有真正的現金賺進來</td></tr>
+</table>
+<div class="guide-tip">P/E 需搭配同產業比較才有意義。科技股 P/E 30 可能合理，但傳產股 P/E 30 就偏貴。</div>
+</div>
+<div class="guide-card">
+<h4>除權息 (Ex-Dividend)</h4>
+<ul>
+<li><strong>除息</strong>：配發現金股利。除息日股價會扣除股利金額（如股價 100、配 5 元 → 開盤參考價 95）</li>
+<li><strong>除權</strong>：配發股票股利。股數增加，股價等比例下調</li>
+<li><strong>填息/填權</strong>：除權息後股價回到除權息前的價位，代表真正獲利</li>
+<li><strong>貼息/貼權</strong>：除權息後股價持續下跌，代表「賺了股利賠了價差」</li>
+</ul>
+<div class="guide-warn">台股股利所得需繳稅（合併計稅或分開計稅 28%）。高所得者可能配息越多、繳稅越多。</div>
+</div>
+<div class="guide-card">
+<h4>ETF 入門</h4>
+<p>ETF (Exchange Traded Fund) = 可在交易所買賣的基金，一次買進一籃子股票。</p>
+<table class="guide-table">
+<tr><th>類型</th><th>範例</th><th>追蹤標的</th><th>特性</th></tr>
+<tr><td>市值型</td><td>0050、VOO、SPY</td><td>大盤指數</td><td>被動投資首選，長期報酬貼近大盤</td></tr>
+<tr><td>高股息</td><td>0056、00878、SCHD</td><td>高殖利率股票</td><td>穩定配息，適合存股族</td></tr>
+<tr><td>產業型</td><td>00891 (半導體)、QQQ</td><td>特定產業</td><td>集中曝險，波動較大</td></tr>
+<tr><td>債券型</td><td>00679B、TLT、BND</td><td>政府/公司債</td><td>波動低，與股票負相關</td></tr>
+<tr><td>槓桿/反向</td><td>00631L (正2)、00632R (反1)</td><td>大盤的 2x/-1x</td><td>每日重新平衡，不適合長期持有</td></tr>
+</table>
+<div class="guide-warn">槓桿 ETF 有「波動率拖累」(volatility drag)，長期報酬不等於標的 × 倍數。只適合短線交易。</div>
+</div>
+<div class="guide-card">
+<h4>建立投資計畫的步驟</h4>
+<ol>
+<li><strong>確認財務目標</strong>：退休？買房？子女教育？不同目標 = 不同時間軸和風險承受度</li>
+<li><strong>建立緊急預備金</strong>：3~6 個月生活費放在高流動性帳戶，不拿來投資</li>
+<li><strong>決定資產配置</strong>：股票 vs 債券 vs 現金的比例。年輕可偏股票，接近退休偏債券</li>
+<li><strong>選擇投資工具</strong>：主動選股 or 被動 ETF？建議新手從指數 ETF 開始</li>
+<li><strong>定期定額</strong>：每月固定投入，避免擇時風險（Dollar Cost Averaging）</li>
+<li><strong>定期再平衡</strong>：每半年或一年檢視，將偏離的配置比例調回目標</li>
+<li><strong>持續學習</strong>：市場永遠有新東西，保持學習但不要被雜訊干擾</li>
+</ol>
+<div class="guide-tip">「時間在市場裡」比「抓準進場時機」更重要。S&P 500 過去 30 年年化報酬約 10%，但如果錯過漲幅最大的 10 天，報酬腰斬。</div>
+</div>`;
+
+  // ── 技術分析 (NEW) ──
+  const ta = `<div class="guide-card">
+<h4>什麼是技術分析？</h4>
+<p>技術分析是透過<strong>歷史價格和成交量的圖形模式</strong>來預測未來走勢的方法。核心信念：</p>
+<ul>
+<li><strong>價格反映一切</strong>：所有資訊（基本面、消息、情緒）都已反映在價格中</li>
+<li><strong>歷史會重演</strong>：人性不變，市場參與者的行為模式會重複出現</li>
+<li><strong>趨勢會延續</strong>：一旦趨勢形成，傾向持續直到出現反轉信號</li>
+</ul>
+<div class="guide-tip">技術分析不是預測未來，而是識別<strong>機率較高</strong>的情境，並搭配風險管理來執行。</div>
+</div>
+<div class="guide-card">
+<h4>K 線 (Candlestick) 基礎</h4>
+<p>每根 K 線包含四個價格：<strong>開盤、最高、最低、收盤</strong>（OHLC）。</p>
+<table class="guide-table">
+<tr><th>型態</th><th>外觀</th><th>意義</th></tr>
+<tr><td><strong>陽線 (紅/綠)</strong></td><td>收盤 > 開盤，實體向上</td><td>買方力量較強</td></tr>
+<tr><td><strong>陰線 (黑/紅)</strong></td><td>收盤 < 開盤，實體向下</td><td>賣方力量較強</td></tr>
+<tr><td><strong>十字線 Doji</strong></td><td>開盤 ≈ 收盤，長上下影線</td><td>多空平衡，可能反轉</td></tr>
+<tr><td><strong>長上影線</strong></td><td>上影線 >> 實體</td><td>上方賣壓重，追高危險</td></tr>
+<tr><td><strong>長下影線</strong></td><td>下影線 >> 實體</td><td>下方買盤支撐，可能止跌</td></tr>
+<tr><td><strong>槌子 Hammer</strong></td><td>小實體 + 長下影線（底部出現）</td><td>潛在底部反轉信號</td></tr>
+<tr><td><strong>吊人 Hanging Man</strong></td><td>小實體 + 長下影線（頂部出現）</td><td>潛在頂部反轉信號</td></tr>
+<tr><td><strong>吞噬 Engulfing</strong></td><td>第二根 K 線完全包住第一根</td><td>強力反轉信號</td></tr>
+<tr><td><strong>晨星 / 夜星</strong></td><td>三根 K 線組合</td><td>底部 / 頂部反轉型態</td></tr>
+</table>
+<div class="guide-warn">單一 K 線型態的可靠度有限，務必搭配趨勢、支撐壓力、成交量一起判斷。</div>
+</div>
+<div class="guide-card">
+<h4>支撐與壓力 (Support & Resistance)</h4>
+<ul>
+<li><strong>支撐</strong>：價格下跌到此區域後反彈的水平。買方在此區域積極進場</li>
+<li><strong>壓力</strong>：價格上漲到此區域後回落的水平。賣方在此區域積極出場</li>
+<li><strong>角色互換</strong>：支撐被跌破後會變成壓力；壓力被突破後會變成支撐</li>
+<li><strong>識別方法</strong>：前高/前低、整數關卡、密集成交區、均線位置</li>
+</ul>
+<p>支撐/壓力不是一條精確的線，而是一個<strong>區間</strong>。觸及次數越多、時間越長，該水平越有效。</p>
+</div>
+<div class="guide-card">
+<h4>趨勢判定</h4>
+<table class="guide-table">
+<tr><th>趨勢</th><th>定義</th><th>操作原則</th></tr>
+<tr><td><strong>上升趨勢</strong></td><td>不斷創更高的高點 (HH) 和更高的低點 (HL)</td><td>順勢做多，回調找買點</td></tr>
+<tr><td><strong>下降趨勢</strong></td><td>不斷創更低的低點 (LL) 和更低的高點 (LH)</td><td>順勢做空或觀望，反彈找賣點</td></tr>
+<tr><td><strong>盤整 (區間)</strong></td><td>高低點沒有明顯方向</td><td>區間操作：支撐買、壓力賣，或等突破</td></tr>
+</table>
+<div class="guide-tip">「趨勢是你的朋友」— 順勢交易的勝率遠高於逆勢操作。新手最常犯的錯誤就是在下跌趨勢中抄底。</div>
+</div>
+<div class="guide-card">
+<h4>常用技術指標</h4>
+<table class="guide-table">
+<tr><th>指標</th><th>類型</th><th>用法</th><th>注意事項</th></tr>
+<tr><td><strong>MA (移動平均線)</strong></td><td>趨勢</td><td>判斷趨勢方向；短均線穿越長均線 = 黃金交叉/死亡交叉</td><td>落後指標，盤整時訊號頻繁失效</td></tr>
+<tr><td><strong>EMA (指數移動平均)</strong></td><td>趨勢</td><td>比 MA 更敏感，近期價格權重更高</td><td>常用 12/26 EMA (MACD 基礎)</td></tr>
+<tr><td><strong>MACD</strong></td><td>趨勢/動能</td><td>MACD 線穿越信號線 = 買賣訊號；柱狀體看動能強弱</td><td>趨勢明確時表現好，盤整時差</td></tr>
+<tr><td><strong>RSI (相對強弱指標)</strong></td><td>動能/超買超賣</td><td>> 70 超買（可能回檔）、< 30 超賣（可能反彈）</td><td>強勢股可以長期維持在 70 以上，不要單看數字就逆勢</td></tr>
+<tr><td><strong>KD (隨機指標)</strong></td><td>動能</td><td>K > 80 超買、K < 20 超賣；K 穿越 D 為交叉訊號</td><td>台股散戶最常用，但容易鈍化</td></tr>
+<tr><td><strong>布林通道 (Bollinger Bands)</strong></td><td>波動率</td><td>價格觸及上軌可能過熱、觸及下軌可能超跌；通道收縮 → 即將大波動</td><td>不是碰到上軌就賣、碰下軌就買</td></tr>
+<tr><td><strong>成交量 (Volume)</strong></td><td>確認</td><td>突破時放量 → 有效突破；縮量上漲 → 動能不足</td><td>最重要的確認指標，價量必須配合</td></tr>
+</table>
+</div>
+<div class="guide-card">
+<h4>均線系統實戰</h4>
+<table class="guide-table">
+<tr><th>均線</th><th>週期</th><th>代表意義</th></tr>
+<tr><td>5MA</td><td>週線</td><td>極短線趨勢，當沖/短線參考</td></tr>
+<tr><td>10MA</td><td>雙週線</td><td>短線趨勢</td></tr>
+<tr><td>20MA</td><td>月線</td><td>中短期趨勢，波段交易重要參考</td></tr>
+<tr><td>60MA</td><td>季線</td><td>中期趨勢，法人常用的多空分界</td></tr>
+<tr><td>120MA</td><td>半年線</td><td>中長期趨勢</td></tr>
+<tr><td>240MA</td><td>年線</td><td>長期趨勢，通常是強力支撐/壓力</td></tr>
+</table>
+<ul>
+<li><strong>多頭排列</strong>：短均線在上、長均線在下，且均線向上 → 強勢</li>
+<li><strong>空頭排列</strong>：短均線在下、長均線在上，且均線向下 → 弱勢</li>
+<li><strong>葛蘭碧八大法則</strong>：描述價格與均線互動的八種買賣時機（4 買 4 賣）</li>
+</ul>
+</div>
+<div class="guide-card">
+<h4>常見圖形型態</h4>
+<table class="guide-table">
+<tr><th>型態</th><th>類型</th><th>意義</th><th>目標價估算</th></tr>
+<tr><td><strong>頭肩頂</strong></td><td>反轉</td><td>上升趨勢結束，即將下跌</td><td>頸線 - (頭部 - 頸線)</td></tr>
+<tr><td><strong>頭肩底</strong></td><td>反轉</td><td>下跌趨勢結束，即將上漲</td><td>頸線 + (頸線 - 頭部)</td></tr>
+<tr><td><strong>雙頂 (M 頭)</strong></td><td>反轉</td><td>兩次測試高點失敗</td><td>頸線 - (頂部 - 頸線)</td></tr>
+<tr><td><strong>雙底 (W 底)</strong></td><td>反轉</td><td>兩次測試低點不破</td><td>頸線 + (頸線 - 底部)</td></tr>
+<tr><td><strong>三角收斂</strong></td><td>持續/反轉</td><td>波動收縮，即將突破</td><td>三角形最寬處的幅度</td></tr>
+<tr><td><strong>上升旗形</strong></td><td>持續</td><td>上漲後短暫整理，準備續漲</td><td>旗桿長度</td></tr>
+<tr><td><strong>下降旗形</strong></td><td>持續</td><td>下跌後短暫反彈，準備續跌</td><td>旗桿長度</td></tr>
+<tr><td><strong>杯柄型態</strong></td><td>持續</td><td>圓弧底 + 小幅回調 + 突破</td><td>杯底到杯口的幅度</td></tr>
+</table>
+</div>
+<div class="guide-card">
+<h4>成交量分析</h4>
+<ul>
+<li><strong>量價齊揚</strong>：價漲量增 → 健康的上漲，趨勢可能持續</li>
+<li><strong>量價背離</strong>：價創新高但量萎縮 → 上漲動能不足，可能反轉</li>
+<li><strong>爆量長黑</strong>：大量賣壓湧入 → 恐慌性賣出，短期可能超跌反彈</li>
+<li><strong>低量盤整</strong>：成交清淡 → 市場觀望，等待方向選擇</li>
+<li><strong>突破放量</strong>：關鍵價位突破時成交量明顯放大 → 突破可靠性高</li>
+<li><strong>假突破</strong>：突破但沒放量 → 可能是誘多/誘空陷阱</li>
+</ul>
+<div class="guide-tip">「新手看價，老手看量」— 成交量是判斷價格走勢真假的最重要工具。</div>
+</div>
+<div class="guide-card">
+<h4>時間週期的選擇</h4>
+<table class="guide-table">
+<tr><th>交易風格</th><th>主要週期</th><th>輔助週期</th><th>持倉時間</th></tr>
+<tr><td>長線投資</td><td>週線、月線</td><td>日線</td><td>數月~數年</td></tr>
+<tr><td>波段交易</td><td>日線</td><td>60 分線、週線</td><td>數天~數週</td></tr>
+<tr><td>短線交易</td><td>60 分線</td><td>15 分線、日線</td><td>1~3 天</td></tr>
+<tr><td>當沖</td><td>5 分線、15 分線</td><td>1 分線、60 分線</td><td>分鐘~數小時</td></tr>
+</table>
+<div class="guide-tip">多重時間框架分析：先看大週期確認趨勢方向，再用小週期找進場點。例如日線看多 → 60 分線找回調買點。</div>
+</div>
+<div class="guide-card">
+<h4>技術分析的限制</h4>
+<ul>
+<li><span class="warn">自我實現偏差</span>：當太多人看同一型態時，市場主力可能故意打破</li>
+<li><span class="warn">事後諸葛</span>：型態在完成前無法確認，事後看總是很完美</li>
+<li><span class="warn">無法預測黑天鵝</span>：突發事件（戰爭、疫情、政策）會讓技術面完全失效</li>
+<li><span class="warn">參數敏感</span>：不同的指標參數會產生不同結論，容易過度最佳化</li>
+<li><span class="warn">不同市場差異</span>：台股有漲跌幅限制、加密貨幣 24hr 交易，適用的技術方法不同</li>
+</ul>
+<div class="guide-warn">沒有任何技術指標的勝率是 100%。技術分析的價值在於提供「結構化的決策框架」，而不是神奇的預測工具。永遠要搭配停損和資金管理。</div>
+</div>`;
+
+  // ── 風險管理 (enhanced) ──
+  const riskExtra = `<div class="guide-card">
+<h4>風險報酬比 (Risk-Reward Ratio)</h4>
+<p>每筆交易在進場前就要計算：<strong>如果錯了會虧多少？如果對了能賺多少？</strong></p>
+<table class="guide-table">
+<tr><th>風報比</th><th>意義</th><th>所需勝率 (損益兩平)</th></tr>
+<tr><td>1:1</td><td>賺 1 賠 1</td><td>50%</td></tr>
+<tr><td>1:2</td><td>賺 2 賠 1</td><td>33%</td></tr>
+<tr><td>1:3</td><td>賺 3 賠 1</td><td>25%</td></tr>
+</table>
+<p>計算方式：風報比 = (進場價 - 停損價) : (停利價 - 進場價)</p>
+<div class="guide-tip">專業交易者通常要求至少 1:2 的風報比。即使勝率只有 40%，只要風報比維持 1:2 以上，長期仍然獲利。</div>
+</div>
+<div class="guide-card">
+<h4>凱利公式 (Kelly Criterion)</h4>
+<p>計算每筆交易的<strong>最佳投入比例</strong>：</p>
+<p><strong>f* = (p × b - q) / b</strong></p>
+<ul>
+<li>f* = 最佳投入比例（佔總資金）</li>
+<li>p = 勝率（如 55% = 0.55）</li>
+<li>b = 賠率（贏時賺的 ÷ 輸時虧的）</li>
+<li>q = 1 - p = 敗率</li>
+</ul>
+<p>範例：勝率 55%、每次贏賺 2 賠 1 → f* = (0.55 × 2 - 0.45) / 2 = 0.325 = 32.5%</p>
+<div class="guide-warn">實務上建議用 1/2 Kelly 或 1/4 Kelly（= 8~16%），因為真實市場的勝率和賠率都是估計值，全額 Kelly 的波動太大。</div>
+</div>
+<div class="guide-card">
+<h4>最大回撤 (Maximum Drawdown)</h4>
+<p>從帳戶峰值到谷底的<strong>最大虧損幅度</strong>，是衡量策略風險的核心指標。</p>
+<table class="guide-table">
+<tr><th>回撤</th><th>需要多少漲幅回本</th><th>心理衝擊</th></tr>
+<tr><td>-10%</td><td>+11.1%</td><td>可接受</td></tr>
+<tr><td>-20%</td><td>+25%</td><td>不舒服但可承受</td></tr>
+<tr><td>-30%</td><td>+42.9%</td><td>開始懷疑策略</td></tr>
+<tr><td>-50%</td><td>+100%</td><td>極大心理壓力</td></tr>
+<tr><td>-75%</td><td>+300%</td><td>幾乎不可能回本</td></tr>
+<tr><td>-90%</td><td>+900%</td><td>帳戶實質歸零</td></tr>
+</table>
+<div class="guide-warn">虧損和回本不是線性關係！虧 50% 需要漲 100% 才能回本。這就是為什麼「不要大虧」比「追求大賺」更重要。</div>
+</div>
+<div class="guide-card">
+<h4>分散投資與相關性</h4>
+<ul>
+<li><strong>不把雞蛋放同一籃子</strong>：持有不同資產類別（股票+債券+現金+商品）降低整體波動</li>
+<li><strong>相關性陷阱</strong>：同時買台積電 + 聯發科 + 鴻海 ≠ 分散，因為它們高度相關</li>
+<li><strong>真正的分散</strong>：不同產業 + 不同市場 + 不同資產類別</li>
+</ul>
+<table class="guide-table">
+<tr><th>資產 A</th><th>資產 B</th><th>相關性</th><th>分散效果</th></tr>
+<tr><td>台股</td><td>美股</td><td>中度正相關 (~0.5)</td><td>有限</td></tr>
+<tr><td>股票</td><td>公債</td><td>低/負相關 (~-0.2)</td><td>良好</td></tr>
+<tr><td>股票</td><td>黃金</td><td>低相關 (~0.1)</td><td>良好</td></tr>
+<tr><td>台積電</td><td>聯發科</td><td>高度正相關 (~0.8)</td><td>幾乎沒有</td></tr>
+<tr><td>股票</td><td>加密貨幣</td><td>中度正相關 (~0.4)</td><td>有限</td></tr>
+</table>
+</div>
+<div class="guide-card">
+<h4>交易心理學</h4>
+<p>市場是所有參與者<strong>情緒的集合</strong>。理解心理偏差，才能避免犯系統性錯誤：</p>
+<table class="guide-table">
+<tr><th>偏差</th><th>表現</th><th>如何克服</th></tr>
+<tr><td><strong>損失厭惡</strong></td><td>虧損的痛苦 > 獲利的快樂，導致不願停損</td><td>進場前就設好停損，機械式執行</td></tr>
+<tr><td><strong>確認偏差</strong></td><td>只看支持自己觀點的資訊，忽略反面證據</td><td>主動尋找反對意見、寫下看空理由</td></tr>
+<tr><td><strong>過度自信</strong></td><td>連續獲利後加大部位、放寬停損</td><td>始終遵守固定的資金管理規則</td></tr>
+<tr><td><strong>錨定效應</strong></td><td>被買進成本綁住，「等回本再賣」</td><td>問自己：如果現在沒持有，會不會買？</td></tr>
+<tr><td><strong>從眾心理</strong></td><td>看到別人賺錢就 FOMO 追高</td><td>有紀律地執行自己的交易計畫</td></tr>
+<tr><td><strong>結果偏差</strong></td><td>用結果判斷決策品質（賺=對、賠=錯）</td><td>寫交易日誌，評估決策過程而非結果</td></tr>
+</table>
+<div class="guide-tip">寫交易日誌是提升最快的方法。記錄每筆交易的進出場理由、情緒狀態、事後檢討。本工具的紀錄功能就是為此設計。</div>
+</div>
+<div class="guide-card">
+<h4>建立交易系統</h4>
+<p>專業交易者不是靠「感覺」交易，而是有一套<strong>可重複執行的系統</strong>：</p>
+<ol>
+<li><strong>市場選擇</strong>：你交易什麼？（台股？美股？期貨？加密？）</li>
+<li><strong>時間框架</strong>：你是日線波段還是分線當沖？</li>
+<li><strong>進場條件</strong>：什麼情況下買進？需要幾個條件同時滿足？</li>
+<li><strong>部位大小</strong>：這筆交易投入多少資金？（用前面的風險管理公式計算）</li>
+<li><strong>停損設定</strong>：錯了在哪裡出場？（進場前就決定）</li>
+<li><strong>停利設定</strong>：對了在哪裡獲利了結？分批出場還是一次出清？</li>
+<li><strong>加碼規則</strong>：什麼情況下可以加碼？最多加幾次？</li>
+<li><strong>紀錄檢討</strong>：每筆交易都記錄，每週/月回顧績效和心態</li>
+</ol>
+<div class="guide-warn">一個平庸的系統 + 嚴格的執行，勝過一個完美的系統 + 隨意的執行。紀律是交易的一切。</div>
+</div>`;
+  const riskCombined = risk + riskExtra;
+
   el.innerHTML = `<div class="guide-wrap">${subTabs('guide', [
-    '台灣股票', '美國股票', '台灣期貨', '美國期貨', '選擇權', '風險管理'
-  ], [twStock, usStock, twFutures, usFutures, options, risk])}</div>`;
+    '投資入門', '台灣股票', '美國股票', '台灣期貨', '美國期貨', '選擇權', '加密貨幣', '技術分析', '風險管理'
+  ], [intro, twStock, usStock, twFuturesCombined, usFuturesCombined, optionsCombined, cryptoCombined, ta, riskCombined])}</div>`;
 }
 
 // 從 localStorage 快取恢復 ticker 顯示（頁面載入時）
@@ -1708,6 +2234,8 @@ function init() {
       if (gn === 'options-market')   { S.options.market = v;   renderOptionsForm(); }
       if (gn === 'options-side')     { S.options.side = v;     renderOptionsForm(); }
       if (gn === 'options-product')  { S.options.product = v;  renderOptionsForm(); }
+      if (gn === 'crypto-mode')      { S.crypto.mode = v;      renderCryptoForm(); }
+      if (gn === 'crypto-direction') { S.crypto.direction = v;  renderCryptoForm(); }
       _saveState();
     }));
   });
@@ -1743,6 +2271,7 @@ function init() {
       'margin-market': S.margin.market, 'margin-direction': S.margin.direction,
       'futures-market': S.futures.market, 'futures-direction': S.futures.direction, 'futures-product': S.futures.product,
       'options-market': S.options.market, 'options-side': S.options.side, 'options-product': S.options.product,
+      'crypto-mode': S.crypto.mode, 'crypto-direction': S.crypto.direction,
     };
     Object.entries(map).forEach(([gn, val]) => {
       const g = $(`.toggle-group[data-group="${gn}"]`);
@@ -1769,11 +2298,13 @@ function init() {
   renderMarginForm();
   renderFuturesForm();
   renderOptionsForm();
+  renderCryptoForm();
 
   // ── LIVE CALCULATION: event delegation on each tab ──
   const liveMargin = debounce(calcMargin, 100);
   const liveFutures = debounce(calcFutures, 100);
   const liveOptions = debounce(calcOptions, 100);
+  const liveCrypto = debounce(calcCrypto, 100);
 
   $('#tab-margin').addEventListener('input', liveMargin);
   $('#tab-margin').addEventListener('change', liveMargin);
@@ -1781,11 +2312,14 @@ function init() {
   $('#tab-futures').addEventListener('change', liveFutures);
   $('#tab-options').addEventListener('input', liveOptions);
   $('#tab-options').addEventListener('change', liveOptions);
+  $('#tab-crypto').addEventListener('input', liveCrypto);
+  $('#tab-crypto').addEventListener('change', liveCrypto);
 
   // ── 初始計算（讓預設值立刻顯示結果）──
   calcMargin();
   calcFutures();
   calcOptions();
+  calcCrypto();
 
   // ── 根據設定決定是否自動取報價 ──
   applySettings();
@@ -1793,7 +2327,7 @@ function init() {
   // ── 登入狀態下從雲端載入設定 ──
   if (localStorage.getItem('prism_token')) {
     loadSettingsFromServer().then(() => {
-      renderMarginForm(); renderFuturesForm(); renderOptionsForm();
+      renderMarginForm(); renderFuturesForm(); renderOptionsForm(); renderCryptoForm();
     });
   }
 }
@@ -4153,6 +4687,310 @@ window._resetSettingsToDefaults = function() {
 };
 
 // ================================================================
+//  CRYPTO FORM
+// ================================================================
+const CRYPTO_PAIRS = [
+  { symbol: 'BTCUSDT', name: 'Bitcoin', base: 'BTC', quote: 'USDT' },
+  { symbol: 'ETHUSDT', name: 'Ethereum', base: 'ETH', quote: 'USDT' },
+  { symbol: 'SOLUSDT', name: 'Solana', base: 'SOL', quote: 'USDT' },
+  { symbol: 'BNBUSDT', name: 'BNB', base: 'BNB', quote: 'USDT' },
+  { symbol: 'XRPUSDT', name: 'XRP', base: 'XRP', quote: 'USDT' },
+  { symbol: 'DOGEUSDT', name: 'Dogecoin', base: 'DOGE', quote: 'USDT' },
+  { symbol: 'ADAUSDT', name: 'Cardano', base: 'ADA', quote: 'USDT' },
+  { symbol: 'AVAXUSDT', name: 'Avalanche', base: 'AVAX', quote: 'USDT' },
+  { symbol: 'LINKUSDT', name: 'Chainlink', base: 'LINK', quote: 'USDT' },
+  { symbol: 'SUIUSDT', name: 'Sui', base: 'SUI', quote: 'USDT' },
+];
+
+function renderCryptoForm() {
+  const { mode, direction } = S.crypto;
+  const isPerp = mode === 'perp';
+  const long = direction === 'long';
+
+  const pairOpts = CRYPTO_PAIRS.map(p => `<option value="${p.symbol}">${p.base}/${p.quote} — ${p.name}</option>`).join('');
+
+  let h = `
+    <div class="fg"><label>交易對</label>
+      <select id="c-pair">${pairOpts}</select>
+    </div>
+    <div class="fr">
+      <div class="fg"><label>進場價格 <span class="hint">(USDT)</span></label><input type="number" id="c-entry" placeholder="進場價格" step="any"></div>
+      <div class="fg"><label>目前價格 <span class="hint">(留空=同進場)</span></label><input type="number" id="c-current" placeholder="目前價格" step="any"></div>
+    </div>
+    <div class="fg"><label>即時報價 <span class="hint">(Binance)</span></label>
+      <div style="display:flex;align-items:center;gap:6px">
+        <input type="text" id="c-live-price" class="fg-readonly" readonly placeholder="尚未取得" style="flex:1">
+        <button type="button" class="ticker-fill-btn" id="c-fetch-price">更新報價</button>
+      </div>
+    </div>
+    <div class="fr">
+      <div class="fg"><label>數量 <span class="hint">(幣數)</span></label><input type="number" id="c-qty" placeholder="0.1" step="any"></div>
+      <div class="fg"><label>投入金額 <span class="hint">(USDT，或填數量)</span></label><input type="number" id="c-invest" placeholder="1000" step="any"></div>
+    </div>`;
+
+  if (isPerp) {
+    h += `
+    <div class="fr">
+      <div class="fg"><label>槓桿倍數</label><select id="c-leverage">
+        <option value="1">1x</option><option value="2">2x</option><option value="3">3x</option>
+        <option value="5">5x</option><option value="10" selected>10x</option><option value="20">20x</option>
+        <option value="25">25x</option><option value="50">50x</option><option value="75">75x</option>
+        <option value="100">100x</option><option value="125">125x</option>
+      </select></div>
+      <div class="fg"><label>保證金模式</label><select id="c-margin-mode">
+        <option value="cross">全倉 Cross</option><option value="isolated" selected>逐倉 Isolated</option>
+      </select></div>
+    </div>
+    <div class="fg"><label>錢包餘額 <span class="hint">(USDT，全倉模式用)</span></label><input type="number" id="c-wallet" placeholder="10000" step="any"></div>
+    <div class="fg"><label>資金費率 <span class="hint">(每8hr, 如 0.01%)</span></label>
+      <div class="isuf"><input type="number" id="c-funding" value="0.01" step="any"><span class="suf">%</span></div>
+    </div>`;
+  }
+
+  h += `
+    <div class="fr">
+      <div class="fg"><label>Maker 手續費</label><div class="isuf"><input type="number" id="c-fee-maker" value="0.02" step="any"><span class="suf">%</span></div></div>
+      <div class="fg"><label>Taker 手續費</label><div class="isuf"><input type="number" id="c-fee-taker" value="0.05" step="any"><span class="suf">%</span></div></div>
+    </div>
+    <div class="fg"><label>掛單類型</label><select id="c-order-type">
+      <option value="taker">Taker (吃單)</option><option value="maker">Maker (掛單)</option>
+    </select></div>`;
+
+  $('#crypto-inputs').innerHTML = h;
+  $('#crypto-results').innerHTML = PLACEHOLDER;
+
+  // Wire fetch price button
+  const fetchBtn = $('#c-fetch-price');
+  if (fetchBtn) fetchBtn.addEventListener('click', fetchCryptoPrice);
+
+  // Auto-calc qty from invest or vice versa
+  const qtyEl = $('#c-qty'), investEl = $('#c-invest'), entryEl = $('#c-entry');
+  if (investEl && entryEl && qtyEl) {
+    investEl.addEventListener('input', () => {
+      const inv = parseFloat(investEl.value), ep = parseFloat(entryEl.value);
+      if (inv > 0 && ep > 0 && document.activeElement === investEl) qtyEl.value = (inv / ep).toFixed(6);
+    });
+    qtyEl.addEventListener('input', () => {
+      const q = parseFloat(qtyEl.value), ep = parseFloat(entryEl.value);
+      if (q > 0 && ep > 0 && document.activeElement === qtyEl) investEl.value = (q * ep).toFixed(2);
+    });
+  }
+
+  wrapNumberInputs($('#crypto-inputs'));
+  calcCrypto();
+}
+
+async function fetchCryptoPrice() {
+  const pair = gVraw('c-pair') || 'BTCUSDT';
+  const liveEl = $('#c-live-price');
+  if (liveEl) liveEl.value = '取得中...';
+  try {
+    const url = `https://api.binance.com/api/v3/ticker/price?symbol=${pair}`;
+    const r = await PriceService._proxyFetch(url, 5000);
+    const data = await r.json();
+    const price = parseFloat(data.price);
+    if (liveEl) liveEl.value = price;
+    // Auto-fill entry if empty
+    const entryEl = $('#c-entry');
+    if (entryEl && !entryEl.value) {
+      entryEl.value = price;
+      entryEl.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    // Auto-fill current price
+    const currEl = $('#c-current');
+    if (currEl) {
+      currEl.value = price;
+      currEl.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+  } catch (e) {
+    if (liveEl) liveEl.value = '取得失敗';
+    console.warn('[Prism] Crypto price fetch failed:', e.message);
+  }
+}
+
+// ================================================================
+//  CRYPTO CALC
+// ================================================================
+function calcCrypto() {
+  const { mode, direction } = S.crypto;
+  const isPerp = mode === 'perp';
+  const long = direction === 'long';
+
+  const entry = gV('c-entry');
+  let curr = gV('c-current');
+  if (!curr) {
+    const liveVal = parseFloat($('#c-live-price')?.value);
+    curr = liveVal || entry;
+  }
+  let qty = gV('c-qty');
+  const invest = gV('c-invest');
+  // Derive qty from invest if qty is empty
+  if (!qty && invest > 0 && entry > 0) qty = invest / entry;
+  if (!entry || !qty) { $('#crypto-results').innerHTML = PLACEHOLDER; return; }
+
+  const leverage = isPerp ? (gV('c-leverage') || 10) : 1;
+  const orderType = gVraw('c-order-type') || 'taker';
+  const feeRate = orderType === 'maker'
+    ? (gV('c-fee-maker') || 0.02) / 100
+    : (gV('c-fee-taker') || 0.05) / 100;
+
+  const posValue = entry * qty;           // 名義倉位價值
+  const margin = posValue / leverage;     // 保證金(逐倉) or 倉位成本(現貨)
+  const curValue = curr * qty;            // 目前倉位價值
+
+  // 損益
+  const rawPL = long ? (curr - entry) * qty : (entry - curr) * qty;
+  const roe = margin > 0 ? (rawPL / margin * 100) : 0;  // ROE (保證金報酬率)
+
+  // 手續費
+  const entryFee = posValue * feeRate;
+  const exitFee = curValue * feeRate;
+  const totalFees = entryFee + exitFee;
+
+  // 資金費率 (合約)
+  let fundingCost = 0;
+  if (isPerp) {
+    const fundingRate = (gV('c-funding') || 0.01) / 100;
+    fundingCost = curValue * fundingRate; // 每8小時
+  }
+
+  const netPL = rawPL - totalFees;
+  const netROE = margin > 0 ? (netPL / margin * 100) : 0;
+
+  // 強平價格 (合約)
+  let liqPrice = 0;
+  if (isPerp) {
+    const marginMode = gVraw('c-margin-mode') || 'isolated';
+    const mmRate = 0.004; // 維持保證金率 0.4% (Binance default for BTC)
+    if (marginMode === 'isolated') {
+      // 逐倉強平: margin + UPL = mmRate * posValue_at_liq
+      // long: margin + (liq - entry)*qty = mmRate * liq * qty
+      // liq * qty * (1 - mmRate) = entry*qty - margin  → wrong
+      // Correct: liq = entry * (1 - 1/leverage + mmRate) for long
+      //          liq = entry * (1 + 1/leverage - mmRate) for short
+      if (long) {
+        liqPrice = entry * (1 - 1 / leverage + mmRate);
+      } else {
+        liqPrice = entry * (1 + 1 / leverage - mmRate);
+      }
+    } else {
+      // 全倉: use wallet balance
+      const wallet = gV('c-wallet') || margin;
+      if (long) {
+        // wallet + (liq - entry)*qty = mmRate * liq * qty
+        // liq*(qty - mmRate*qty) = entry*qty - wallet
+        liqPrice = (entry * qty - wallet) / (qty * (1 - mmRate));
+      } else {
+        liqPrice = (entry * qty + wallet) / (qty * (1 + mmRate));
+      }
+    }
+    if (liqPrice < 0) liqPrice = 0;
+  }
+
+  const distToLiq = isPerp ? (long ? curr - liqPrice : liqPrice - curr) : 0;
+  const distToLiqPct = isPerp && curr > 0 ? (distToLiq / curr * 100) : 0;
+
+  // Risk level
+  let rl;
+  if (!isPerp) {
+    rl = 'safe';
+  } else if (distToLiqPct <= 2) {
+    rl = 'critical';
+  } else if (distToLiqPct <= 5) {
+    rl = 'danger';
+  } else if (distToLiqPct <= 15) {
+    rl = 'caution';
+  } else {
+    rl = 'safe';
+  }
+
+  const plH = rawPL >= 0 ? 'h-green' : 'h-red', plS = rawPL >= 0 ? '+' : '';
+  const pair = gVraw('c-pair') || 'BTCUSDT';
+  const pairInfo = CRYPTO_PAIRS.find(p => p.symbol === pair) || { base: pair, quote: 'USDT' };
+
+  const overview = `
+    ${isPerp
+      ? alertBox(rl === 'safe' ? 'safe' : rl === 'caution' ? 'warning' : 'danger',
+          rl === 'safe' ? '距強平價格充足' : rl === 'caution' ? '距強平價格偏近，注意風險' : rl === 'danger' ? '接近強平價格！' : '極度接近強平，隨時可能爆倉！')
+      : alertBox('safe', '現貨交易，無強平風險')}
+    ${isPerp ? riskBar('距強平', fP(distToLiqPct), distToLiqPct > 15 ? '安全' : distToLiqPct > 5 ? '注意' : distToLiqPct > 2 ? '危險' : '爆倉', rl, Math.min(100, Math.max(0, distToLiqPct * 2))) : ''}
+    <div class="mg">
+      ${mgLabel('部位資訊')}
+      ${mc('交易對', `${pairInfo.base}/${pairInfo.quote}`, `${long ? '做多' : '做空'} ${mode === 'spot' ? '現貨' : '合約'}`)}
+      ${mc('進場價格', fmt(entry, 2) + ' USDT', '')}
+      ${mc('數量', fmt(qty, 6) + ' ' + pairInfo.base, `≈ ${fM(posValue, 'USDT', 2)}`)}
+      ${isPerp ? mc('槓桿', leverage + 'x', `名義價值 ${fM(posValue, 'USDT', 2)}`) : ''}
+      ${mc('保證金 / 投入', fM(margin, 'USDT', 2), isPerp ? `倉位 ÷ ${leverage}x` : '現貨全額')}
+      ${mgLabel('損益')}
+      ${mc('未實現損益', plS + fM(rawPL, 'USDT', 2), `${long ? '(' : '('}${fmt(curr, 2)} − ${fmt(entry, 2)}) × ${fmt(qty, 6)}`, plH)}
+      ${mc('ROE (保證金報酬率)', (netROE >= 0 ? '+' : '') + fP(netROE), `淨損益 ÷ 保證金`, netROE >= 0 ? 'h-green' : 'h-red')}
+      ${isPerp ? `${mgLabel('風險警示')}
+      ${mc('強平價格', fmt(liqPrice, 2) + ' USDT', distToLiq > 0 ? `距目前 ${fmt(distToLiq, 2)} USDT (${fP(distToLiqPct)})` : '已爆倉!', distToLiqPct <= 5 ? 'h-red' : 'h-yellow')}
+      ${mc('資金費率', fP((gV('c-funding') || 0.01)), `每8hr ≈ ${fM(fundingCost, 'USDT', 2)}`)}` : ''}
+    </div>
+    ${costTable([
+      { name: '進場手續費', detail: `${fM(posValue, 'USDT', 2)} × ${fP(feeRate * 100)}`, amt: fM(entryFee, 'USDT', 2) },
+      { name: '出場手續費', detail: `${fM(curValue, 'USDT', 2)} × ${fP(feeRate * 100)}`, amt: fM(exitFee, 'USDT', 2) },
+      ...(isPerp ? [{ name: '資金費率(每8hr)', detail: `${fM(curValue, 'USDT', 2)} × ${fP((gV('c-funding') || 0.01))}`, amt: fM(fundingCost, 'USDT', 2) }] : []),
+    ],
+    fM(totalFees + (isPerp ? fundingCost : 0), 'USDT', 2),
+    { label: '淨損益(扣費後)', value: (netPL >= 0 ? '+' : '') + fM(netPL, 'USDT', 2), positive: netPL >= 0 }
+    )}`;
+
+  // Stress test
+  const steps = [50, 30, 20, 15, 10, 8, 5, 3, 1, 0, -1, -3, -5, -8, -10, -15, -20, -30, -50];
+  let sRows = '';
+  for (const p of steps) {
+    const lv = entry * (1 + p / 100);
+    const pl = long ? (lv - entry) * qty : (entry - lv) * qty;
+    const eq = margin + pl;
+    const r = margin > 0 ? (pl / margin * 100) : 0;
+    let st = '', rc = '', sc = 'sb-s';
+    if (isPerp && lv > 0) {
+      const dLiq = long ? lv - liqPrice : liqPrice - lv;
+      if (dLiq <= 0) { st = '爆倉'; rc = 'rf'; sc = 'sb-x'; }
+      else if (dLiq / lv * 100 <= 5) { st = '危險'; rc = 'rmc'; sc = 'sb-d'; }
+      else if (dLiq / lv * 100 <= 15) { st = '注意'; sc = 'sb-c'; }
+      else st = '安全';
+    } else {
+      st = eq <= 0 ? '歸零' : '安全';
+      if (eq <= 0) { rc = 'rf'; sc = 'sb-x'; }
+    }
+    if (p === 0) rc = 'rc';
+    sRows += `<tr class="${rc}"><td>${p > 0 ? '+' : ''}${p}%</td><td>${fmt(lv, 2)}</td><td class="${pl >= 0 ? 'tg' : 'tr'}">${pl >= 0 ? '+' : ''}${fM(pl, 'USDT', 2)}</td><td>${fM(eq, 'USDT', 2)}</td><td class="${r >= 0 ? 'tg' : 'tr'}">${r >= 0 ? '+' : ''}${fP(r)}</td><td><span class="sb ${sc}">${st}</span></td></tr>`;
+  }
+  const stress = `<div class="st-wrap"><table class="st"><thead><tr><th>漲跌</th><th>價格</th><th>損益</th><th>${isPerp ? '保證金餘額' : '持倉價值'}</th><th>ROE</th><th>狀態</th></tr></thead><tbody>${sRows}</tbody></table></div>`;
+
+  const formula = `<div class="fc">
+    <div class="fb"><h4>1. 部位計算</h4>
+      <span class="fl"><span class="v">名義價值</span> <span class="o">=</span> 進場價格(<span class="n">${fmt(entry,2)}</span>) <span class="o">×</span> 數量(<span class="n">${fmt(qty,6)}</span>) <span class="o">=</span> <span class="r">${fM(posValue,'USDT',2)}</span></span>
+      <span class="fl"><span class="v">${isPerp ? '保證金' : '投入金額'}</span> <span class="o">=</span> 名義價值(<span class="n">${fM(posValue,'USDT',2)}</span>) <span class="o">÷</span> 槓桿(<span class="n">${leverage}x</span>) <span class="o">=</span> <span class="r">${fM(margin,'USDT',2)}</span></span>
+    </div>
+    <div class="fb"><h4>2. 損益</h4>
+      <span class="fl"><span class="v">未實現損益</span> <span class="o">=</span> (${long ? '目前' : '進場'}價格 <span class="o">−</span> ${long ? '進場' : '目前'}價格) <span class="o">×</span> 數量</span>
+      <span class="fl"><span class="o">=</span> (${fmt(long?curr:entry,2)} <span class="o">−</span> ${fmt(long?entry:curr,2)}) <span class="o">×</span> ${fmt(qty,6)} <span class="o">=</span> <span class="r">${plS}${fM(rawPL,'USDT',2)}</span></span>
+      <span class="fl"><span class="v">ROE</span> <span class="o">=</span> 損益(<span class="n">${plS}${fM(rawPL,'USDT',2)}</span>) <span class="o">÷</span> 保證金(<span class="n">${fM(margin,'USDT',2)}</span>) <span class="o">=</span> <span class="r">${(roe >= 0 ? '+' : '') + fP(roe)}</span></span>
+      <div class="fn">ROE = 報酬率 × 槓桿倍數。${leverage}x 槓桿下，標的漲跌1%，ROE 變動${leverage}%</div>
+    </div>
+    ${isPerp ? `<div class="fb"><h4>3. 強平價格 (逐倉)</h4>
+      <span class="fl"><span class="v">做多強平</span> <span class="o">=</span> 進場價格 <span class="o">×</span> (1 <span class="o">−</span> 1/槓桿 <span class="o">+</span> 維持保證金率)</span>
+      <span class="fl"><span class="o">=</span> ${fmt(entry,2)} <span class="o">×</span> (1 − 1/${leverage} + 0.4%) <span class="o">=</span> <span class="r">${fmt(liqPrice,2)} USDT</span></span>
+      <div class="fn">維持保證金率依交易所和倉位大小而異，此處以 Binance 預設 0.4% 估算。<br>實際強平價格請以交易所顯示為準。</div>
+    </div>
+    <div class="fb"><h4>4. 資金費率</h4>
+      <span class="fl"><span class="v">每次資金費</span> <span class="o">=</span> 倉位價值(<span class="n">${fM(curValue,'USDT',2)}</span>) <span class="o">×</span> 費率(<span class="n">${fP((gV('c-funding')||0.01))}</span>) <span class="o">=</span> <span class="r">${fM(fundingCost,'USDT',2)}</span></span>
+      <div class="fn">永續合約每 8 小時結算一次資金費率。正費率：多方付空方；負費率：空方付多方。</div>
+    </div>` : ''}
+    <div class="fb"><h4>${isPerp ? '5' : '3'}. 手續費</h4>
+      <span class="fl"><span class="v">進場手續費</span> <span class="o">=</span> 名義價值(<span class="n">${fM(posValue,'USDT',2)}</span>) <span class="o">×</span> ${orderType === 'maker' ? 'Maker' : 'Taker'}費率(<span class="n">${fP(feeRate*100)}</span>) <span class="o">=</span> <span class="r">${fM(entryFee,'USDT',2)}</span></span>
+      <span class="fl"><span class="v">出場手續費</span> <span class="o">=</span> 名義價值(<span class="n">${fM(curValue,'USDT',2)}</span>) <span class="o">×</span> 費率 <span class="o">=</span> <span class="r">${fM(exitFee,'USDT',2)}</span></span>
+    </div>
+  </div>`;
+
+  $('#crypto-results').innerHTML = subTabs('cr', ['風險概覽', '壓力測試', '計算公式'], [overview, stress, formula]) + (window.PrismJournal ? PrismJournal.recordBtnHTML('crypto') : '');
+}
+
+// ================================================================
 //  AUTO-FILL TRADE RECORD FROM CALCULATOR
 // ================================================================
 window._getCalcParamsForRecord = function(tab) {
@@ -4180,9 +5018,19 @@ window._getCalcParamsForRecord = function(tab) {
     const qty = gV('o-qty');
     if (premium) params.entry_price = premium;
     if (qty) params.quantity = qty;
+  } else if (tab === 'crypto') {
+    params.market = 'crypto';
+    params.type = S.crypto.mode === 'perp' ? 'futures' : 'stock';
+    const entry = gV('c-entry');
+    const qty = gV('c-qty');
+    if (entry) params.entry_price = entry;
+    if (qty) params.quantity = qty;
+    const pair = gVraw('c-pair');
+    if (pair) params.symbol = pair;
   }
   params.direction = (tab === 'margin') ? S.margin.direction :
                      (tab === 'futures') ? S.futures.direction :
+                     (tab === 'crypto') ? S.crypto.direction :
                      S.options.side;
   return params;
 };

@@ -522,6 +522,7 @@ function exportReport() {
 // Resolve how to fetch live quote for a given trade
 function resolveQuoteSymbol(t) {
   const sym = t.symbol, mkt = t.market;
+  if (mkt === 'crypto') return { method: 'binance', symbol: sym };
   if (t.type === 'stock' || t.type === 'etf') return { method: 'stock', code: sym, market: mkt };
   if (t.type === 'futures') {
     if (mkt === 'tw') {
@@ -597,6 +598,11 @@ async function fetchOpenTradeQuotes(force = false) {
         }));
         const valid = results.filter(Boolean);
         if (valid.length) q = valid.reduce((a, b) => b.volume > a.volume ? b : a);
+      } else if (target.method === 'binance') {
+        const url = `https://api.binance.com/api/v3/ticker/price?symbol=${target.symbol}`;
+        const r = await PriceService._proxyFetch(url, 5000);
+        const data = await r.json();
+        if (data.price) q = { price: parseFloat(data.price) };
       } else if (target.method === 'yahoo') {
         q = await PriceService.yahoo.fetchQuote(target.symbol);
       } else {
@@ -835,6 +841,40 @@ window.PrismJournal = {
       trade.fee = String(oComm * qty * 2);
       trade.tax = String(Math.round(prem * mul * qty * oTaxRate) * 2);
     }
+    else if (tabType === 'crypto') {
+      const mode = document.querySelector('[data-group="crypto-mode"] .toggle-btn.active')?.dataset.value || 'spot';
+      const dir = document.querySelector('[data-group="crypto-direction"] .toggle-btn.active')?.dataset.value || 'long';
+      trade.market = 'crypto';
+      trade.type = mode === 'perp' ? 'futures' : 'stock';
+      trade.direction = dir;
+      // Symbol & name
+      const pairSel = document.getElementById('c-pair');
+      if (pairSel) {
+        trade.symbol = pairSel.value;
+        trade.name = pairSel.options[pairSel.selectedIndex]?.text || '';
+      }
+      trade.entryPrice = document.getElementById('c-entry')?.value || '';
+      // Quantity
+      const cQty = _gvOrNull('c-qty');
+      if (cQty != null) trade.quantity = String(cQty);
+      // Exit price
+      const exitVal = _gvOrNull('c-current') ?? _gvOrNull('c-live-price');
+      if (exitVal != null) trade.exitPrice = String(exitVal);
+      // Leverage as contractMul for perp
+      if (mode === 'perp') {
+        trade.contractMul = document.getElementById('c-leverage')?.value || '1';
+      }
+      // Fee
+      const orderType = document.getElementById('c-order-type')?.value || 'taker';
+      const feeRate = orderType === 'maker'
+        ? (_gv('c-fee-maker') || 0.02) / 100
+        : (_gv('c-fee-taker') || 0.05) / 100;
+      const ep = _gv('c-entry'), q = cQty || 0;
+      const posValue = ep * q;
+      const curValue = (exitVal || ep) * q;
+      trade.fee = String((posValue * feeRate + curValue * feeRate).toFixed(2));
+      if (trade.exitPrice) trade.status = 'closed';
+    }
 
     openTradeForm(null, trade);
   },
@@ -852,7 +892,7 @@ window.PrismJournal = {
     if (!authToken || !trades.length || !symbol) return '';
     const matched = trades.filter(t => t.symbol === symbol || t.symbol === symbol.replace('.TW', '')).slice(0, 5);
     if (!matched.length) return '';
-    const ML = { tw: '台', us: '美' };
+    const ML = { tw: '台', us: '美', crypto: '幣' };
     const rows = matched.map(t => {
       const pl = calcPL(t);
       const plStr = pl ? (pl.net >= 0 ? '+' : '') + fmtNum(pl.net, 0) : '—';
@@ -1101,7 +1141,7 @@ function renderFilters() {
   const customActive = drv === 'custom';
   el.innerHTML = `<div class="j-filter-row">
     <div class="j-filter-group">
-      <select id="jf-market" class="j-filter-select"><option value="all">全部市場</option><option value="tw" ${filterState.market==='tw'?'selected':''}>台灣</option><option value="us" ${filterState.market==='us'?'selected':''}>美國</option></select>
+      <select id="jf-market" class="j-filter-select"><option value="all">全部市場</option><option value="tw" ${filterState.market==='tw'?'selected':''}>台灣</option><option value="us" ${filterState.market==='us'?'selected':''}>美國</option><option value="crypto" ${filterState.market==='crypto'?'selected':''}>加密貨幣</option></select>
       <select id="jf-type" class="j-filter-select"><option value="all">全部類型</option><option value="stock" ${filterState.type==='stock'?'selected':''}>股票</option><option value="futures" ${filterState.type==='futures'?'selected':''}>期貨</option><option value="options" ${filterState.type==='options'?'selected':''}>選擇權</option><option value="etf" ${filterState.type==='etf'?'selected':''}>ETF</option></select>
       <select id="jf-status-filter" class="j-filter-select"><option value="all">全部狀態</option><option value="open" ${filterState.status==='open'?'selected':''}>持倉中</option><option value="closed" ${filterState.status==='closed'?'selected':''}>已平倉</option></select>
       ${allTags.length?`<select id="jf-tag" class="j-filter-select"><option value="all">全部標籤</option>${allTags.map(t=>`<option value="${esc(t)}" ${filterState.tag===t?'selected':''}>${esc(t)}</option>`).join('')}</select>`:''}
@@ -1176,7 +1216,7 @@ function renderTradeList() {
   const body=$('#j-body');if(!body)return;
   const filtered=getFilteredTrades();
   if(!filtered.length){body.innerHTML=`<div class="j-empty"><svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="var(--t3)" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/></svg><p>尚無交易紀錄</p><p class="j-empty-hint">點擊「新增交易」或在計算器分頁點「記錄此交易」</p></div>`;return;}
-  const ML={tw:'台灣',us:'美國'},TL={stock:'股票',futures:'期貨',options:'選擇權',etf:'ETF'},DL={long:'做多',short:'做空'},DC={long:'j-dir-long',short:'j-dir-short'},SL={open:'持倉中',closed:'已平倉'};
+  const ML={tw:'台灣',us:'美國',crypto:'加密貨幣'},TL={stock:'股票/現貨',futures:'期貨/合約',options:'選擇權',etf:'ETF'},DL={long:'做多',short:'做空'},DC={long:'j-dir-long',short:'j-dir-short'},SL={open:'持倉中',closed:'已平倉'};
   const si=f=>sortState.field!==f?'<span class="j-sort-icon"></span>':`<span class="j-sort-icon active">${sortState.asc?'&#9650;':'&#9660;'}</span>`;
   const cp=filtered.filter(t=>t.status==='closed').map(t=>calcPL(t)).filter(Boolean);
   const tn=cp.reduce((s,p)=>s+p.net,0),wins=cp.filter(p=>p.net>0).length,wr=cp.length?(wins/cp.length*100).toFixed(1):0;
@@ -1978,8 +2018,8 @@ function openTradeForm(id, prefill) {
             </div>
           </div>
         </div>
-        <div class="j-fg"><label>市場</label><select id="jf-market2"><option value="tw" ${t.market==='tw'?'selected':''}>台灣</option><option value="us" ${t.market==='us'?'selected':''}>美國</option></select></div>
-        <div class="j-fg"><label>商品類型</label><select id="jf-type2"><option value="stock" ${t.type==='stock'?'selected':''}>股票</option><option value="futures" ${t.type==='futures'?'selected':''}>期貨</option><option value="options" ${t.type==='options'?'selected':''}>選擇權</option><option value="etf" ${t.type==='etf'?'selected':''}>ETF</option></select></div>
+        <div class="j-fg"><label>市場</label><select id="jf-market2"><option value="tw" ${t.market==='tw'?'selected':''}>台灣</option><option value="us" ${t.market==='us'?'selected':''}>美國</option><option value="crypto" ${t.market==='crypto'?'selected':''}>加密貨幣</option></select></div>
+        <div class="j-fg"><label>商品類型</label><select id="jf-type2"><option value="stock" ${t.type==='stock'?'selected':''}>股票/現貨</option><option value="futures" ${t.type==='futures'?'selected':''}>期貨/合約</option><option value="options" ${t.type==='options'?'selected':''}>選擇權</option><option value="etf" ${t.type==='etf'?'selected':''}>ETF</option></select></div>
         <div class="j-fg"><label>代號</label><input type="text" id="jf-symbol" value="${esc(t.symbol)}" placeholder="例：2330、AAPL"></div>
         <div class="j-fg"><label>名稱</label><input type="text" id="jf-name" value="${esc(t.name)}" placeholder="例：台積電"></div>
         <div class="j-fg"><label>方向</label><select id="jf-dir"><option value="long" ${t.direction==='long'?'selected':''}>做多 (Buy)</option><option value="short" ${t.direction==='short'?'selected':''}>做空 (Sell)</option></select></div>
@@ -2206,7 +2246,7 @@ function openTradeDetail(id) {
   const t=trades.find(x=>x.id===id);if(!t)return;
   let overlay = $('#j-global-modal-overlay') || (() => { const o = document.createElement('div'); o.id='j-global-modal-overlay'; o.className='j-modal-overlay'; document.body.appendChild(o); return o; })();
   let modal = $('#j-global-modal') || (() => { const m = document.createElement('div'); m.id='j-global-modal'; m.className='j-modal'; document.body.appendChild(m); return m; })();
-  const pl=calcPL(t),ML={tw:'台灣',us:'美國'},TL={stock:'股票',futures:'期貨',options:'選擇權',etf:'ETF'},DL={long:'做多',short:'做空'},SL={open:'持倉中',closed:'已平倉'};
+  const pl=calcPL(t),ML={tw:'台灣',us:'美國',crypto:'加密貨幣'},TL={stock:'股票/現貨',futures:'期貨/合約',options:'選擇權',etf:'ETF'},DL={long:'做多',short:'做空'},SL={open:'持倉中',closed:'已平倉'};
   const lq=liveQuotes[getLiveQuoteKey(t)],upl=(t.status==='open'&&lq&&lq.price)?calcUnrealizedPL(t,lq.price):null;
   const en=parseFloat(t.entryPrice),sl=parseFloat(t.stopLoss),tp=parseFloat(t.takeProfit);
   const rp=(!isNaN(en)&&!isNaN(sl)&&en)?((Math.abs(en-sl)/en)*100).toFixed(2):null;
