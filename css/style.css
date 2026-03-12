@@ -1222,6 +1222,17 @@ input[type="number"]{-moz-appearance:textfield}
 /* ── Average Cost Bar ── */
 .j-avg-cost-bar{display:flex;gap:16px;padding:6px 12px;background:var(--bg2);border:1px solid var(--bdr);border-radius:6px;margin-bottom:6px;font-size:.8rem;color:var(--t2);flex-wrap:wrap}
 
+/* ── Holdings (庫存) ── */
+.j-holding-row{cursor:pointer}
+.j-holding-row.expanded{background:var(--bg3)}
+.j-holding-detail{background:var(--bg0);font-size:.8rem}
+.j-holding-detail td{color:var(--t2);padding:5px 10px}
+.j-holding-sub-trades{border-top:1px solid var(--bdr);padding:6px 12px}
+.j-holding-sub-row{display:flex;align-items:center;gap:10px;padding:4px 0;font-size:.75rem;color:var(--t2);border-bottom:1px dashed var(--bdr)}
+.j-holding-sub-row:last-child{border-bottom:none}
+.j-holding-sub-actions{margin-left:auto;display:flex;gap:3px}
+.j-holding-sub-actions .j-act-btn{width:24px;height:24px;min-height:24px}
+
 /* ── Rating ── */
 .j-rating{display:inline-flex;gap:1px}
 .j-star{color:var(--t3);font-size:.9rem;transition:color .1s}
