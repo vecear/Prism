@@ -1088,6 +1088,7 @@ function renderJournal() {
           <button class="j-vt-btn ${viewMode === 'list' ? 'active' : ''}" data-view="list"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>紀錄</button>
           <button class="j-vt-btn ${viewMode === 'calendar' ? 'active' : ''}" data-view="calendar"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>日曆</button>
           <button class="j-vt-btn ${viewMode === 'stats' ? 'active' : ''}" data-view="stats"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>統計</button>
+          <button class="j-vt-btn ${viewMode === 'holdings' ? 'active' : ''}" data-view="holdings"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>庫存</button>
           <button class="j-vt-btn ${viewMode === 'diary' ? 'active' : ''}" data-view="diary"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>日記</button>
         </div>
         <div class="j-csv-btns">
@@ -1117,11 +1118,13 @@ function renderJournal() {
       quickFilter = b.dataset.qf;
       $$('.j-qf-chip').forEach(x => x.classList.toggle('active', x.dataset.qf === quickFilter));
       if (viewMode === 'list') renderTradeList();
+      else if (viewMode === 'holdings') renderHoldings();
       else if (viewMode === 'stats') renderStats();
     });
   });
   renderFilters();
   if (viewMode === 'list') renderTradeList();
+  else if (viewMode === 'holdings') renderHoldings();
   else if (viewMode === 'calendar') renderCalendar();
   else if (viewMode === 'diary') renderDiary();
   else renderStats();
@@ -1547,6 +1550,233 @@ function renderTradeList() {
     fetchOpenTradeQuotes().then(() => {
       if (viewMode === 'list') renderTradeList();
       checkSLTPAlerts();
+    });
+  }
+}
+
+// ================================================================
+//  Holdings (庫存)
+// ================================================================
+function renderHoldings() {
+  const body = $('#j-body');
+  if (!body) return;
+
+  const openTrades = trades.filter(t => t.status === 'open');
+  if (!openTrades.length) {
+    body.innerHTML = `<div class="j-empty"><svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="var(--t3)" stroke-width="1.5"><path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg><p>目前沒有持倉中的商品</p><p class="j-empty-hint">在計算器分頁點「記錄此交易」新增持倉</p></div>`;
+    return;
+  }
+
+  const ML = { tw: '台灣', us: '美國', crypto: '加密貨幣' };
+  const TL = TYPE_LABELS;
+  const DL = { long: '做多', short: '做空' };
+  const DC = { long: 'j-dir-long', short: 'j-dir-short' };
+
+  // Group by symbol + market
+  const groups = {};
+  for (const t of openTrades) {
+    const key = `${t.symbol}|${t.market}|${t.direction}`;
+    if (!groups[key]) groups[key] = { symbol: t.symbol, market: t.market, direction: t.direction, name: t.name || '', type: t.type, trades: [] };
+    groups[key].trades.push(t);
+  }
+
+  // Build per-group summary
+  const groupList = Object.values(groups).map(g => {
+    const totalQty = g.trades.reduce((s, t) => s + (parseFloat(t.quantity) || 0), 0);
+    // 加權平均進場價（不含乘數）
+    const totalCost = g.trades.reduce((s, t) => s + (parseFloat(t.entryPrice) || 0) * (parseFloat(t.quantity) || 0), 0);
+    const avgEntry = totalQty > 0 ? totalCost / totalQty : 0;
+    // 計算含乘數的實際投入成本（用於現貨=進場價×數量，期貨=進場價×數量×乘數）
+    const totalNotional = g.trades.reduce((s, t) => {
+      const ep = parseFloat(t.entryPrice) || 0, q = parseFloat(t.quantity) || 0;
+      const rawMul = parseFloat(t.contractMul);
+      const mul = (isFuturesType(t.type) || t.type === 'options') ? (isNaN(rawMul) || rawMul === 0 ? 1 : rawMul) : 1;
+      return s + ep * q * mul;
+    }, 0);
+    const qk = getLiveQuoteKey(g.trades[0]);
+    const lq = liveQuotes[qk];
+    let unrealized = 0, currentPrice = null, hasQuote = false, currentNotional = 0;
+    if (lq && lq.price) {
+      currentPrice = lq.price;
+      hasQuote = true;
+      g.trades.forEach(t => {
+        const upl = calcUnrealizedPL(t, lq.price);
+        if (upl) unrealized += upl.net;
+        const q = parseFloat(t.quantity) || 0;
+        const rawMul = parseFloat(t.contractMul);
+        const mul = (isFuturesType(t.type) || t.type === 'options') ? (isNaN(rawMul) || rawMul === 0 ? 1 : rawMul) : 1;
+        currentNotional += lq.price * q * mul;
+      });
+    }
+    const totalFee = g.trades.reduce((s, t) => s + (parseFloat(t.fee) || 0) + (parseFloat(t.tax) || 0), 0);
+    // 最早和最晚的進場日
+    const dates = g.trades.map(t => t.date).filter(Boolean).sort();
+    const firstDate = dates[0] || '';
+    const lastDate = dates[dates.length - 1] || '';
+    return { ...g, totalQty, avgEntry, totalNotional, currentNotional, currentPrice, hasQuote, unrealized, totalFee, qk, firstDate, lastDate };
+  });
+
+  // Sort by unrealized P&L (worst first for risk awareness), or by symbol if no quotes
+  groupList.sort((a, b) => {
+    if (a.hasQuote && b.hasQuote) return a.unrealized - b.unrealized;
+    if (a.hasQuote) return -1;
+    return a.symbol.localeCompare(b.symbol);
+  });
+
+  // Totals per market
+  const uplByMkt = {};
+  let totalUPL = 0;
+  groupList.forEach(g => {
+    if (g.hasQuote) {
+      if (!uplByMkt[g.market]) uplByMkt[g.market] = 0;
+      uplByMkt[g.market] += g.unrealized;
+      totalUPL += g.unrealized;
+    }
+  });
+  const mktKeys = Object.keys(uplByMkt);
+  const uplSummary = mktKeys.map(m => `<strong class="${uplByMkt[m] >= 0 ? 'tg' : 'tr'}">${fmtMoney(uplByMkt[m], m)}</strong>`).join(' ');
+
+  let h = `<div class="j-summary-bar"><span>持倉 <strong>${openTrades.length}</strong> 筆（<strong>${groupList.length}</strong> 檔商品）</span>${mktKeys.length ? `<span>未實現損益：${uplSummary}</span>` : ''}</div>`;
+
+  // Desktop: holdings table
+  h += `<div class="j-table-wrap"><table class="j-table j-holdings-table"><thead><tr><th>商品</th><th>方向</th><th>數量</th><th>均價</th><th>現價</th><th>成本 / 市值</th><th>未實現損益</th><th>筆數</th><th></th></tr></thead><tbody>`;
+  for (const g of groupList) {
+    const plC = g.hasQuote ? (g.unrealized > 0 ? 'tg' : g.unrealized < 0 ? 'tr' : '') : 'tm';
+    const plStr = g.hasQuote ? fmtMoney(g.unrealized, g.market) : '—';
+    const cpStr = g.currentPrice != null ? fmtNum(g.currentPrice, 2) : '<span class="j-pl-loading" data-key="' + g.qk + '">查詢中…</span>';
+    const chgPct = g.hasQuote && g.avgEntry > 0 ? ((g.currentPrice - g.avgEntry) / g.avgEntry * 100 * (g.direction === 'long' ? 1 : -1)).toFixed(2) : null;
+    const chgStr = chgPct != null ? `<span class="${parseFloat(chgPct) >= 0 ? 'tg' : 'tr'}" style="font-size:.72rem;margin-left:3px">(${parseFloat(chgPct) >= 0 ? '+' : ''}${chgPct}%)</span>` : '';
+    const costStr = fmtMoney(g.totalNotional, g.market);
+    const mktValStr = g.hasQuote ? fmtMoney(g.currentNotional, g.market) : '—';
+    const dateRange = g.trades.length > 1 ? `<span class="j-sym-name">${fmtDate(g.firstDate)} ~ ${fmtDate(g.lastDate)}</span>` : (g.firstDate ? `<span class="j-sym-name">${fmtDate(g.firstDate)}</span>` : '');
+    h += `<tr class="j-holding-row" data-symbol="${esc(g.symbol)}" data-market="${g.market}" data-direction="${g.direction}">
+      <td class="j-td-sym"><div class="j-sym-row"><strong>${esc(g.symbol)}</strong><span class="j-badge j-badge-${g.market}">${ML[g.market] || g.market}</span><span class="j-badge j-badge-type">${TL[g.type] || g.type}</span></div>${g.name ? `<span class="j-sym-name">${esc(g.name)}</span>` : ''}${dateRange}</td>
+      <td><span class="${DC[g.direction]}">${DL[g.direction]}</span></td>
+      <td class="j-td-num">${fmtNum(g.totalQty, g.totalQty % 1 ? 4 : 0)}</td>
+      <td class="j-td-num">${fmtNum(g.avgEntry, 2)}</td>
+      <td class="j-td-num">${cpStr}</td>
+      <td class="j-td-num"><div>${costStr}</div>${g.hasQuote ? `<div class="${plC}" style="font-size:.72rem">${mktValStr}</div>` : ''}</td>
+      <td class="j-td-num ${plC}">${plStr}${chgStr}</td>
+      <td class="j-td-num">${g.trades.length}</td>
+      <td class="j-td-actions"><div class="j-actions-wrap"><button class="j-act-btn j-hld-expand" data-key="${esc(g.symbol)}|${g.market}|${g.direction}" title="展開明細"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></button></div></td>
+    </tr>`;
+    // Hidden detail rows (individual trades)
+    for (const t of g.trades) {
+      let tPlStr = '—', tPlC = 'tm';
+      if (g.hasQuote) {
+        const upl = calcUnrealizedPL(t, g.currentPrice);
+        if (upl) { tPlStr = fmtMoney(upl.net, t.market); tPlC = upl.net > 0 ? 'tg' : upl.net < 0 ? 'tr' : ''; }
+      }
+      h += `<tr class="j-holding-detail" data-parent="${esc(g.symbol)}|${g.market}|${g.direction}" style="display:none">
+        <td class="j-td-date" style="padding-left:28px">${fmtDate(t.date)}</td>
+        <td></td>
+        <td class="j-td-num">${t.quantity || '—'}</td>
+        <td class="j-td-num">${fmtNum(parseFloat(t.entryPrice), 2)}</td>
+        <td class="j-td-num">${g.currentPrice != null ? fmtNum(g.currentPrice, 2) : '—'}</td>
+        <td></td>
+        <td class="j-td-num ${tPlC}">${tPlStr}</td>
+        <td></td>
+        <td class="j-td-actions"><div class="j-actions-wrap">${`<button class="j-act-btn j-act-close" data-id="${t.id}" title="平倉"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></button><button class="j-act-btn j-act-edit" data-id="${t.id}" title="編輯"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>`}</div></td>
+      </tr>`;
+    }
+  }
+  h += '</tbody></table></div>';
+
+  // Mobile: card view
+  h += '<div class="j-card-list">';
+  for (const g of groupList) {
+    const plC = g.hasQuote ? (g.unrealized > 0 ? 'tg' : g.unrealized < 0 ? 'tr' : '') : 'tm';
+    const plStr = g.hasQuote ? fmtMoney(g.unrealized, g.market) : '—';
+    const cpStr = g.currentPrice != null ? fmtNum(g.currentPrice, 2) : '查詢中…';
+    const chgPct = g.hasQuote && g.avgEntry > 0 ? ((g.currentPrice - g.avgEntry) / g.avgEntry * 100 * (g.direction === 'long' ? 1 : -1)).toFixed(2) : null;
+    const chgStr = chgPct != null ? ` (${parseFloat(chgPct) >= 0 ? '+' : ''}${chgPct}%)` : '';
+
+    h += `<div class="j-card j-holding-card" data-key="${esc(g.symbol)}|${g.market}|${g.direction}">
+      <div class="j-card-head">
+        <div class="j-card-left">
+          <span class="j-card-symbol">${esc(g.symbol)}</span>
+          <span class="j-badge j-badge-${g.market}">${ML[g.market] || g.market}</span>
+          <span class="j-badge j-badge-type">${TL[g.type] || g.type}</span>
+          <span class="${DC[g.direction]} j-card-dir">${DL[g.direction]}</span>
+        </div>
+        <div class="j-card-right">
+          <span class="j-card-pl ${plC}">${plStr}</span>
+          <svg class="j-card-chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+        </div>
+      </div>
+      <div class="j-card-sub">
+        <span class="j-card-date">${g.trades.length} 筆</span>
+        <span class="j-card-price">均 ${fmtNum(g.avgEntry, 2)} → 現 ${cpStr}</span>
+        <span class="${plC}" style="font-size:.72rem">${chgStr}</span>
+      </div>
+      <div class="j-card-detail">
+        <div class="j-card-detail-grid">
+          <div class="j-card-field"><span class="j-card-label">總數量</span><span class="j-card-val">${fmtNum(g.totalQty, g.totalQty % 1 ? 4 : 0)}</span></div>
+          <div class="j-card-field"><span class="j-card-label">均價</span><span class="j-card-val">${fmtNum(g.avgEntry, 2)}</span></div>
+          <div class="j-card-field"><span class="j-card-label">現價</span><span class="j-card-val">${cpStr}</span></div>
+          <div class="j-card-field"><span class="j-card-label">成本</span><span class="j-card-val">${fmtMoney(g.totalNotional, g.market)}</span></div>
+          <div class="j-card-field"><span class="j-card-label">市值</span><span class="j-card-val">${g.hasQuote ? fmtMoney(g.currentNotional, g.market) : '—'}</span></div>
+          <div class="j-card-field"><span class="j-card-label">未實現損益</span><span class="j-card-val ${plC}">${plStr}${chgStr}</span></div>
+          <div class="j-card-field"><span class="j-card-label">手續費+稅</span><span class="j-card-val">${fmtMoney(g.totalFee, g.market)}</span></div>
+          <div class="j-card-field"><span class="j-card-label">建倉期間</span><span class="j-card-val">${g.trades.length > 1 ? fmtDate(g.firstDate) + ' ~ ' + fmtDate(g.lastDate) : fmtDate(g.firstDate)}</span></div>
+        </div>
+        <div class="j-holding-sub-trades">
+        ${g.trades.map(t => {
+          let tPlStr = '—', tPlC = 'tm';
+          if (g.hasQuote) { const upl = calcUnrealizedPL(t, g.currentPrice); if (upl) { tPlStr = fmtMoney(upl.net, t.market); tPlC = upl.net > 0 ? 'tg' : upl.net < 0 ? 'tr' : ''; } }
+          return `<div class="j-holding-sub-row">
+            <span class="j-card-date">${fmtDate(t.date)}</span>
+            <span>${fmtNum(parseFloat(t.entryPrice), 2)} × ${t.quantity || '—'}</span>
+            <span class="${tPlC}">${tPlStr}</span>
+            <span class="j-holding-sub-actions">
+              <button class="j-act-btn j-act-close" data-id="${t.id}" title="平倉"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></button>
+              <button class="j-act-btn j-act-edit" data-id="${t.id}" title="編輯"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+            </span>
+          </div>`;
+        }).join('')}
+        </div>
+      </div>
+    </div>`;
+  }
+  h += '</div>';
+
+  body.innerHTML = h;
+
+  // Event handlers: expand/collapse group details (desktop table)
+  $$('.j-hld-expand').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const key = btn.dataset.key;
+      const rows = $$(`tr.j-holding-detail[data-parent="${key}"]`);
+      const isOpen = rows[0]?.style.display !== 'none';
+      rows.forEach(r => r.style.display = isOpen ? 'none' : '');
+      btn.closest('tr').classList.toggle('expanded', !isOpen);
+    });
+  });
+  // Desktop: row click expands too
+  $$('.j-holding-row').forEach(r => {
+    r.addEventListener('click', e => {
+      if (e.target.closest('.j-act-btn')) return;
+      const btn = r.querySelector('.j-hld-expand');
+      if (btn) btn.click();
+    });
+  });
+  // Mobile: card expand
+  $$('.j-holding-card .j-card-head').forEach(head => {
+    head.addEventListener('click', e => {
+      if (e.target.closest('.j-act-btn')) return;
+      head.closest('.j-card').classList.toggle('expanded');
+    });
+  });
+  // Action buttons
+  $$('.j-act-close').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); quickCloseTrade(b.dataset.id); }));
+  $$('.j-act-edit').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); openTradeForm(b.dataset.id); }));
+
+  // Fetch live quotes for open trades then re-render
+  const needsFetch = openTrades.some(t => !liveQuotes[getLiveQuoteKey(t)]);
+  if (needsFetch) {
+    fetchOpenTradeQuotes().then(() => {
+      if (viewMode === 'holdings') renderHoldings();
     });
   }
 }
