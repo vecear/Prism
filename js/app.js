@@ -2610,6 +2610,20 @@ function init() {
   const fetchBtn = $('#btn-fetch-indices');
   if (fetchBtn) fetchBtn.addEventListener('click', () => handleFetchIndices(true));
 
+  // ── Hard reload button (clear cache & reload) ──
+  $('#btn-hard-reload')?.addEventListener('click', async () => {
+    if (!confirm('確定要重新載入頁面嗎？將清除快取並載入最新版本。')) return;
+    if ('caches' in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k)));
+    }
+    if (navigator.serviceWorker) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r => r.unregister()));
+    }
+    location.reload(true);
+  });
+
   // ── Settings panel ──
   initSettings();
 
@@ -2741,7 +2755,6 @@ function renderSettings() {
         <div><div class="stg-username">${userInfo?.username || '使用者'}</div><div class="stg-uid">已登入 · 資料同步中</div></div>
       </div>
       <div class="stg-account-actions">
-        <button id="stg-reload"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M1 4v6h6"/><path d="M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg> 重新整理</button>
         <button class="stg-logout-btn" id="stg-logout">登出</button>
       </div>`
     : `<div class="stg-login-prompt">
@@ -2979,9 +2992,6 @@ function renderSettings() {
   });
   $('#stg-logout')?.addEventListener('click', () => {
     if (window.PrismJournal) { PrismJournal.doLogout(); window._stgRendered = false; renderSettings(); window._stgRendered = true; }
-  });
-  $('#stg-reload')?.addEventListener('click', () => {
-    if (confirm('確定要重新載入頁面嗎？未儲存的輸入內容將會消失。')) location.reload();
   });
 
   // Theme picker
