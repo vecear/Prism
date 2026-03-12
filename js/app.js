@@ -1410,6 +1410,90 @@ function _tnxLevel(val) {
   return { label: '極低利率', cls: 'sent-low', color: 'var(--green)' };
 }
 
+const _SENT_DEFAULT_ORDER = ['vix', 'vix3m', 'vixRatio', 'credit', 'treasury', 'fg'];
+
+function _saveSentimentOrder() {
+  const gauges = document.querySelectorAll('.sent-gauge[data-sent]');
+  CFG.sentimentOrder = [...gauges].map(g => g.dataset.sent);
+  saveSettings(CFG);
+}
+
+let _sentDragAC = null;
+function _initSentimentDrag(container) {
+  if (_sentDragAC) _sentDragAC.abort();
+  _sentDragAC = new AbortController();
+  const sig = { signal: _sentDragAC.signal };
+  let dragEl = null, touchStartX = 0, touchStartY = 0, isDragging = false;
+
+  // ── Desktop drag ──
+  container.addEventListener('dragstart', e => {
+    const gauge = e.target.closest('.sent-gauge');
+    if (!gauge) return;
+    dragEl = gauge;
+    gauge.classList.add('sent-dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', '');
+  }, sig);
+  container.addEventListener('dragover', e => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const target = e.target.closest('.sent-gauge');
+    if (!target || target === dragEl) return;
+    const rect = target.getBoundingClientRect();
+    const mid = rect.left + rect.width / 2;
+    if (e.clientX < mid) container.insertBefore(dragEl, target);
+    else container.insertBefore(dragEl, target.nextSibling);
+  }, sig);
+  container.addEventListener('dragend', () => {
+    if (dragEl) { dragEl.classList.remove('sent-dragging'); dragEl = null; }
+    _saveSentimentOrder();
+  }, sig);
+
+  // ── Mobile touch ──
+  container.addEventListener('touchstart', e => {
+    const gauge = e.target.closest('.sent-gauge');
+    if (!gauge) return;
+    const t = e.touches[0];
+    touchStartX = t.clientX; touchStartY = t.clientY;
+    isDragging = false;
+    dragEl = gauge;
+  }, { passive: true, ...sig });
+
+  container.addEventListener('touchmove', e => {
+    if (!dragEl) return;
+    const t = e.touches[0];
+    if (!isDragging) {
+      const dx = Math.abs(t.clientX - touchStartX), dy = Math.abs(t.clientY - touchStartY);
+      if (dx < 8 && dy < 8) return;
+      isDragging = true;
+      dragEl.classList.add('sent-dragging');
+      e.preventDefault();
+    }
+    if (isDragging) {
+      e.preventDefault();
+      const el = document.elementFromPoint(t.clientX, t.clientY)?.closest('.sent-gauge');
+      if (el && el !== dragEl) {
+        const rect = el.getBoundingClientRect();
+        const mid = rect.left + rect.width / 2;
+        if (t.clientX < mid) container.insertBefore(dragEl, el);
+        else container.insertBefore(dragEl, el.nextSibling);
+      }
+    }
+  }, { passive: false, ...sig });
+
+  container.addEventListener('touchend', e => {
+    if (dragEl) {
+      if (isDragging) {
+        e.preventDefault();
+        dragEl.classList.remove('sent-dragging');
+        _saveSentimentOrder();
+      }
+      dragEl = null;
+      isDragging = false;
+    }
+  }, sig);
+}
+
 function _renderSentimentStrip() {
   const strip = $('#sentiment-strip');
   if (!strip) return;
@@ -1439,8 +1523,6 @@ function _renderSentimentStrip() {
   }
   strip.style.display = '';
 
-  let html = '';
-
   const tFmt = { hour: '2-digit', minute: '2-digit', second: '2-digit' };
 
   function _sentTip(cacheKey, q) {
@@ -1450,18 +1532,19 @@ function _renderSentimentStrip() {
     return srcStr ? `來源報價時間：${srcStr}\n本地抓取時間：${fetchStr}` : (fetchStr ? `本地抓取時間：${fetchStr}` : '');
   }
 
-  // VIX gauge
+  // Build each gauge keyed by id
+  const gauges = {};
+
   if (showVix) {
     const lv = _vixLevel(vixVal);
     const vixChg = vixQ.change != null ? vixQ.change : null;
     const vixChgHtml = vixChg != null ? `<span class="sent-chg ${vixChg <= 0 ? 'up' : 'down'}">${vixChg >= 0 ? '+' : ''}${vixChg.toFixed(2)}</span>` : '';
-    html += `<a class="sent-gauge" title="${_sentTip('vix', vixQ)}" href="https://www.tradingview.com/chart/?symbol=CBOE%3AVIX" target="_blank" rel="noopener">
+    gauges.vix = `<a class="sent-gauge" data-sent="vix" draggable="true" title="${_sentTip('vix', vixQ)}" href="https://www.tradingview.com/chart/?symbol=CBOE%3AVIX" target="_blank" rel="noopener">
       <div class="sent-top"><span class="sent-label">VIX</span><span class="sent-tag" style="color:${lv.color}">${lv.label}</span></div>
       <div class="sent-bottom"><span class="sent-value" style="color:${lv.color}">${vixVal.toFixed(2)}</span>${vixChgHtml}</div>
     </a>`;
   }
 
-  // VIX3M (3-month VIX)
   if (showVixTerm) {
     const vix3mVal = vix3mQ.price;
     const lv = _vixLevel(vix3mVal);
@@ -1470,25 +1553,23 @@ function _renderSentimentStrip() {
     const ratio = vixVal / vix3mVal;
     const structure = ratio >= 1 ? '逆價差' : '正價差';
     const tip = `VIX3M: ${vix3mVal.toFixed(2)}\nVIX/VIX3M 比值: ${ratio.toFixed(3)} (${structure})\n${structure === '逆價差' ? '短期恐慌高於長期 → 急性壓力' : '長期高於短期 → 正常結構'}\n${_sentTip('vix3m', vix3mQ)}`;
-    html += `<a class="sent-gauge" title="${tip}" href="https://www.tradingview.com/chart/?symbol=CBOE%3AVIX3M" target="_blank" rel="noopener">
+    gauges.vix3m = `<a class="sent-gauge" data-sent="vix3m" draggable="true" title="${tip}" href="https://www.tradingview.com/chart/?symbol=CBOE%3AVIX3M" target="_blank" rel="noopener">
       <div class="sent-top"><span class="sent-label">VIX3M</span><span class="sent-tag" style="color:${lv.color}">${lv.label}</span></div>
       <div class="sent-bottom"><span class="sent-value" style="color:${lv.color}">${vix3mVal.toFixed(2)}</span>${chgHtml}</div>
     </a>`;
   }
 
-  // VIX / VIX3M Term Structure ratio
   if (showVixRatio) {
     const ratio = vixVal / vix3mQ.price;
     const lv = _vixTermLevel(vixVal, vix3mQ.price);
     const structure = ratio >= 1 ? '逆價差' : '正價差';
     const tip = `VIX: ${vixVal.toFixed(2)} / VIX3M: ${vix3mQ.price.toFixed(2)}\n比值: ${ratio.toFixed(3)}\n${ratio >= 1 ? '逆價差 (Backwardation) → 短期恐慌高於長期' : '正價差 (Contango) → 正常結構'}`;
-    html += `<a class="sent-gauge" title="${tip}" href="https://www.tradingview.com/chart/?symbol=CBOE%3AVIX3M" target="_blank" rel="noopener">
+    gauges.vixRatio = `<a class="sent-gauge" data-sent="vixRatio" draggable="true" title="${tip}" href="https://www.tradingview.com/chart/?symbol=CBOE%3AVIX3M" target="_blank" rel="noopener">
       <div class="sent-top"><span class="sent-label">VIX 期限結構</span><span class="sent-tag" style="color:${lv.color}">${lv.label}</span></div>
       <div class="sent-bottom"><span class="sent-value" style="color:${lv.color}">${ratio.toFixed(3)}</span><span class="sent-chg" style="color:${lv.color}">${structure}</span></div>
     </a>`;
   }
 
-  // Credit Spread (ICE BofA US HY OAS from FRED)
   if (showCredit) {
     const lv = _creditSpreadLevel(csData.spread);
     const chg = csData.change;
@@ -1496,26 +1577,24 @@ function _renderSentimentStrip() {
     const csCache = _quoteCache._load().creditSpread;
     const csFetchStr = csCache?.time ? new Date(csCache.time).toLocaleTimeString('zh-TW', tFmt) : '';
     const tip = `ICE BofA US High Yield OAS\n信用利差: ${csData.spread.toFixed(2)}%\n前值: ${csData.prevSpread != null ? csData.prevSpread.toFixed(2) + '%' : '—'} (${csData.prevDate || ''})\n資料日期: ${csData.date}\n利差擴大 = 風險升高\n本地抓取時間：${csFetchStr}`;
-    html += `<a class="sent-gauge" title="${tip}" href="https://fred.stlouisfed.org/series/BAMLH0A0HYM2" target="_blank" rel="noopener">
+    gauges.credit = `<a class="sent-gauge" data-sent="credit" draggable="true" title="${tip}" href="https://fred.stlouisfed.org/series/BAMLH0A0HYM2" target="_blank" rel="noopener">
       <div class="sent-top"><span class="sent-label">信用利差 OAS</span><span class="sent-tag" style="color:${lv.color}">${lv.label}</span></div>
       <div class="sent-bottom"><span class="sent-value" style="color:${lv.color}">${csData.spread.toFixed(2)}%</span>${chgHtml}</div>
     </a>`;
   }
 
-  // 10-Year Treasury Yield
   if (showTreasury) {
     const lv = _tnxLevel(tnxQ.price);
     const chg = tnxQ.change != null ? tnxQ.change : null;
     const chgHtml = chg != null ? `<span class="sent-chg ${chg <= 0 ? 'up' : 'down'}">${chg >= 0 ? '+' : ''}${chg.toFixed(3)}%</span>` : '';
     const tip = `美國 10 年期公債殖利率\n殖利率急降 = 市場預期經濟衰退\n${_sentTip('tnx', tnxQ)}`;
-    html += `<a class="sent-gauge" title="${tip}" href="https://www.tradingview.com/chart/?symbol=TVC%3AUS10Y" target="_blank" rel="noopener">
+    gauges.treasury = `<a class="sent-gauge" data-sent="treasury" draggable="true" title="${tip}" href="https://www.tradingview.com/chart/?symbol=TVC%3AUS10Y" target="_blank" rel="noopener">
       <div class="sent-top"><span class="sent-label">10Y 殖利率</span><span class="sent-tag" style="color:${lv.color}">${lv.label}</span></div>
       <div class="sent-bottom"><span class="sent-value" style="color:${lv.color}">${tnxQ.price.toFixed(3)}%</span>${chgHtml}</div>
     </a>`;
   }
 
-  // Fear & Greed gauge
-  if (fgData && CFG.showFearGreed !== false) {
+  if (showFg) {
     const lv = _fgLevel(fgData.score);
     const chg = fgData.previousClose != null ? fgData.score - fgData.previousClose : null;
     const chgHtml = chg != null ? `<span class="sent-chg ${chg >= 0 ? 'up' : 'down'}">${chg >= 0 ? '+' : ''}${chg}</span>` : '';
@@ -1525,13 +1604,20 @@ function _renderSentimentStrip() {
     const fgTip = fgSrcStr
       ? `來源報價時間：${fgSrcStr}\n本地抓取時間：${fgFetchStr}`
       : (fgFetchStr ? `本地抓取時間：${fgFetchStr}` : '');
-    html += `<a class="sent-gauge" title="${fgTip}" href="https://edition.cnn.com/markets/fear-and-greed" target="_blank" rel="noopener">
+    gauges.fg = `<a class="sent-gauge" data-sent="fg" draggable="true" title="${fgTip}" href="https://edition.cnn.com/markets/fear-and-greed" target="_blank" rel="noopener">
       <div class="sent-top"><span class="sent-label">恐懼與貪婪</span><span class="sent-tag" style="color:${lv.color}">${lv.label}</span></div>
       <div class="sent-bottom"><span class="sent-value" style="color:${lv.color}">${fgData.score}</span>${chgHtml}</div>
     </a>`;
   }
 
-  strip.innerHTML = html;
+  // Apply saved order
+  const order = CFG.sentimentOrder || _SENT_DEFAULT_ORDER;
+  const ordered = order.filter(k => gauges[k]);
+  // Append any new keys not in saved order
+  Object.keys(gauges).forEach(k => { if (!ordered.includes(k)) ordered.push(k); });
+
+  strip.innerHTML = ordered.map(k => gauges[k]).join('');
+  _initSentimentDrag(strip);
 }
 
 async function _fetchFearGreed() {

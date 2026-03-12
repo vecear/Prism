@@ -334,6 +334,8 @@ body{font-family:var(--sans);background:var(--bg0);color:var(--t1);line-height:1
 .sent-value{font-family:var(--mono);font-size:.92rem;font-weight:700;white-space:nowrap}
 .sent-chg{font-size:.6rem;font-weight:600}
 .sent-chg.up{color:var(--green)}.sent-chg.down{color:var(--red)}
+.sent-gauge[draggable]{cursor:grab}
+.sent-dragging{opacity:.4;outline:2px dashed var(--accent);outline-offset:-2px;z-index:10;cursor:grabbing}
 
 /* ========== Main Tabs ========== */
 .main-tabs{display:flex;gap:0;border-bottom:1px solid var(--bdr);padding-top:4px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
