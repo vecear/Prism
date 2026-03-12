@@ -811,8 +811,9 @@ function showLoginModal() {
       // Refresh settings panel to show account
       window._stgRendered = false;
       if ($('#settings-panel')?.classList.contains('open')) { renderSettings(); window._stgRendered = true; }
-      // Load cloud settings after login
+      // Load cloud settings & presets after login
       if (window.loadSettingsFromServer) window.loadSettingsFromServer();
+      if (window.loadPresetsFromServer) window.loadPresetsFromServer();
       // If journal tab is active, refresh it
       if ($('#tab-journal')?.classList.contains('active')) { await loadTrades(); renderJournal(); }
     } catch (e) {
