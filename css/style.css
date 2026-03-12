@@ -384,6 +384,22 @@ body{font-family:var(--sans);background:var(--bg0);color:var(--t1);line-height:1
 .calc-btn:hover{box-shadow:0 4px 16px rgba(0,180,216,.35);transform:translateY(-1px)}
 .calc-btn:active{transform:translateY(0);box-shadow:0 1px 4px rgba(0,180,216,.2)}
 
+/* ========== Input Sections ========== */
+.input-section{margin-bottom:10px}
+.input-section:last-child{margin-bottom:0}
+.input-section-hdr{display:flex;align-items:center;gap:6px;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid var(--bdr)}
+.input-section-hdr .sec-icon{width:14px;height:14px;color:var(--accent);flex-shrink:0;opacity:.8}
+.input-section-hdr .sec-title{font-size:.78rem;font-weight:600;color:var(--t2);letter-spacing:.3px;text-transform:uppercase}
+
+/* Collapsible advanced section */
+.input-section-adv .input-section-hdr{cursor:pointer;user-select:none;transition:color var(--dur)}
+.input-section-adv .input-section-hdr:hover{border-bottom-color:var(--accent)}
+.input-section-adv .input-section-hdr:hover .sec-title{color:var(--accent)}
+.input-section-adv .sec-chevron{width:12px;height:12px;color:var(--t3);margin-left:auto;transition:transform .2s var(--ease-out);flex-shrink:0}
+.input-section-adv.collapsed .sec-chevron{transform:rotate(-90deg)}
+.input-section-adv .sec-body{overflow:hidden;transition:max-height .25s var(--ease-out),opacity .2s;max-height:500px;opacity:1}
+.input-section-adv.collapsed .sec-body{max-height:0;opacity:0;margin-top:0}
+
 /* ========== Result Placeholder ========== */
 .results-placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:120px;color:var(--t3);text-align:center;font-size:.85rem}
 
@@ -663,6 +679,11 @@ input[type="number"]{-moz-appearance:textfield}
   .margin-info{padding:4px 6px;gap:3px 6px}
   .mi-label{font-size:.65rem}
   .mi-val{font-size:.8rem}
+
+  /* Input sections compact */
+  .input-section{margin-bottom:6px}
+  .input-section-hdr{margin-bottom:4px;padding-bottom:3px}
+  .input-section-hdr .sec-title{font-size:.7rem}
 
   /* Cost breakdown */
   .cost-box{padding:8px}

@@ -32,6 +32,14 @@ async function ensureDB(db) {
       try {
         await db.prepare("CREATE TABLE IF NOT EXISTS presets (user_id INTEGER PRIMARY KEY, data TEXT NOT NULL DEFAULT '{}', updated_at TEXT DEFAULT (datetime('now')), FOREIGN KEY (user_id) REFERENCES users(id))").run();
       } catch {}
+      // v9 migration: templates table for trade templates sync
+      try {
+        await db.prepare("CREATE TABLE IF NOT EXISTS templates (user_id INTEGER PRIMARY KEY, data TEXT NOT NULL DEFAULT '[]', updated_at TEXT DEFAULT (datetime('now')), FOREIGN KEY (user_id) REFERENCES users(id))").run();
+      } catch {}
+      // v10 migration: app_state table for calculator state sync
+      try {
+        await db.prepare("CREATE TABLE IF NOT EXISTS app_state (user_id INTEGER PRIMARY KEY, data TEXT NOT NULL DEFAULT '{}', updated_at TEXT DEFAULT (datetime('now')), FOREIGN KEY (user_id) REFERENCES users(id))").run();
+      } catch {}
     })();
   }
   return dbInitPromise;
@@ -283,7 +291,7 @@ async function handleCreateTrade(request, env) {
   if (!body.symbol?.trim()) return jsonErr(400, '交易代號不可為空');
   if (!body.entryPrice && body.entryPrice !== 0) return jsonErr(400, '進場價格不可為空');
   const VALID_MARKETS = ['tw', 'us', 'crypto'];
-  const VALID_TYPES = ['stock', 'etf', 'futures', 'options'];
+  const VALID_TYPES = ['stock', 'etf', 'futures', 'options', 'index_futures', 'stock_futures', 'commodity_futures', 'crypto_contract', 'crypto_spot'];
   const VALID_DIRS = ['long', 'short'];
   const VALID_STATUS = ['open', 'closed'];
   const market = VALID_MARKETS.includes(body.market) ? body.market : 'tw';
@@ -320,8 +328,9 @@ async function handleUpdateTrade(request, env, tradeId) {
   try { body = await request.json(); } catch { return jsonErr(400, '無效的請求格式'); }
   if (JSON.stringify(body).length > 32768) return jsonErr(400, '交易資料過大');
   if (!body.date) return jsonErr(400, '日期不可為空');
+  if (!body.symbol?.trim()) return jsonErr(400, '交易代號不可為空');
   const VALID_MARKETS = ['tw', 'us', 'crypto'];
-  const VALID_TYPES = ['stock', 'etf', 'futures', 'options'];
+  const VALID_TYPES = ['stock', 'etf', 'futures', 'options', 'index_futures', 'stock_futures', 'commodity_futures', 'crypto_contract', 'crypto_spot'];
   const VALID_DIRS = ['long', 'short'];
   const VALID_STATUS = ['open', 'closed'];
   const now = new Date().toISOString();
@@ -422,6 +431,78 @@ async function handleSavePresets(request, env) {
   return jsonRes({ ok: true, updatedAt: now });
 }
 
+// ── Templates (trade templates cross-device sync) ──
+async function handleGetTemplates(request, env) {
+  const user = await getUser(request, env);
+  if (!user) return jsonErr(401, '未登入');
+  const row = await env.DB.prepare('SELECT data, updated_at FROM templates WHERE user_id = ?').bind(user.sub).first();
+  let templates = [];
+  if (row) { try { templates = JSON.parse(row.data); } catch {} }
+  return jsonRes({ templates, updatedAt: row?.updated_at || null });
+}
+
+async function handleSaveTemplates(request, env) {
+  const user = await getUser(request, env);
+  if (!user) return jsonErr(401, '未登入');
+  let body;
+  try { body = await request.json(); } catch { return jsonErr(400, '無效的請求格式'); }
+  const arr = Array.isArray(body.templates) ? body.templates.slice(0, 50) : [];
+  const data = JSON.stringify(arr);
+  if (data.length > 65536) return jsonErr(400, '範本資料過大');
+  const now = new Date().toISOString();
+  await env.DB.prepare('INSERT INTO templates (user_id, data, updated_at) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET data=?, updated_at=?').bind(user.sub, data, now, data, now).run();
+  return jsonRes({ ok: true, updatedAt: now });
+}
+
+// ── App State (calculator state cross-device sync) ──
+async function handleGetAppState(request, env) {
+  const user = await getUser(request, env);
+  if (!user) return jsonErr(401, '未登入');
+  const row = await env.DB.prepare('SELECT data, updated_at FROM app_state WHERE user_id = ?').bind(user.sub).first();
+  let state = {};
+  if (row) { try { state = JSON.parse(row.data); } catch {} }
+  return jsonRes({ state, updatedAt: row?.updated_at || null });
+}
+
+async function handleSaveAppState(request, env) {
+  const user = await getUser(request, env);
+  if (!user) return jsonErr(401, '未登入');
+  let body;
+  try { body = await request.json(); } catch { return jsonErr(400, '無效的請求格式'); }
+  const data = JSON.stringify(body.state || {});
+  if (data.length > 32768) return jsonErr(400, '狀態資料過大');
+  const now = new Date().toISOString();
+  await env.DB.prepare('INSERT INTO app_state (user_id, data, updated_at) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET data=?, updated_at=?').bind(user.sub, data, now, data, now).run();
+  return jsonRes({ ok: true, updatedAt: now });
+}
+
+// ── Migrate: fix trades with wrong type (stock → correct type) ──
+async function handleMigrateTrades(request, env) {
+  const user = await getUser(request, env);
+  if (!user) return jsonErr(401, '未登入');
+  const db = env.DB;
+  // Find trades with type='stock' that have contractMul set (likely futures/crypto)
+  const { results } = await db.prepare(
+    "SELECT id, market, type, contract_mul, symbol FROM trades WHERE user_id = ? AND type = 'stock' AND contract_mul IS NOT NULL AND contract_mul > 0"
+  ).bind(user.sub).all();
+  let fixed = 0;
+  for (const row of results) {
+    let newType = null;
+    if (row.market === 'crypto') {
+      newType = 'crypto_contract';
+    } else {
+      // Has contractMul → likely futures
+      newType = 'index_futures';
+    }
+    if (newType) {
+      await db.prepare("UPDATE trades SET type = ?, updated_at = datetime('now') WHERE id = ? AND user_id = ?")
+        .bind(newType, row.id, user.sub).run();
+      fixed++;
+    }
+  }
+  return jsonRes({ ok: true, fixed });
+}
+
 // ── Router ──
 export default {
   async fetch(request, env, ctx) {
@@ -457,6 +538,11 @@ export default {
         if (path === '/api/settings' && method === 'PUT') return await handleSaveSettings(request, env);
         if (path === '/api/presets' && method === 'GET') return await handleGetPresets(request, env);
         if (path === '/api/presets' && method === 'PUT') return await handleSavePresets(request, env);
+        if (path === '/api/templates' && method === 'GET') return await handleGetTemplates(request, env);
+        if (path === '/api/templates' && method === 'PUT') return await handleSaveTemplates(request, env);
+        if (path === '/api/app-state' && method === 'GET') return await handleGetAppState(request, env);
+        if (path === '/api/app-state' && method === 'PUT') return await handleSaveAppState(request, env);
+        if (path === '/api/migrate-trades' && method === 'POST') return await handleMigrateTrades(request, env);
         if (path === '/api/daily-journal' && method === 'GET') return await handleGetDailyJournals(request, env);
         if (path === '/api/daily-journal' && method === 'PUT') return await handleSaveDailyJournal(request, env);
 
