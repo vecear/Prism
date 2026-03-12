@@ -100,6 +100,7 @@ function localISOString() {
 const TYPE_LABELS = {
   stock: '股票/現貨', index_futures: '指數期貨', stock_futures: '個股期貨',
   commodity_futures: '原物料期貨', crypto_contract: '加密貨幣合約',
+  crypto_spot: '加密貨幣現貨',
   options: '選擇權', etf: 'ETF', futures: '期貨/合約',
 };
 function isFuturesType(type) {
@@ -183,7 +184,8 @@ function calcPL(t) {
   const entry = parseFloat(t.entryPrice), exit = parseFloat(t.exitPrice), qty = parseFloat(t.quantity);
   const fee = parseFloat(t.fee) || 0, tax = parseFloat(t.tax) || 0;
   if (isNaN(entry) || isNaN(exit) || isNaN(qty)) return null;
-  const mul = (isFuturesType(t.type) || t.type === 'options') ? (parseFloat(t.contractMul) || 1) : 1;
+  const rawMul = parseFloat(t.contractMul);
+  const mul = (isFuturesType(t.type) || t.type === 'options') ? (isNaN(rawMul) || rawMul === 0 ? 1 : rawMul) : 1;
   const dir = t.direction === 'long' ? 1 : -1;
   const gross = Math.round(dir * (exit - entry) * qty * mul * 100) / 100;
   const totalFee = Math.round((fee + tax) * 100) / 100;
@@ -193,7 +195,8 @@ function calcPL(t) {
 function calcUnrealizedPL(t, currentPrice) {
   const entry = parseFloat(t.entryPrice), qty = parseFloat(t.quantity);
   if (isNaN(entry) || isNaN(qty) || isNaN(currentPrice)) return null;
-  const mul = (isFuturesType(t.type) || t.type === 'options') ? (parseFloat(t.contractMul) || 1) : 1;
+  const rawMul = parseFloat(t.contractMul);
+  const mul = (isFuturesType(t.type) || t.type === 'options') ? (isNaN(rawMul) || rawMul === 0 ? 1 : rawMul) : 1;
   const dir = t.direction === 'long' ? 1 : -1;
   const fee = parseFloat(t.fee) || 0, tax = parseFloat(t.tax) || 0;
   const gross = Math.round(dir * (currentPrice - entry) * qty * mul * 100) / 100;
@@ -901,9 +904,24 @@ window.PrismJournal = {
       trade.entryPrice = document.getElementById('f-entry')?.value || '';
       trade.quantity = document.getElementById('f-qty')?.value || '';
       trade.contractMul = document.getElementById('f-mul')?.value || '';
-      // Get contract name
+      // Get contract name / symbol
       const sel = document.getElementById('f-contract');
-      if (sel) { trade.symbol = sel.value; trade.name = sel.options[sel.selectedIndex]?.text || ''; }
+      if (sel && sel.tagName === 'SELECT') {
+        trade.symbol = sel.value;
+        trade.name = sel.options[sel.selectedIndex]?.text || '';
+        // Fallback: if contractMul is empty, get from FP presets
+        if (!trade.contractMul && sel.value) {
+          const fp = (typeof FP !== 'undefined') ? FP : (window.FP || {});
+          const preset = (fp[market] || {})[sel.value];
+          if (preset && preset.mul) trade.contractMul = String(preset.mul);
+        }
+      } else if (product === 'stock') {
+        // Stock futures: get symbol from autocomplete input
+        const stkInput = document.getElementById('f-stk-input') || document.getElementById('f-sym');
+        const stkInfo = document.querySelector('#f-stock-info strong');
+        trade.symbol = stkInput?.value?.trim() || '';
+        trade.name = stkInfo?.textContent?.trim() || '';
+      }
       // Exit price: f-current → f-live-price → f-entry
       const exitVal = _gvOrNull('f-current') ?? _gvOrNull('f-live-price') ?? _gvOrNull('f-entry');
       if (exitVal != null) trade.exitPrice = String(exitVal);
@@ -939,7 +957,7 @@ window.PrismJournal = {
       const mode = document.querySelector('[data-group="crypto-mode"] .toggle-btn.active')?.dataset.value || 'spot';
       const dir = document.querySelector('[data-group="crypto-direction"] .toggle-btn.active')?.dataset.value || 'long';
       trade.market = 'crypto';
-      trade.type = mode === 'perp' ? 'crypto_contract' : 'stock';
+      trade.type = mode === 'perp' ? 'crypto_contract' : 'crypto_spot';
       trade.direction = dir;
       // Symbol & name
       const pairSel = document.getElementById('c-pair');
@@ -1265,7 +1283,7 @@ function renderFilters() {
   el.innerHTML = `<div class="j-filter-row">
     <div class="j-filter-group">
       <select id="jf-market" class="j-filter-select"><option value="all">全部市場</option><option value="tw" ${filterState.market==='tw'?'selected':''}>台灣</option><option value="us" ${filterState.market==='us'?'selected':''}>美國</option><option value="crypto" ${filterState.market==='crypto'?'selected':''}>加密貨幣</option></select>
-      <select id="jf-type" class="j-filter-select"><option value="all">全部類型</option><option value="stock" ${filterState.type==='stock'?'selected':''}>股票</option><option value="futures" ${filterState.type==='futures'?'selected':''}>期貨(全部)</option><option value="index_futures" ${filterState.type==='index_futures'?'selected':''}>指數期貨</option><option value="stock_futures" ${filterState.type==='stock_futures'?'selected':''}>個股期貨</option><option value="commodity_futures" ${filterState.type==='commodity_futures'?'selected':''}>原物料期貨</option><option value="crypto_contract" ${filterState.type==='crypto_contract'?'selected':''}>加密貨幣合約</option><option value="options" ${filterState.type==='options'?'selected':''}>選擇權</option><option value="etf" ${filterState.type==='etf'?'selected':''}>ETF</option></select>
+      <select id="jf-type" class="j-filter-select"><option value="all">全部類型</option><option value="stock" ${filterState.type==='stock'?'selected':''}>股票</option><option value="futures" ${filterState.type==='futures'?'selected':''}>期貨(全部)</option><option value="index_futures" ${filterState.type==='index_futures'?'selected':''}>指數期貨</option><option value="stock_futures" ${filterState.type==='stock_futures'?'selected':''}>個股期貨</option><option value="commodity_futures" ${filterState.type==='commodity_futures'?'selected':''}>原物料期貨</option><option value="crypto_contract" ${filterState.type==='crypto_contract'?'selected':''}>加密貨幣合約</option><option value="crypto_spot" ${filterState.type==='crypto_spot'?'selected':''}>加密貨幣現貨</option><option value="options" ${filterState.type==='options'?'selected':''}>選擇權</option><option value="etf" ${filterState.type==='etf'?'selected':''}>ETF</option></select>
       <select id="jf-status-filter" class="j-filter-select"><option value="all">全部狀態</option><option value="open" ${filterState.status==='open'?'selected':''}>持倉中</option><option value="closed" ${filterState.status==='closed'?'selected':''}>已平倉</option></select>
       ${allTags.length?`<select id="jf-tag" class="j-filter-select"><option value="all">全部標籤</option>${allTags.map(t=>`<option value="${esc(t)}" ${filterState.tag===t?'selected':''}>${esc(t)}</option>`).join('')}</select>`:''}
       ${allAccounts.length?`<select id="jf-account-filter" class="j-filter-select"><option value="all">全部帳戶</option>${allAccounts.map(a=>`<option value="${esc(a)}" ${filterState.account===a?'selected':''}>${esc(a)}</option>`).join('')}</select>`:''}
@@ -2210,6 +2228,7 @@ function openTradeForm(id, prefill) {
           <option value="stock_futures" ${t.type==='stock_futures'?'selected':''}>個股期貨</option>
           <option value="commodity_futures" ${t.type==='commodity_futures'?'selected':''}>原物料期貨</option>
           <option value="crypto_contract" ${t.type==='crypto_contract'||(t.type==='futures'&&t.market==='crypto')?'selected':''}>加密貨幣合約</option>
+          <option value="crypto_spot" ${t.type==='crypto_spot'?'selected':''}>加密貨幣現貨</option>
           <option value="options" ${t.type==='options'?'selected':''}>選擇權</option>
           <option value="etf" ${t.type==='etf'?'selected':''}>ETF</option>
         </select></div>
@@ -2382,9 +2401,10 @@ function openTradeForm(id, prefill) {
         }
         updateSmartFees();
       });
+      // Explicitly set value to ensure correct option is selected
+      if (curVal && items.some(r => r.code === curVal)) sel.value = curVal;
       // Auto-fill name/mul from initial selection
-      if (!curVal && items.length) sel.dispatchEvent(new Event('change'));
-      else if (curVal) sel.dispatchEvent(new Event('change'));
+      sel.dispatchEvent(new Event('change'));
     } else {
       // ── Autocomplete text input mode ──
       wrap.innerHTML = `<div class="sym-ac-wrap" style="position:relative"><input type="text" id="jf-symbol" value="${esc(curVal)}" placeholder="輸入代號或名稱搜尋" autocomplete="off"><div class="sym-ac-list" id="jf-sym-ac"></div></div>`;
@@ -2641,7 +2661,7 @@ function openTradeDetail(id) {
     if (window.PrismJournal?.openInCalc) window.PrismJournal.openInCalc(t);
     else {
       // Fallback: switch to appropriate tab
-      const tabMap = { stock: 'margin', futures: 'futures', index_futures: 'futures', stock_futures: 'futures', commodity_futures: 'futures', crypto_contract: 'crypto', options: 'options', etf: 'margin' };
+      const tabMap = { stock: 'margin', futures: 'futures', index_futures: 'futures', stock_futures: 'futures', commodity_futures: 'futures', crypto_contract: 'crypto', crypto_spot: 'crypto', options: 'options', etf: 'margin' };
       const tabName = tabMap[t.type] || 'margin';
       const tabEl = $$('.main-tab').find(x => x.dataset.tab === tabName);
       if (tabEl) { tabEl.click(); }
@@ -2728,7 +2748,7 @@ async function initJournal() {
 
 // Expose openInCalc for trade → calculator linkage
 window.PrismJournal.openInCalc = function(t) {
-  const tabMap = { stock: 'margin', futures: 'futures', index_futures: 'futures', stock_futures: 'futures', commodity_futures: 'futures', crypto_contract: 'crypto', options: 'options', etf: 'margin' };
+  const tabMap = { stock: 'margin', futures: 'futures', index_futures: 'futures', stock_futures: 'futures', commodity_futures: 'futures', crypto_contract: 'crypto', crypto_spot: 'crypto', options: 'options', etf: 'margin' };
   const tabName = tabMap[t.type] || 'margin';
 
   // Switch to tab

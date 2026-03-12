@@ -4093,10 +4093,11 @@ function renderFuturesForm() {
       <input type="hidden" id="f-im" value="${f.im}"><input type="hidden" id="f-mm" value="${f.mm}"><input type="hidden" id="f-mul" value="${f.mul}">`;
   }
 
-  // 指數期貨的預設值
+  // 指數期貨的預設值（使用已選合約，非第一個）
   const presets = FP[market];
   const idxKeys = Object.keys(presets).filter(k => k !== 'STK');
-  const f = isStock ? { im: 0, mm: 0, mul: tw ? 2000 : 100 } : presets[idxKeys[0]];
+  const fk2 = (S.futures.contract && presets[S.futures.contract]) ? S.futures.contract : idxKeys[0];
+  const f = isStock ? { im: 0, mm: 0, mul: tw ? 2000 : 100 } : presets[fk2];
 
   const priceLabel = isStock ? (tw ? '價格' : 'Price') : (tw ? '點數' : 'Price');
   const pricePH = isStock ? (tw ? '期貨價格' : 'Price') : (tw ? '20000' : '5000');
