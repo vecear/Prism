@@ -607,15 +607,13 @@ input[type="number"]{-moz-appearance:textfield}
   .ticker-refresh{border:1px solid var(--bdr);border-radius:6px;padding:4px 8px;border-left:1px solid var(--bdr);margin-left:0}
 
   /* Sentiment strip — compact on mobile */
-  .sentiment-strip{gap:0;padding:0;border-bottom:1px solid var(--bdr);flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
-  .sentiment-strip::-webkit-scrollbar{display:none}
-  .sent-gauge{flex:0 0 auto;min-width:100px;border-radius:0;border:none;border-right:1px solid var(--bdr);background:transparent;box-shadow:none;padding:4px 8px}
-  .sent-gauge:last-child{border-right:none}
+  .sentiment-strip{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;padding:4px 0;border-bottom:1px solid var(--bdr)}
+  .sent-gauge{min-width:0;border-radius:6px;padding:4px 6px;box-shadow:none}
   .sent-gauge:hover{box-shadow:none}
-  .sent-label{font-size:.58rem}
-  .sent-value{font-size:.78rem}
-  .sent-tag{font-size:.54rem}
-  .sent-chg{font-size:.54rem}
+  .sent-label{font-size:.52rem}
+  .sent-value{font-size:.72rem}
+  .sent-tag{font-size:.46rem;padding:1px 3px}
+  .sent-chg{font-size:.5rem}
 
   /* Main tabs: fixed bottom nav bar — app style */
   .main-tabs{position:fixed;bottom:0;left:0;right:0;z-index:var(--z-bottom-nav);border-top:1px solid var(--bdr2);border-bottom:none;gap:0;flex-wrap:nowrap;padding:4px 8px calc(4px + env(safe-area-inset-bottom, 0px));overflow:visible;background:var(--bg0)}
@@ -748,10 +746,10 @@ input[type="number"]{-moz-appearance:textfield}
   .ticker-time{font-size:.56rem!important}
 
   /* Sentiment: even tighter */
-  .sent-gauge{padding:3px 6px;min-width:88px}
-  .sent-label{font-size:.54rem}
-  .sent-value{font-size:.72rem}
-  .sent-tag{font-size:.5rem}
+  .sent-gauge{padding:3px 4px}
+  .sent-label{font-size:.48rem}
+  .sent-value{font-size:.66rem}
+  .sent-tag{font-size:.42rem}
 
   /* Tabs: even smaller in bottom bar */
   .main-tab .tab-label{font-size:.6rem}
