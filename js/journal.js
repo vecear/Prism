@@ -68,6 +68,19 @@ async function loadTrades() {
     }
     localStorage.setItem('j-name-cleaned', '1');
   }
+  // One-time migration: fix trades with wrong type (stock → correct futures/crypto type)
+  if (trades.length && !localStorage.getItem('j-type-migrated')) {
+    try {
+      const res = await api('/migrate-trades', { method: 'POST', body: '{}' });
+      if (res.fixed > 0) {
+        console.log(`[Journal] Migrated ${res.fixed} trade type(s)`);
+        // Reload to get corrected data
+        const data = await api('/trades');
+        trades = data.trades || [];
+      }
+    } catch (e) { console.warn('[Journal] Type migration failed:', e.message); }
+    localStorage.setItem('j-type-migrated', '1');
+  }
 }
 
 function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
@@ -288,10 +301,34 @@ function parseCSVLine(line) {
   return result;
 }
 
-// ── Trade Templates ──
+// ── Trade Templates (with cloud sync) ──
 const TEMPLATE_KEY = 'prism_trade_templates';
 function getTemplates() {
   try { return JSON.parse(localStorage.getItem(TEMPLATE_KEY)) || []; } catch { return []; }
+}
+function _syncTemplatesToServer() {
+  const token = localStorage.getItem(TOKEN_KEY);
+  if (!token) return;
+  const templates = getTemplates();
+  fetch(`${API}/templates`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+    body: JSON.stringify({ templates }),
+  }).catch(e => console.debug('[Prism] Templates sync failed:', e.message));
+}
+async function loadTemplatesFromServer() {
+  const token = localStorage.getItem(TOKEN_KEY);
+  if (!token) return;
+  try {
+    const res = await fetch(`${API}/templates`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (Array.isArray(data.templates) && data.templates.length > 0) {
+      localStorage.setItem(TEMPLATE_KEY, JSON.stringify(data.templates));
+    }
+  } catch (e) { console.warn('[Prism] Cloud templates load failed:', e.message); }
 }
 function saveTemplate(name) {
   const data = {
@@ -309,6 +346,7 @@ function saveTemplate(name) {
   const idx = templates.findIndex(t => t.name === name);
   if (idx >= 0) templates[idx] = data; else templates.push(data);
   localStorage.setItem(TEMPLATE_KEY, JSON.stringify(templates));
+  _syncTemplatesToServer();
 }
 function applyTemplate(tpl) {
   if ($('#jf-market2')) $('#jf-market2').value = tpl.market || 'tw';
@@ -324,6 +362,7 @@ function applyTemplate(tpl) {
 function deleteTemplate(name) {
   const templates = getTemplates().filter(t => t.name !== name);
   localStorage.setItem(TEMPLATE_KEY, JSON.stringify(templates));
+  _syncTemplatesToServer();
 }
 
 // ── Quick Close Trade ──
@@ -811,9 +850,11 @@ function showLoginModal() {
       // Refresh settings panel to show account
       window._stgRendered = false;
       if ($('#settings-panel')?.classList.contains('open')) { renderSettings(); window._stgRendered = true; }
-      // Load cloud settings & presets after login
+      // Load all cloud data after login
       if (window.loadSettingsFromServer) window.loadSettingsFromServer();
       if (window.loadPresetsFromServer) window.loadPresetsFromServer();
+      if (window.loadAppStateFromServer) window.loadAppStateFromServer();
+      loadTemplatesFromServer();
       // If journal tab is active, refresh it
       if ($('#tab-journal')?.classList.contains('active')) { await loadTrades(); renderJournal(); }
     } catch (e) {
@@ -860,9 +901,12 @@ window.PrismJournal = {
       const dir = document.querySelector('[data-group="margin-direction"] .toggle-btn.active')?.dataset.value || 'cash';
       const tw = market === 'tw';
       trade.market = market;
-      trade.type = 'stock';
       trade.direction = (dir === 'short') ? 'short' : 'long';
       trade.symbol = document.getElementById('m-symbol')?.value || '';
+      // Auto-detect ETF type from leverage field
+      const etfLev = parseFloat(document.getElementById('m-etf-lev')?.value);
+      const etfWrapVisible = document.getElementById('m-etf-lev-wrap')?.style.display !== 'none';
+      trade.type = (etfWrapVisible || (!isNaN(etfLev) && Math.abs(etfLev) !== 1)) ? 'etf' : 'stock';
       trade.name = document.querySelector('.stock-info strong')?.textContent?.trim() || '';
       const spu = tw ? 1000 : 1;
       const qty = _gv('m-qty');

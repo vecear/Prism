@@ -24,6 +24,28 @@ const WARN_SVG = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L1 
 const OK_SVG = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>';
 const PLACEHOLDER = '<div class="results-placeholder"><p>輸入參數即可即時計算</p></div>';
 
+// ── Section helper for input panel UI ──
+const _secIcon = {
+  product: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>',
+  price: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>',
+  settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>',
+  margin: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>',
+  quote: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>',
+};
+const _chevronSvg = '<svg class="sec-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>';
+function secHdr(icon, title) {
+  return `<div class="input-section-hdr"><span class="sec-icon">${_secIcon[icon] || ''}</span><span class="sec-title">${title}</span></div>`;
+}
+function secStart(icon, title) {
+  return `<div class="input-section">${secHdr(icon, title)}`;
+}
+function secEnd() { return '</div>'; }
+function secAdvStart(icon, title, collapsed) {
+  const cls = collapsed ? ' collapsed' : '';
+  return `<div class="input-section input-section-adv${cls}"><div class="input-section-hdr" onclick="this.parentElement.classList.toggle('collapsed')"><span class="sec-icon">${_secIcon[icon] || ''}</span><span class="sec-title">${title}</span>${_chevronSvg}</div><div class="sec-body">`;
+}
+function secAdvEnd() { return '</div></div>'; }
+
 // XSS escape helper
 function _esc(str) {
   if (!str) return '';
@@ -918,7 +940,42 @@ const S = _savedS || {
 };
 if (!S.activeTab) S.activeTab = 'margin';
 if (!S.crypto) S.crypto = { mode: 'spot', direction: 'long' };
-function _saveState() { localStorage.setItem('prism_state', JSON.stringify(S)); }
+function _saveState() {
+  localStorage.setItem('prism_state', JSON.stringify(S));
+  // Sync state to server (debounced fire-and-forget)
+  _syncStateToServer();
+}
+let _stateSyncTimer = null;
+function _syncStateToServer() {
+  const token = localStorage.getItem('prism_token');
+  if (!token) return;
+  if (_stateSyncTimer) clearTimeout(_stateSyncTimer);
+  _stateSyncTimer = setTimeout(() => {
+    fetch(`${API_BASE}/api/app-state`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ state: S }),
+    }).catch(e => console.debug('[Prism] State sync failed:', e.message));
+  }, 2000); // 2s debounce to avoid flooding
+}
+async function loadAppStateFromServer() {
+  const token = localStorage.getItem('prism_token');
+  if (!token) return;
+  try {
+    const res = await fetch(`${API_BASE}/api/app-state`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data.state && Object.keys(data.state).length > 0) {
+      Object.assign(S, data.state);
+      if (!S.activeTab) S.activeTab = 'margin';
+      if (!S.crypto) S.crypto = { mode: 'spot', direction: 'long' };
+      localStorage.setItem('prism_state', JSON.stringify(S));
+    }
+  } catch (e) { console.warn('[Prism] Cloud state load failed:', e.message); }
+}
+window.loadAppStateFromServer = loadAppStateFromServer;
 
 // ── Presets ──
 const FP = {
@@ -2753,11 +2810,12 @@ function init() {
   // ── 根據設定決定是否自動取報價 ──
   applySettings();
 
-  // ── 登入狀態下從雲端載入設定 & 預設值 ──
+  // ── 登入狀態下從雲端載入所有資料 ──
   if (localStorage.getItem('prism_token')) {
     Promise.all([
       loadSettingsFromServer(),
       loadPresetsFromServer(),
+      loadAppStateFromServer(),
     ]).then(() => {
       renderMarginForm(); renderFuturesForm(); renderOptionsForm(); renderCryptoForm();
     });
@@ -3559,8 +3617,12 @@ function renderMarginForm() {
   const su = tw ? '張 (1張=1000股)' : '股';
   const symbolHint = tw ? '例: 2330、0050' : '例: AAPL、MSFT';
 
-  // ── 共用區塊：股票代號(含autocomplete) + 價格 + 數量 ──
-  let h = `
+  // ── Section 1: 商品 ──
+  const priceLabel = !cash && !long ? '賣出價格' : '買進價格';
+  const priceId = !cash && !long ? 'm-sell-price' : 'm-buy-price';
+  const curPriceHint = cash ? '賣出價格' : '目前價格';
+
+  let h = secStart('product', '商品') + `
     <div class="fg"><label>股票代號 <span class="hint">${symbolHint}</span></label>
       <div class="stock-search-row">
         <div class="sym-ac-wrap" style="flex:1;position:relative">
@@ -3572,16 +3634,21 @@ function renderMarginForm() {
       <div class="stock-info" id="m-stock-info"></div>
     </div>
     <div class="fg" id="m-etf-lev-wrap" style="display:none"><label>ETF 槓桿倍數 <span class="hint">(自動偵測)</span></label><input type="number" id="m-etf-lev" value="1" step="any"></div>
+  ` + secEnd();
+
+  // ── Section 2: 價格與數量 ──
+  h += secStart('price', '價格與數量') + `
     <div class="fr">
-      <div class="fg"><label>買進價格 <span class="hint">(${cur})</span></label><input type="number" id="m-buy-price" placeholder="${tw ? '市價' : 'Market'}" step="any"></div>
-      <div class="fg"><label>${cash ? '賣出價格' : '目前價格'} <span class="hint">(留空=同買進)</span></label><input type="number" id="m-current-price" placeholder="即時價格" step="any"></div>
-    </div>`;
+      <div class="fg"><label>${priceLabel} <span class="hint">(${cur})</span></label><input type="number" id="${priceId}" placeholder="${tw ? '市價' : 'Market'}" step="any"></div>
+      <div class="fg"><label>${curPriceHint} <span class="hint">(留空=同${cash ? '買進' : '進場價'})</span></label><input type="number" id="m-current-price" placeholder="即時價格" step="any"></div>
+    </div>
+    <div class="fg"><label>數量 <span class="hint">${su}</span></label><input type="number" id="m-qty" value="1" min="1" step="1"></div>
+  ` + secEnd();
 
   if (cash) {
-    // ── 現股模式：只需數量 + 費用 ──
-    h += `
-    <div class="fg"><label>數量 <span class="hint">${su}</span></label><input type="number" id="m-qty" value="1" min="1" step="1"></div>
-    ${tw ? (() => { const t = CFG.twTaxRate || '0.003'; return `<div class="fr">
+    // ── Section 3: 費用設定 (現股，可收合) ──
+    h += secAdvStart('settings', '費用設定', true);
+    h += tw ? (() => { const t = CFG.twTaxRate || '0.003'; return `<div class="fr">
       <div class="fg"><label>手續費折扣</label><select id="m-fee-disc">
         <option value="1" ${CFG.twFeeDisc==='1'?'selected':''}>全額 0.1425%</option><option value="0.6" ${CFG.twFeeDisc==='0.6'?'selected':''}>6折 0.0855%</option>
         <option value="0.5" ${CFG.twFeeDisc==='0.5'?'selected':''}>5折 0.07125%</option><option value="0.38" ${CFG.twFeeDisc==='0.38'?'selected':''}>3.8折</option>
@@ -3592,11 +3659,10 @@ function renderMarginForm() {
         <option value="0.001" ${t==='0.001'?'selected':''}>0.1% ETF</option>
         <option value="0.0015" ${t==='0.0015'?'selected':''}>0.15% 當沖減半</option>
       </select></div>
-    </div>`; })() : `<div class="fg"><label>Commission <span class="hint">(per trade)</span></label><input type="number" id="m-comm" value="${CFG.usComm||'0'}" step="any"></div>`}`;
+    </div>`; })() : `<div class="fg"><label>Commission <span class="hint">(per trade)</span></label><input type="number" id="m-comm" value="${CFG.usComm||'0'}" step="any"></div>`;
+    h += secAdvEnd();
   } else {
     // ── 融資/融券模式 ──
-    const priceLabel = long ? '買進價格' : '賣出價格';
-    const priceId = long ? 'm-buy-price' : 'm-sell-price';
     const marginId = long ? 'm-margin-rate' : 'm-short-margin-rate';
     const marginOpts = long
       ? (tw ? '<option value="0.6">60%</option><option value="0.5">50%</option><option value="0.4">40%</option>'
@@ -3606,36 +3672,18 @@ function renderMarginForm() {
     const defCall = long ? (tw ? 130 : 25) : (tw ? 130 : 30);
     const defForced = long ? (tw ? 120 : 20) : (tw ? 120 : 25);
 
-    // Replace buy price row with correct label for short
-    if (!long) {
-      h = `
-    <div class="fg"><label>股票代號 <span class="hint">${symbolHint}</span></label>
-      <div class="stock-search-row">
-        <div class="sym-ac-wrap" style="flex:1;position:relative">
-          <input type="text" id="m-symbol" placeholder="${tw ? '輸入代號或名稱' : 'Symbol or name'}" autocomplete="off">
-          <div class="sym-ac-list" id="m-sym-ac"></div>
-        </div>
-        <button type="button" class="mini-fetch-btn" id="m-fetch-stock">查詢</button>
-      </div>
-      <div class="stock-info" id="m-stock-info"></div>
-    </div>
-    <div class="fg" id="m-etf-lev-wrap" style="display:none"><label>ETF 槓桿倍數 <span class="hint">(自動偵測)</span></label><input type="number" id="m-etf-lev" value="1" step="any"></div>
+    // ── Section 3: 融資設定 ──
+    h += secStart('margin', long ? '融資設定' : '融券設定') + `
     <div class="fr">
-      <div class="fg"><label>${priceLabel} <span class="hint">(${cur})</span></label><input type="number" id="${priceId}" placeholder="${tw ? '市價' : 'Market'}" step="any"></div>
-      <div class="fg"><label>目前價格 <span class="hint">(留空=以進場價計算)</span></label><input type="number" id="m-current-price" placeholder="即時價格" step="any"></div>
-    </div>`;
-    }
-
-    h += `
-    <div class="fr">
-      <div class="fg"><label>數量 <span class="hint">${su}</span></label><input type="number" id="m-qty" value="1" min="1" step="1"></div>
       <div class="fg"><label>${long ? (tw ? '融資成數' : 'Margin') : (tw ? '券保證金成數' : 'Short Margin')}</label><select id="${marginId}">${marginOpts}</select></div>
-    </div>
-    <div class="fr">
       <div class="fg"><label>追繳線</label><div class="isuf"><input type="number" id="m-call-rate" value="${defCall}" step="any"><span class="suf">%</span></div></div>
-      <div class="fg"><label>斷頭線</label><div class="isuf"><input type="number" id="m-forced-rate" value="${defForced}" step="any"><span class="suf">%</span></div></div>
     </div>
-    ${tw ? (() => { const t = CFG.twTaxRate || '0.003'; return `<div class="fr">
+    <div class="fg"><label>斷頭線</label><div class="isuf"><input type="number" id="m-forced-rate" value="${defForced}" step="any"><span class="suf">%</span></div></div>
+    ` + secEnd();
+
+    // ── Section 4: 費用設定 (可收合) ──
+    h += secAdvStart('settings', '費用設定', true);
+    h += tw ? (() => { const t = CFG.twTaxRate || '0.003'; return `<div class="fr">
       <div class="fg"><label>手續費折扣</label><select id="m-fee-disc">
         <option value="1" ${CFG.twFeeDisc==='1'?'selected':''}>全額 0.1425%</option><option value="0.6" ${CFG.twFeeDisc==='0.6'?'selected':''}>6折 0.0855%</option>
         <option value="0.5" ${CFG.twFeeDisc==='0.5'?'selected':''}>5折 0.07125%</option><option value="0.38" ${CFG.twFeeDisc==='0.38'?'selected':''}>3.8折</option>
@@ -3646,15 +3694,16 @@ function renderMarginForm() {
         <option value="0.001" ${t==='0.001'?'selected':''}>0.1% ETF</option>
         <option value="0.0015" ${t==='0.0015'?'selected':''}>0.15% 當沖減半</option>
       </select></div>
-    </div>`; })() + `
+    </div>
     <div class="fr">
       <div class="fg"><label>${long ? '融資年利率' : '借券費率(年)'}</label><div class="isuf"><input type="number" id="m-int-rate" value="${long ? '6.25' : '0.5'}" step="any"><span class="suf">%</span></div></div>
       <div class="fg"><label>持有天數</label><input type="number" id="m-hold-days" value="30" min="0" step="1"></div>
-    </div>` : `<div class="fr">
+    </div>`; })() : `<div class="fr">
       <div class="fg"><label>Commission <span class="hint">(per trade)</span></label><input type="number" id="m-comm" value="${CFG.usComm||'0'}" step="any"></div>
       <div class="fg"><label>Holding Days</label><input type="number" id="m-hold-days" value="30" min="0" step="1"></div>
     </div>
-    <div class="fg"><label>Margin Interest Rate</label><div class="isuf"><input type="number" id="m-int-rate" value="${long ? '8' : '3'}" step="any"><span class="suf">%/yr</span></div></div>`}`;
+    <div class="fg"><label>Margin Interest Rate</label><div class="isuf"><input type="number" id="m-int-rate" value="${long ? '8' : '3'}" step="any"><span class="suf">%/yr</span></div></div>`;
+    h += secAdvEnd();
   }
 
   $('#margin-inputs').innerHTML = h;
@@ -4169,19 +4218,28 @@ function renderFuturesForm() {
   // 股票期貨(US)不顯示帶入按鈕，股票期貨(TW)和指數期貨都顯示
   const showPriceBtn = !isStock || tw;
 
-  const h = `${contractRow}
-    ${isStock ? `<div class="fg"><label>口數</label><input type="number" id="f-qty" value="1" min="1" step="1"></div>` : ''}
+  // ── Section 1: 商品 ──
+  const h = secStart('product', isStock ? '商品' : '合約') + contractRow +
+    (isStock ? `<div class="fg"><label>口數</label><input type="number" id="f-qty" value="1" min="1" step="1"></div>` : '') +
+    secEnd() +
+
+  // ── Section 2: 價格 ──
+  secStart('price', '價格') + `
     <div class="fr">
       <div class="fg"><label>進場${priceLabel}</label><input type="number" id="f-entry" placeholder="${pricePH}" step="any"></div>
-      <div class="fg"><label>賣出${priceLabel} <span class="hint">(留空=目前點數)</span></label><input type="number" id="f-current" placeholder="賣出價格" step="any"></div>
+      <div class="fg"><label>賣出${priceLabel} <span class="hint">(留空=目前)</span></label><input type="number" id="f-current" placeholder="賣出價格" step="any"></div>
     </div>
-    <div class="fg"><label>目前${priceLabel} <span class="hint">(API 即時報價)</span></label>
+    <div class="fg"><label>即時${priceLabel} <span class="hint">(API 報價)</span></label>
       <div style="display:flex;align-items:center;gap:6px">
         <input type="text" id="f-live-price" class="fg-readonly" readonly placeholder="尚未取得" style="flex:1">
         ${isStock && tw ? `<button type="button" class="ticker-fill-btn" id="f-stk-price-btn">更新報價</button>` : ''}
         ${!isStock ? `<button type="button" class="ticker-fill-btn" onclick="refreshFuturesPrice()">更新報價</button>` : ''}
       </div>
     </div>
+  ` + secEnd() +
+
+  // ── Section 3: 保證金 ──
+  secStart('margin', '保證金') + `
     <div class="margin-info">
       <span class="mi-item"><span class="mi-label">原始保證金</span><span class="mi-val" id="f-im-display">${f.im ? fmt(f.im) : '—'}</span></span>
       <span class="mi-sep">|</span>
@@ -4195,12 +4253,6 @@ function renderFuturesForm() {
       <div class="fg"><label>原始保證金 <span class="hint">(${tw ? '約契約價值13.5%' : 'per contract'})</span></label><input type="number" id="f-im-input" placeholder="${tw ? '自行輸入' : 'Manual'}" step="any"></div>
       <div class="fg"><label>維持保證金 <span class="hint">(${tw ? '約契約價值10.35%' : 'per contract'})</span></label><input type="number" id="f-mm-input" placeholder="${tw ? '自行輸入' : 'Manual'}" step="any"></div>
     </div>` : ''}
-    <div class="fr">
-      <div class="fg"><label>手續費 <span class="hint">(${cur}/口·單邊)</span></label><input type="number" id="f-comm" value="${tw ? (isStock ? CFG.twStkFutComm : CFG.twFutComm) : CFG.usFutComm}" step="any"></div>
-      <div class="fg"><label>期交稅率</label><select id="f-tax-rate">
-        ${tw ? (isStock ? `<option value="0.00004" selected>十萬分之四(股票)</option><option value="0.00002">十萬分之二(指數)</option>` : `<option value="0.00002" selected>十萬分之二(指數)</option><option value="0.00004">十萬分之四(股票)</option>`) : `<option value="0" selected>無</option>`}
-      </select></div>
-    </div>
     <div class="fg"><label>初始權益數 <span class="hint">(預設=3倍保證金)</span></label><input type="number" id="f-equity" value="${f.im ? f.im * 3 : ''}" step="any" placeholder="${isStock ? '查詢股票後自動計算' : ''}">
       <div class="eq-multi-row">
         <button type="button" class="eq-multi-btn" data-mul="1">1x</button>
@@ -4209,7 +4261,18 @@ function renderFuturesForm() {
         <button type="button" class="eq-multi-btn" data-mul="4">4x</button>
         <button type="button" class="eq-multi-btn" data-mul="5">5x</button>
       </div>
-    </div>`;
+    </div>
+  ` + secEnd() +
+
+  // ── Section 4: 費用設定 (可收合) ──
+  secAdvStart('settings', '費用設定', true) + `
+    <div class="fr">
+      <div class="fg"><label>手續費 <span class="hint">(${cur}/口·單邊)</span></label><input type="number" id="f-comm" value="${tw ? (isStock ? CFG.twStkFutComm : CFG.twFutComm) : CFG.usFutComm}" step="any"></div>
+      <div class="fg"><label>期交稅率</label><select id="f-tax-rate">
+        ${tw ? (isStock ? `<option value="0.00004" selected>十萬分之四(股票)</option><option value="0.00002">十萬分之二(指數)</option>` : `<option value="0.00002" selected>十萬分之二(指數)</option><option value="0.00004">十萬分之四(股票)</option>`) : `<option value="0" selected>無</option>`}
+      </select></div>
+    </div>
+  ` + secAdvEnd();
 
   $('#futures-inputs').innerHTML = h;
   $('#futures-results').innerHTML = PLACEHOLDER;
@@ -4682,7 +4745,7 @@ function renderOptionsForm() {
   const isStock = product === 'stock';
   const defMul = isStock ? 100 : (tw ? 50 : 100);
 
-  // 標的物欄位
+  // ── Section 1: 商品/標的 ──
   let ulRow;
   if (isStock) {
     ulRow = `<div class="fg"><label>股票代號</label>
@@ -4691,27 +4754,32 @@ function renderOptionsForm() {
         <div class="sym-ac-list" id="o-sym-ac"></div>
       </div>
       <div class="stock-info" id="o-stock-info"></div>
-    </div>
-    <div class="fr">
-      <div class="fg"><label>標的物股價</label><input type="number" id="o-ul" placeholder="查詢後自動帶入" step="any"></div>
-      <div class="fg"><label>履約價 Strike</label><input type="number" id="o-strike" placeholder="履約價" step="any"></div>
     </div>`;
   } else {
-    ulRow = `<div class="fr">
-      <div class="fg"><label>標的物${tw ? '指數' : '價格'}</label><input type="number" id="o-ul" placeholder="${tw ? '20000' : '500'}" step="any">
-        <div style="display:flex;gap:3px;margin-top:2px;flex-wrap:wrap"><button type="button" class="ticker-fill-btn" onclick="refreshOptPrice()">更新報價</button></div>
-      </div>
-      <div class="fg"><label>履約價 Strike</label><input type="number" id="o-strike" placeholder="${tw ? '20000' : '500'}" step="any"></div>
-    </div>`;
+    ulRow = '';
   }
 
-  let h = `
+  let h = secStart('product', '商品') + `
     <div class="fg"><label>類型</label><select id="o-type"><option value="call">Call 買權</option><option value="put">Put 賣權</option></select></div>
     ${ulRow}
+  ` + secEnd();
+
+  // ── Section 2: 價格 ──
+  h += secStart('price', '價格') + `
+    <div class="fr">
+      <div class="fg"><label>${isStock ? '標的物股價' : '標的物' + (tw ? '指數' : '價格')}</label><input type="number" id="o-ul" placeholder="${isStock ? '查詢後自動帶入' : (tw ? '20000' : '500')}" step="any">
+        ${!isStock ? `<div style="display:flex;gap:3px;margin-top:2px;flex-wrap:wrap"><button type="button" class="ticker-fill-btn" onclick="refreshOptPrice()">更新報價</button></div>` : ''}
+      </div>
+      <div class="fg"><label>履約價 Strike</label><input type="number" id="o-strike" placeholder="${isStock ? '履約價' : (tw ? '20000' : '500')}" step="any"></div>
+    </div>
     <div class="fr">
       <div class="fg"><label>權利金 <span class="hint">(${isStock ? '每股' : '每點'})</span></label><input type="number" id="o-premium" placeholder="${tw ? (isStock ? '5' : '300') : '5'}" step="any"></div>
       <div class="fg"><label>到期結算價 <span class="hint">(選填)</span></label><input type="number" id="o-exp" placeholder="結算價" step="any"></div>
     </div>
+  ` + secEnd();
+
+  // ── Section 3: 合約規格 ──
+  h += secStart('margin', '合約規格') + `
     <div class="fr">
       <div class="fg"><label>口數</label><input type="number" id="o-qty" value="1" min="1" step="1"></div>
       <div class="fg"><label>乘數 <span class="hint">(${cur}/${isStock ? '股' : '點'})</span></label><input type="number" id="o-mul" value="${defMul}" step="any"></div>
@@ -4723,13 +4791,17 @@ function renderOptionsForm() {
       <div class="fg"><label>最低保證金比率</label><div class="isuf"><input type="number" id="o-mr" value="10" step="any"><span class="suf">%</span></div></div>
     </div>`;
   }
+  h += secEnd();
 
-  h += `<div class="fr">
-    <div class="fg"><label>手續費 <span class="hint">(${cur}/口·單邊)</span></label><input type="number" id="o-comm" value="${tw ? CFG.twOptComm : CFG.usOptComm}" step="any"></div>
-    <div class="fg"><label>交易稅率</label><select id="o-tax-rate">
-      ${tw ? `<option value="0.001" selected>千分之一</option><option value="0">免稅</option>` : `<option value="0" selected>無</option>`}
-    </select></div>
-  </div>`;
+  // ── Section 4: 費用設定 (可收合) ──
+  h += secAdvStart('settings', '費用設定', true) + `
+    <div class="fr">
+      <div class="fg"><label>手續費 <span class="hint">(${cur}/口·單邊)</span></label><input type="number" id="o-comm" value="${tw ? CFG.twOptComm : CFG.usOptComm}" step="any"></div>
+      <div class="fg"><label>交易稅率</label><select id="o-tax-rate">
+        ${tw ? `<option value="0.001" selected>千分之一</option><option value="0">免稅</option>` : `<option value="0" selected>無</option>`}
+      </select></div>
+    </div>
+  ` + secAdvEnd();
 
   $('#options-inputs').innerHTML = h;
   $('#options-results').innerHTML = PLACEHOLDER;
@@ -5210,10 +5282,15 @@ function renderCryptoForm() {
 
   const pairOpts = CRYPTO_PAIRS.map(p => `<option value="${p.symbol}">${p.base}/${p.quote} — ${p.name}</option>`).join('');
 
-  let h = `
+  // ── Section 1: 商品 ──
+  let h = secStart('product', '交易對') + `
     <div class="fg"><label>交易對</label>
       <select id="c-pair">${pairOpts}</select>
     </div>
+  ` + secEnd();
+
+  // ── Section 2: 價格與數量 ──
+  h += secStart('price', '價格與數量') + `
     <div class="fr">
       <div class="fg"><label>進場價格 <span class="hint">(USDT)</span></label><input type="number" id="c-entry" placeholder="進場價格" step="any"></div>
       <div class="fg"><label>目前價格 <span class="hint">(留空=同進場)</span></label><input type="number" id="c-current" placeholder="目前價格" step="any"></div>
@@ -5227,10 +5304,12 @@ function renderCryptoForm() {
     <div class="fr">
       <div class="fg"><label>數量 <span class="hint">(幣數)</span></label><input type="number" id="c-qty" placeholder="0.1" step="any"></div>
       <div class="fg"><label>投入金額 <span class="hint">(USDT，或填數量)</span></label><input type="number" id="c-invest" placeholder="1000" step="any"></div>
-    </div>`;
+    </div>
+  ` + secEnd();
 
   if (isPerp) {
-    h += `
+    // ── Section 3: 合約設定 ──
+    h += secStart('margin', '合約設定') + `
     <div class="fr">
       <div class="fg"><label>槓桿倍數</label><select id="c-leverage">
         <option value="1">1x</option><option value="2">2x</option><option value="3">3x</option>
@@ -5245,17 +5324,20 @@ function renderCryptoForm() {
     <div class="fg"><label>錢包餘額 <span class="hint">(USDT，全倉模式用)</span></label><input type="number" id="c-wallet" placeholder="10000" step="any"></div>
     <div class="fg"><label>資金費率 <span class="hint">(每8hr, 如 0.01%)</span></label>
       <div class="isuf"><input type="number" id="c-funding" value="0.01" step="any"><span class="suf">%</span></div>
-    </div>`;
+    </div>
+    ` + secEnd();
   }
 
-  h += `
+  // ── Section 4: 費用設定 (可收合) ──
+  h += secAdvStart('settings', '費用設定', true) + `
     <div class="fr">
       <div class="fg"><label>Maker 手續費</label><div class="isuf"><input type="number" id="c-fee-maker" value="0.02" step="any"><span class="suf">%</span></div></div>
       <div class="fg"><label>Taker 手續費</label><div class="isuf"><input type="number" id="c-fee-taker" value="0.05" step="any"><span class="suf">%</span></div></div>
     </div>
     <div class="fg"><label>掛單類型</label><select id="c-order-type">
       <option value="taker">Taker (吃單)</option><option value="maker">Maker (掛單)</option>
-    </select></div>`;
+    </select></div>
+  ` + secAdvEnd();
 
   $('#crypto-inputs').innerHTML = h;
   $('#crypto-results').innerHTML = PLACEHOLDER;
