@@ -28,6 +28,10 @@ async function ensureDB(db) {
       try { await db.prepare("ALTER TABLE trades ADD COLUMN review_discipline INTEGER NOT NULL DEFAULT 0").run(); } catch {}
       try { await db.prepare("ALTER TABLE trades ADD COLUMN review_timing INTEGER NOT NULL DEFAULT 0").run(); } catch {}
       try { await db.prepare("ALTER TABLE trades ADD COLUMN review_sizing INTEGER NOT NULL DEFAULT 0").run(); } catch {}
+      // v8 migration: presets table for cross-device sync (products, multipliers, margins)
+      try {
+        await db.prepare("CREATE TABLE IF NOT EXISTS presets (user_id INTEGER PRIMARY KEY, data TEXT NOT NULL DEFAULT '{}', updated_at TEXT DEFAULT (datetime('now')), FOREIGN KEY (user_id) REFERENCES users(id))").run();
+      } catch {}
     })();
   }
   return dbInitPromise;
@@ -396,6 +400,28 @@ async function handleSaveDailyJournal(request, env) {
   return jsonRes({ ok: true });
 }
 
+// ── Presets (cross-device sync for products, multipliers, margins) ──
+async function handleGetPresets(request, env) {
+  const user = await getUser(request, env);
+  if (!user) return jsonErr(401, '未登入');
+  const row = await env.DB.prepare('SELECT data, updated_at FROM presets WHERE user_id = ?').bind(user.sub).first();
+  let presets = {};
+  if (row) { try { presets = JSON.parse(row.data); } catch {} }
+  return jsonRes({ presets, updatedAt: row?.updated_at || null });
+}
+
+async function handleSavePresets(request, env) {
+  const user = await getUser(request, env);
+  if (!user) return jsonErr(401, '未登入');
+  let body;
+  try { body = await request.json(); } catch { return jsonErr(400, '無效的請求格式'); }
+  const data = JSON.stringify(body.presets || {});
+  if (data.length > 131072) return jsonErr(400, '預設資料過大');
+  const now = new Date().toISOString();
+  await env.DB.prepare('INSERT INTO presets (user_id, data, updated_at) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET data=?, updated_at=?').bind(user.sub, data, now, data, now).run();
+  return jsonRes({ ok: true, updatedAt: now });
+}
+
 // ── Router ──
 export default {
   async fetch(request, env, ctx) {
@@ -429,6 +455,8 @@ export default {
         if (path === '/api/trades' && method === 'POST') return await handleCreateTrade(request, env);
         if (path === '/api/settings' && method === 'GET') return await handleGetSettings(request, env);
         if (path === '/api/settings' && method === 'PUT') return await handleSaveSettings(request, env);
+        if (path === '/api/presets' && method === 'GET') return await handleGetPresets(request, env);
+        if (path === '/api/presets' && method === 'PUT') return await handleSavePresets(request, env);
         if (path === '/api/daily-journal' && method === 'GET') return await handleGetDailyJournals(request, env);
         if (path === '/api/daily-journal' && method === 'PUT') return await handleSaveDailyJournal(request, env);
 

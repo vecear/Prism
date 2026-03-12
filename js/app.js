@@ -661,6 +661,8 @@ window.fetchTaifexMarginBtn = async function() {
     }
 
     if (dateEl) dateEl.textContent = _taifexMarginDate ? `期交所 ${_taifexMarginDate}` : '已更新';
+    // Sync updated margins to server for cross-device access
+    savePresetsToServer();
   } catch (e) {
     if (dateEl) dateEl.textContent = '查詢失敗';
     setTimeout(() => { if (dateEl) dateEl.textContent = _taifexMarginDate ? `期交所 ${_taifexMarginDate}` : ''; }, 3000);
@@ -975,6 +977,66 @@ const ETF_PRESETS = {
     { code: 'UDOW', name: 'ProShares 3x Dow', leverage: 3, index: 'ym' },
   ]
 };
+
+// ── Presets cloud sync (cross-device) ──
+function _getPresetsSnapshot() {
+  return { fp: FP, stockFutures: STOCK_FUTURES, etfPresets: ETF_PRESETS };
+}
+function _applyServerPresets(serverData) {
+  if (!serverData) return;
+  if (serverData.fp) {
+    for (const market of ['tw', 'us']) {
+      if (!serverData.fp[market]) continue;
+      if (!FP[market]) FP[market] = {};
+      for (const [code, preset] of Object.entries(serverData.fp[market])) {
+        FP[market][code] = { ...(FP[market][code] || {}), ...preset };
+      }
+    }
+  }
+  if (serverData.stockFutures) {
+    for (const [code, preset] of Object.entries(serverData.stockFutures)) {
+      STOCK_FUTURES[code] = { ...(STOCK_FUTURES[code] || {}), ...preset };
+    }
+  }
+  if (serverData.etfPresets) {
+    if (Array.isArray(serverData.etfPresets.tw)) ETF_PRESETS.tw = serverData.etfPresets.tw;
+    if (Array.isArray(serverData.etfPresets.us)) ETF_PRESETS.us = serverData.etfPresets.us;
+  }
+}
+function savePresetsToServer() {
+  const token = localStorage.getItem('prism_token');
+  if (!token) return;
+  const snapshot = _getPresetsSnapshot();
+  // Also cache locally for offline / fast reload
+  try { localStorage.setItem('prism_presets', JSON.stringify(snapshot)); } catch {}
+  fetch(`${API_BASE}/api/presets`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+    body: JSON.stringify({ presets: snapshot }),
+  }).catch(e => console.debug('[Prism] Presets sync failed:', e.message));
+}
+async function loadPresetsFromServer() {
+  const token = localStorage.getItem('prism_token');
+  if (!token) return;
+  try {
+    const res = await fetch(`${API_BASE}/api/presets`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data.presets && Object.keys(data.presets).length > 0) {
+      _applyServerPresets(data.presets);
+      try { localStorage.setItem('prism_presets', JSON.stringify(data.presets)); } catch {}
+    }
+  } catch (e) { console.warn('[Prism] Cloud presets load failed:', e.message); }
+}
+// Load cached presets immediately (before server fetch completes)
+try {
+  const cached = JSON.parse(localStorage.getItem('prism_presets'));
+  if (cached) _applyServerPresets(cached);
+} catch {}
+window.loadPresetsFromServer = loadPresetsFromServer;
+window.savePresetsToServer = savePresetsToServer;
 
 // ── Stock Database (local autocomplete) ──
 const StockDB = {
@@ -2691,9 +2753,12 @@ function init() {
   // ── 根據設定決定是否自動取報價 ──
   applySettings();
 
-  // ── 登入狀態下從雲端載入設定 ──
+  // ── 登入狀態下從雲端載入設定 & 預設值 ──
   if (localStorage.getItem('prism_token')) {
-    loadSettingsFromServer().then(() => {
+    Promise.all([
+      loadSettingsFromServer(),
+      loadPresetsFromServer(),
+    ]).then(() => {
       renderMarginForm(); renderFuturesForm(); renderOptionsForm(); renderCryptoForm();
     });
   }
