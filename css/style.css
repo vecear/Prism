@@ -592,21 +592,18 @@ input[type="number"]{-moz-appearance:textfield}
   .ha-user{padding:4px 8px;font-size:.72rem;gap:4px}
   .ha-user svg{width:12px;height:12px}
 
-  /* Ticker bar — compact card grid on mobile */
+  /* Ticker bar — compact card grid on mobile, all visible */
   .ticker-bar{padding:4px 0;flex-direction:column;gap:4px;align-items:stretch}
-  .ticker-strip{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;overflow:hidden;max-height:var(--ticker-row-h,52px);transition:max-height .35s ease;flex:none;align-items:stretch}
-  .ticker-bar.expanded .ticker-strip{max-height:600px}
-  .ticker-chip{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0;padding:4px 3px;background:var(--bg1);border:1px solid var(--bdr);border-radius:6px;white-space:nowrap;min-height:36px;box-sizing:border-box}
+  .ticker-strip{display:grid;grid-template-columns:repeat(3,1fr);gap:2px;flex:none;align-items:stretch}
+  .ticker-chip{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0;padding:3px 2px;background:var(--bg1);border:1px solid var(--bdr);border-radius:5px;white-space:nowrap;min-height:30px;box-sizing:border-box}
   .ticker-chip+.ticker-chip::before{display:none}
   .ticker-chip:hover{background:var(--bg2)}
-  .tc-name{font-size:.54rem;color:var(--t3);font-weight:600;line-height:1}
-  .tc-price{font-size:.74rem;font-weight:700;line-height:1.2}
-  .tc-chg{font-size:.54rem;line-height:1}
-  .ticker-basis{font-size:.48rem;margin-top:0}
+  .tc-name{font-size:.5rem;color:var(--t3);font-weight:600;line-height:1}
+  .tc-price{font-size:.7rem;font-weight:700;line-height:1.2}
+  .tc-chg{font-size:.5rem;line-height:1}
+  .ticker-basis{font-size:.44rem;margin-top:0}
   .ticker-bar-actions{justify-content:space-between}
-  .ticker-toggle{display:flex;border:1px solid var(--bdr);border-radius:6px;padding:4px 10px;gap:4px;font-size:.7rem;color:var(--t2);font-family:var(--sans);min-height:36px;align-items:center}
-  .ticker-toggle::after{content:'展開報價';font-size:.66rem}
-  .ticker-bar.expanded .ticker-toggle::after{content:'收合報價'}
+  .ticker-toggle{display:none !important}
   .ticker-refresh{border:1px solid var(--bdr);border-radius:6px;padding:4px 8px;border-left:1px solid var(--bdr);margin-left:0}
 
   /* Sentiment strip — compact on mobile */
@@ -743,13 +740,12 @@ input[type="number"]{-moz-appearance:textfield}
   .card{padding:8px}
 
   /* Ticker: smaller cards on small phones */
-  .ticker-chip{padding:3px 2px;min-height:32px}
-  .tc-name{font-size:.56rem}
-  .tc-price{font-size:.68rem}
-  .tc-chg{font-size:.54rem}
-  .ticker-basis{font-size:.5rem}
+  .ticker-chip{padding:2px 1px;min-height:28px}
+  .tc-name{font-size:.48rem}
+  .tc-price{font-size:.64rem}
+  .tc-chg{font-size:.48rem}
+  .ticker-basis{font-size:.42rem}
   .ticker-time{font-size:.56rem!important}
-  .ticker-strip{max-height:var(--ticker-row-h,44px)}
 
   /* Sentiment: even tighter */
   .sent-gauge{padding:3px 6px;min-width:88px}
@@ -1410,9 +1406,9 @@ input[type="number"]{-moz-appearance:textfield}
   .st-wrap.scrolled-end::after{opacity:0}
 }
 
-/* ── Ticker 2-column on very small screens ── */
+/* ── Ticker 3-column on very small screens ── */
 @media(max-width:420px){
-  .ticker-strip{display:grid!important;grid-template-columns:1fr 1fr;gap:4px;flex-wrap:nowrap}
+  .ticker-strip{display:grid!important;grid-template-columns:repeat(3,1fr);gap:2px;flex-wrap:nowrap}
   .ticker-chip{min-width:0}
 }
 
