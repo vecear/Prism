@@ -119,7 +119,7 @@ const PriceService = {
 
   // ── Yahoo Finance ──
   yahoo: {
-    INDEX_MAP: { taiex: '^TWII', es: 'ES=F', nq: 'NQ=F', ym: 'YM=F', sox: '^SOX', nkd: 'NKD=F', kospi: '^KS11', shanghai: '000001.SS', hsi: '^HSI', vix: '^VIX', btc: 'BTC-USD', eth: 'ETH-USD', sol: 'SOL-USD' },
+    INDEX_MAP: { taiex: '^TWII', es: 'ES=F', nq: 'NQ=F', ym: 'YM=F', sox: '^SOX', nkd: 'NKD=F', kospi: '^KS11', shanghai: '000001.SS', hsi: '^HSI', vix: '^VIX', vix3m: '^VIX3M', tnx: '^TNX', btc: 'BTC-USD', eth: 'ETH-USD', sol: 'SOL-USD' },
     async fetchQuote(symbol) {
       const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=1d`;
       const r = await PriceService._proxyFetch(url);
@@ -265,8 +265,13 @@ const PriceService = {
   async fetchAllIndices() {
     const results = {};
     const keys = Object.keys(CFG.indices).filter(k => CFG.indices[k]);
-    // Fetch VIX for sentiment strip (not in INDEX_DEFS / ticker)
+    // Fetch sentiment indicators (not in INDEX_DEFS / ticker)
     if (CFG.showVix) keys.push('vix');
+    if (CFG.showVixTerm || CFG.showVixRatio) keys.push('vix', 'vix3m');
+    if (CFG.showTreasury) keys.push('tnx');
+    // dedupe
+    const seen = new Set();
+    for (let i = keys.length - 1; i >= 0; i--) { if (seen.has(keys[i])) keys.splice(i, 1); else seen.add(keys[i]); }
     await Promise.all(keys.map(async key => {
       try { results[key] = await this.fetchIndex(key); }
       catch (e) { results[key] = { error: e.message }; }
@@ -291,6 +296,29 @@ const PriceService = {
     if (!q || q.error) return '';
     const s = q.change >= 0 ? '+' : '';
     return `${s}${q.change.toFixed(2)} (${s}${q.changePct.toFixed(2)}%)`;
+  },
+
+  // ── FRED Credit Spread (ICE BofA US HY OAS) ──
+  async fetchCreditSpread() {
+    // FRED CSV 不需 API key，取最近 10 筆（排除假日/缺值）
+    const url = 'https://fred.stlouisfed.org/graph/fredgraph.csv?id=BAMLH0A0HYM2&cosd=' + new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+    const r = await this._proxyFetch(url, 8000);
+    const text = await r.text();
+    const lines = text.trim().split('\n').slice(1); // skip header
+    // 過濾掉缺值 "."
+    const valid = lines.filter(l => { const v = l.split(',')[1]; return v && v !== '.' && !isNaN(parseFloat(v)); });
+    if (valid.length === 0) throw new Error('No credit spread data');
+    const latest = valid[valid.length - 1].split(',');
+    const prev = valid.length >= 2 ? valid[valid.length - 2].split(',') : null;
+    const spread = parseFloat(latest[1]);
+    const prevSpread = prev ? parseFloat(prev[1]) : null;
+    return {
+      spread,
+      prevSpread,
+      change: prevSpread != null ? spread - prevSpread : null,
+      date: latest[0],
+      prevDate: prev ? prev[0] : null,
+    };
   },
 
   // ── Fear & Greed Index (CNN) ──
@@ -572,6 +600,12 @@ const _quoteCache = {
     return (c && Date.now() - c.time < 1800000) ? c.data : null;
   },
   setFearGreed(data) { this._load().fearGreed = { data, time: Date.now() }; this._save(); },
+  // Credit Spread cache (1 hour TTL — FRED daily data)
+  getCreditSpread() {
+    const c = this._load().creditSpread;
+    return (c && Date.now() - c.time < 3600000) ? c.data : null;
+  },
+  setCreditSpread(data) { this._load().creditSpread = { data, time: Date.now() }; this._save(); },
 };
 
 // ── Smart TAIFEX session check (skip fetches outside trading hours) ──
@@ -790,6 +824,10 @@ const DEFAULT_SETTINGS = {
   indices: { taiex: true, txf: true, es: true, nq: true, ym: true, sox: true, nkd: true, kospi: true, shanghai: true, hsi: true, btc: true, eth: true, sol: true },
   showVix: true,
   showFearGreed: true,
+  showVixTerm: true,
+  showVixRatio: true,
+  showCreditSpread: true,
+  showTreasury: true,
   defaultMarket: 'tw',
   twSource: 'twse',        // 'yahoo' | 'twse' | 'tpex'
   usSource: 'yahoo',       // 'yahoo' | 'finnhub'
@@ -1344,6 +1382,34 @@ function _fgLevel(score) {
   return { label: '極度貪婪', cls: 'sent-low', color: 'var(--green)' };
 }
 
+// VIX Term Structure: contango (正常) vs backwardation (恐慌)
+function _vixTermLevel(vix, vix3m) {
+  const ratio = vix / vix3m;
+  if (ratio >= 1.2) return { label: '極度恐慌', cls: 'sent-extreme', color: 'var(--red)' };
+  if (ratio >= 1.05) return { label: '短期恐慌', cls: 'sent-high', color: 'var(--orange)' };
+  if (ratio >= 0.95) return { label: '中性', cls: 'sent-normal', color: 'var(--accent)' };
+  if (ratio >= 0.85) return { label: '正常結構', cls: 'sent-elevated', color: 'var(--yellow)' };
+  return { label: '極度樂觀', cls: 'sent-low', color: 'var(--green)' };
+}
+
+// ICE BofA US High Yield OAS (BAMLH0A0HYM2) — 百分點
+function _creditSpreadLevel(spread) {
+  if (spread >= 8) return { label: '極度緊縮', cls: 'sent-extreme', color: 'var(--red)' };
+  if (spread >= 5) return { label: '高風險', cls: 'sent-high', color: 'var(--orange)' };
+  if (spread >= 4) return { label: '偏高', cls: 'sent-elevated', color: 'var(--yellow)' };
+  if (spread >= 3) return { label: '正常', cls: 'sent-normal', color: 'var(--accent)' };
+  return { label: '極度樂觀', cls: 'sent-low', color: 'var(--green)' };
+}
+
+// 10-Year Treasury Yield level
+function _tnxLevel(val) {
+  if (val >= 5) return { label: '極高利率', cls: 'sent-extreme', color: 'var(--red)' };
+  if (val >= 4.5) return { label: '偏高', cls: 'sent-high', color: 'var(--orange)' };
+  if (val >= 3.5) return { label: '正常', cls: 'sent-normal', color: 'var(--accent)' };
+  if (val >= 2.5) return { label: '偏低', cls: 'sent-elevated', color: 'var(--yellow)' };
+  return { label: '極低利率', cls: 'sent-low', color: 'var(--green)' };
+}
+
 function _renderSentimentStrip() {
   const strip = $('#sentiment-strip');
   if (!strip) return;
@@ -1355,9 +1421,19 @@ function _renderSentimentStrip() {
   // Fear & Greed from cache
   const fgData = _quoteCache.getFearGreed();
 
+  // New sentiment data
+  const vix3mQ = _quoteCache.getIndex('vix3m');
+  const tnxQ = _quoteCache.getIndex('tnx');
+  const csData = _quoteCache.getCreditSpread();
+
   const showVix = vixVal && CFG.showVix !== false;
   const showFg = fgData && CFG.showFearGreed !== false;
-  if (!showVix && !showFg) {
+  const showVixTerm = vixVal && vix3mQ?.price && CFG.showVixTerm !== false;
+  const showVixRatio = vixVal && vix3mQ?.price && CFG.showVixRatio !== false;
+  const showCredit = csData && CFG.showCreditSpread !== false;
+  const showTreasury = tnxQ?.price && CFG.showTreasury !== false;
+
+  if (!showVix && !showFg && !showVixTerm && !showVixRatio && !showCredit && !showTreasury) {
     strip.style.display = 'none';
     return;
   }
@@ -1367,30 +1443,80 @@ function _renderSentimentStrip() {
 
   const tFmt = { hour: '2-digit', minute: '2-digit', second: '2-digit' };
 
+  function _sentTip(cacheKey, q) {
+    const cache = _quoteCache._load().indices[cacheKey];
+    const fetchStr = cache?.time ? new Date(cache.time).toLocaleTimeString('zh-TW', tFmt) : '';
+    const srcStr = q?.sourceTime ? new Date(q.sourceTime).toLocaleTimeString('zh-TW', tFmt) : '';
+    return srcStr ? `來源報價時間：${srcStr}\n本地抓取時間：${fetchStr}` : (fetchStr ? `本地抓取時間：${fetchStr}` : '');
+  }
+
   // VIX gauge
-  if (vixVal && CFG.showVix !== false) {
+  if (showVix) {
     const lv = _vixLevel(vixVal);
-    const pct = Math.min(vixVal / 80 * 100, 100);
     const vixChg = vixQ.change != null ? vixQ.change : null;
     const vixChgHtml = vixChg != null ? `<span class="sent-chg ${vixChg <= 0 ? 'up' : 'down'}">${vixChg >= 0 ? '+' : ''}${vixChg.toFixed(2)}</span>` : '';
-    const vixCache = _quoteCache._load().indices.vix;
-    const vixFetchStr = vixCache?.time ? new Date(vixCache.time).toLocaleTimeString('zh-TW', tFmt) : '';
-    const vixSrcStr = vixQ.sourceTime ? new Date(vixQ.sourceTime).toLocaleTimeString('zh-TW', tFmt) : '';
-    const vixTip = vixSrcStr
-      ? `來源報價時間：${vixSrcStr}\n本地抓取時間：${vixFetchStr}`
-      : (vixFetchStr ? `本地抓取時間：${vixFetchStr}` : '');
-    html += `<a class="sent-gauge" title="${vixTip}" href="https://www.tradingview.com/chart/?symbol=CBOE%3AVIX" target="_blank" rel="noopener">
-      <div class="sent-label">VIX 恐慌指數</div>
-      <div class="sent-value" style="color:${lv.color}">${vixVal.toFixed(2)} ${vixChgHtml}</div>
-      <div class="sent-track sent-vix-track"><div class="sent-fill" style="width:${pct}%"></div></div>
-      <div class="sent-tag" style="color:${lv.color}">${lv.label}</div>
+    html += `<a class="sent-gauge" title="${_sentTip('vix', vixQ)}" href="https://www.tradingview.com/chart/?symbol=CBOE%3AVIX" target="_blank" rel="noopener">
+      <div class="sent-top"><span class="sent-label">VIX</span><span class="sent-tag" style="color:${lv.color}">${lv.label}</span></div>
+      <div class="sent-bottom"><span class="sent-value" style="color:${lv.color}">${vixVal.toFixed(2)}</span>${vixChgHtml}</div>
+    </a>`;
+  }
+
+  // VIX3M (3-month VIX)
+  if (showVixTerm) {
+    const vix3mVal = vix3mQ.price;
+    const lv = _vixLevel(vix3mVal);
+    const vix3mChg = vix3mQ.change != null ? vix3mQ.change : null;
+    const chgHtml = vix3mChg != null ? `<span class="sent-chg ${vix3mChg <= 0 ? 'up' : 'down'}">${vix3mChg >= 0 ? '+' : ''}${vix3mChg.toFixed(2)}</span>` : '';
+    const ratio = vixVal / vix3mVal;
+    const structure = ratio >= 1 ? '逆價差' : '正價差';
+    const tip = `VIX3M: ${vix3mVal.toFixed(2)}\nVIX/VIX3M 比值: ${ratio.toFixed(3)} (${structure})\n${structure === '逆價差' ? '短期恐慌高於長期 → 急性壓力' : '長期高於短期 → 正常結構'}\n${_sentTip('vix3m', vix3mQ)}`;
+    html += `<a class="sent-gauge" title="${tip}" href="https://www.tradingview.com/chart/?symbol=CBOE%3AVIX3M" target="_blank" rel="noopener">
+      <div class="sent-top"><span class="sent-label">VIX3M</span><span class="sent-tag" style="color:${lv.color}">${lv.label}</span></div>
+      <div class="sent-bottom"><span class="sent-value" style="color:${lv.color}">${vix3mVal.toFixed(2)}</span>${chgHtml}</div>
+    </a>`;
+  }
+
+  // VIX / VIX3M Term Structure ratio
+  if (showVixRatio) {
+    const ratio = vixVal / vix3mQ.price;
+    const lv = _vixTermLevel(vixVal, vix3mQ.price);
+    const structure = ratio >= 1 ? '逆價差' : '正價差';
+    const tip = `VIX: ${vixVal.toFixed(2)} / VIX3M: ${vix3mQ.price.toFixed(2)}\n比值: ${ratio.toFixed(3)}\n${ratio >= 1 ? '逆價差 (Backwardation) → 短期恐慌高於長期' : '正價差 (Contango) → 正常結構'}`;
+    html += `<a class="sent-gauge" title="${tip}" href="https://www.tradingview.com/chart/?symbol=CBOE%3AVIX3M" target="_blank" rel="noopener">
+      <div class="sent-top"><span class="sent-label">VIX 期限結構</span><span class="sent-tag" style="color:${lv.color}">${lv.label}</span></div>
+      <div class="sent-bottom"><span class="sent-value" style="color:${lv.color}">${ratio.toFixed(3)}</span><span class="sent-chg" style="color:${lv.color}">${structure}</span></div>
+    </a>`;
+  }
+
+  // Credit Spread (ICE BofA US HY OAS from FRED)
+  if (showCredit) {
+    const lv = _creditSpreadLevel(csData.spread);
+    const chg = csData.change;
+    const chgHtml = chg != null ? `<span class="sent-chg ${chg <= 0 ? 'up' : 'down'}">${chg >= 0 ? '+' : ''}${chg.toFixed(2)}</span>` : '';
+    const csCache = _quoteCache._load().creditSpread;
+    const csFetchStr = csCache?.time ? new Date(csCache.time).toLocaleTimeString('zh-TW', tFmt) : '';
+    const tip = `ICE BofA US High Yield OAS\n信用利差: ${csData.spread.toFixed(2)}%\n前值: ${csData.prevSpread != null ? csData.prevSpread.toFixed(2) + '%' : '—'} (${csData.prevDate || ''})\n資料日期: ${csData.date}\n利差擴大 = 風險升高\n本地抓取時間：${csFetchStr}`;
+    html += `<a class="sent-gauge" title="${tip}" href="https://fred.stlouisfed.org/series/BAMLH0A0HYM2" target="_blank" rel="noopener">
+      <div class="sent-top"><span class="sent-label">信用利差 OAS</span><span class="sent-tag" style="color:${lv.color}">${lv.label}</span></div>
+      <div class="sent-bottom"><span class="sent-value" style="color:${lv.color}">${csData.spread.toFixed(2)}%</span>${chgHtml}</div>
+    </a>`;
+  }
+
+  // 10-Year Treasury Yield
+  if (showTreasury) {
+    const lv = _tnxLevel(tnxQ.price);
+    const chg = tnxQ.change != null ? tnxQ.change : null;
+    const chgHtml = chg != null ? `<span class="sent-chg ${chg <= 0 ? 'up' : 'down'}">${chg >= 0 ? '+' : ''}${chg.toFixed(3)}%</span>` : '';
+    const tip = `美國 10 年期公債殖利率\n殖利率急降 = 市場預期經濟衰退\n${_sentTip('tnx', tnxQ)}`;
+    html += `<a class="sent-gauge" title="${tip}" href="https://www.tradingview.com/chart/?symbol=TVC%3AUS10Y" target="_blank" rel="noopener">
+      <div class="sent-top"><span class="sent-label">10Y 殖利率</span><span class="sent-tag" style="color:${lv.color}">${lv.label}</span></div>
+      <div class="sent-bottom"><span class="sent-value" style="color:${lv.color}">${tnxQ.price.toFixed(3)}%</span>${chgHtml}</div>
     </a>`;
   }
 
   // Fear & Greed gauge
   if (fgData && CFG.showFearGreed !== false) {
     const lv = _fgLevel(fgData.score);
-    const pct = fgData.score;
     const chg = fgData.previousClose != null ? fgData.score - fgData.previousClose : null;
     const chgHtml = chg != null ? `<span class="sent-chg ${chg >= 0 ? 'up' : 'down'}">${chg >= 0 ? '+' : ''}${chg}</span>` : '';
     const fgCache = _quoteCache._load().fearGreed;
@@ -1400,10 +1526,8 @@ function _renderSentimentStrip() {
       ? `來源報價時間：${fgSrcStr}\n本地抓取時間：${fgFetchStr}`
       : (fgFetchStr ? `本地抓取時間：${fgFetchStr}` : '');
     html += `<a class="sent-gauge" title="${fgTip}" href="https://edition.cnn.com/markets/fear-and-greed" target="_blank" rel="noopener">
-      <div class="sent-label">恐懼與貪婪指數</div>
-      <div class="sent-value" style="color:${lv.color}">${fgData.score} ${chgHtml}</div>
-      <div class="sent-track sent-fg-track"><div class="sent-fill" style="width:${pct}%;background:${lv.color}"></div></div>
-      <div class="sent-tag" style="color:${lv.color}">${lv.label}</div>
+      <div class="sent-top"><span class="sent-label">恐懼與貪婪</span><span class="sent-tag" style="color:${lv.color}">${lv.label}</span></div>
+      <div class="sent-bottom"><span class="sent-value" style="color:${lv.color}">${fgData.score}</span>${chgHtml}</div>
     </a>`;
   }
 
@@ -1417,6 +1541,17 @@ async function _fetchFearGreed() {
     _quoteCache.setFearGreed(fg);
     _renderSentimentStrip();
   } catch (e) { console.debug('[Prism] Fear & Greed fetch failed:', e.message); }
+}
+
+async function _fetchCreditSpread() {
+  if (CFG.showCreditSpread === false) return;
+  // 已有快取且未過期 → 不重複抓
+  if (_quoteCache.getCreditSpread()) { _renderSentimentStrip(); return; }
+  try {
+    const cs = await PriceService.fetchCreditSpread();
+    _quoteCache.setCreditSpread(cs);
+    _renderSentimentStrip();
+  } catch (e) { console.debug('[Prism] Credit Spread fetch failed:', e.message); }
 }
 
 // ================================================================
@@ -1991,6 +2126,107 @@ function renderGuide() {
 <div class="guide-tip">「時間在市場裡」比「抓準進場時機」更重要。S&P 500 過去 30 年年化報酬約 10%，但如果錯過漲幅最大的 10 天，報酬腰斬。</div>
 </div>`;
 
+  // ── 市場風險指標 ──
+  const indicators = `<div class="guide-card">
+<h4>為什麼要看這些指標？</h4>
+<p>股票市場對風險的反應通常較慢，但<strong>信用市場、波動率市場和利率市場</strong>往往能更早反映真實的風險定價。機構投資者在判斷市場下跌是「短期情緒波動」還是「系統性風險」時，會同時觀察以下指標。</p>
+<div class="guide-tip">核心邏輯：當股市下跌但這些指標沒有惡化，通常只是情緒調整；若同步惡化，才代表市場在定價真正的風險。</div>
+</div>
+<div class="guide-card">
+<h4>VIX 恐慌指數</h4>
+<p>VIX（CBOE Volatility Index）衡量 S&P 500 未來 30 天的<strong>隱含波動率</strong>，俗稱「恐慌指數」。</p>
+<table class="guide-table">
+<tr><th>VIX 範圍</th><th>市場狀態</th><th>說明</th></tr>
+<tr><td>≤ 12</td><td>極低波動</td><td>市場極度平靜，可能過度自滿</td></tr>
+<tr><td>12 – 20</td><td>正常</td><td>市場常態波動範圍</td></tr>
+<tr><td>20 – 30</td><td>偏高</td><td>市場出現不確定性，投資人開始避險</td></tr>
+<tr><td>30 – 40</td><td>高波動</td><td>市場恐慌，短期大幅震盪</td></tr>
+<tr><td>> 40</td><td>極度恐慌</td><td>歷史級恐慌（如 2020 年 3 月 VIX 曾達 82）</td></tr>
+</table>
+<p><strong>判讀重點</strong>：VIX 上升時用紅色顯示（代表恐慌增加），下降時用綠色（恐慌緩解）。注意 VIX 的方向比絕對值更重要。</p>
+<div class="guide-tip">VIX 是「均值回歸」的指標 — 極端高值終會回落。歷史上 VIX 飆升往往是短期底部的訊號，但不代表不會再跌。</div>
+</div>
+<div class="guide-card">
+<h4>VIX3M（VIX / VIX3M 期限結構）</h4>
+<p>比較短期波動率（VIX，30 天）和中期波動率（VIX3M，3 個月）的比值，判斷市場恐慌是短期還是長期。</p>
+<table class="guide-table">
+<tr><th>結構</th><th>VIX/VIX3M</th><th>市場含義</th></tr>
+<tr><td>正價差 (Contango)</td><td>< 1.0</td><td><strong>正常</strong>：長期波動率高於短期，市場結構健康</td></tr>
+<tr><td>平坦</td><td>≈ 1.0</td><td><strong>中性</strong>：短期與長期波動率接近，需留意</td></tr>
+<tr><td>逆價差 (Backwardation)</td><td>> 1.0</td><td><strong>恐慌</strong>：短期波動率高於長期，市場正經歷急性壓力</td></tr>
+</table>
+<p><strong>判讀重點</strong>：</p>
+<ul>
+<li>短期 VIX 飆升但長期 VIX3M 沒跟上（逆價差）→ 市場認為只是<strong>短期恐慌</strong>，長期風險有限</li>
+<li>短期和長期 VIX <strong>同步上升</strong> → 市場正在定價<strong>更長期的系統性風險</strong></li>
+<li>逆價差開始<strong>回歸正價差</strong> → 恐慌消退的早期訊號</li>
+</ul>
+<div class="guide-warn">2020 年 3 月和 2022 年市場大跌時，VIX/VIX3M 比值都曾超過 1.2，代表極度恐慌。</div>
+</div>
+<div class="guide-card">
+<h4>信用利差 OAS（ICE BofA US High Yield）</h4>
+<p>信用利差 = 公司債殖利率 − 美國公債殖利率。反映市場對<strong>企業違約風險</strong>的定價。</p>
+<table class="guide-table">
+<tr><th>OAS 範圍</th><th>市場狀態</th><th>說明</th></tr>
+<tr><td>< 3%</td><td>極度樂觀</td><td>市場風險偏好高，投資人不擔心違約</td></tr>
+<tr><td>3% – 4%</td><td>正常</td><td>信用市場健康，風險定價合理</td></tr>
+<tr><td>4% – 5%</td><td>偏高</td><td>市場開始擔憂經濟前景或企業獲利</td></tr>
+<tr><td>5% – 8%</td><td>高風險</td><td>信用市場壓力明顯，資金撤離高收益債</td></tr>
+<tr><td>> 8%</td><td>極度緊縮</td><td>系統性信用風險（如 2008 年金融危機 OAS 超過 20%）</td></tr>
+</table>
+<p><strong>判讀重點</strong>：</p>
+<ul>
+<li>股票下跌 + 信用利差<strong>未擴大</strong> → 可能只是股市情緒波動，非系統性金融風險</li>
+<li>股票下跌 + 信用利差<strong>急速擴大</strong> → 信用市場在定價衰退 / 違約風險，要高度警戒</li>
+<li>歷史上大型熊市（如 2008、2020）都是信用市場<strong>先發出警訊</strong></li>
+</ul>
+<div class="guide-tip">信用利差擴大代表投資人要求更高的風險溢價（risk premium），是「聰明錢」對風險的真實看法。利差收窄通常意味著變動已反映在價格。</div>
+</div>
+<div class="guide-card">
+<h4>10Y 美國公債殖利率</h4>
+<p>10 年期美國公債殖利率是全球資產定價的<strong>核心基準利率</strong>，直接影響股票估值、房貸利率和企業融資成本。</p>
+<table class="guide-table">
+<tr><th>殖利率</th><th>市場狀態</th><th>說明</th></tr>
+<tr><td>< 2.5%</td><td>極低利率</td><td>寬鬆環境，有利風險資產（成長股受惠）</td></tr>
+<tr><td>2.5% – 3.5%</td><td>偏低</td><td>相對寬鬆，經濟溫和成長</td></tr>
+<tr><td>3.5% – 4.5%</td><td>正常</td><td>中性區間，市場在消化利率正常化</td></tr>
+<tr><td>4.5% – 5%</td><td>偏高</td><td>緊縮環境，高估值股票承壓</td></tr>
+<tr><td>> 5%</td><td>極高利率</td><td>強力緊縮，對經濟和股市形成重大壓力</td></tr>
+</table>
+<p><strong>判讀重點</strong>：</p>
+<ul>
+<li>股市下跌 + 殖利率<strong>未大幅變動</strong> → 可能只是市場情緒調整</li>
+<li>股市下跌 + 殖利率<strong>急劇下降</strong> → 資金湧入公債避險，市場正在定價<strong>經濟衰退</strong></li>
+<li>殖利率<strong>快速上升</strong> → 市場預期通膨或升息，高估值股票（科技股）首當其衝</li>
+</ul>
+<div class="guide-warn">殖利率急降通常伴隨「資金避風港效應」（Flight to Safety）— 投資人拋售風險資產、搶購公債，推動殖利率下行。</div>
+</div>
+<div class="guide-card">
+<h4>恐懼與貪婪指數（CNN Fear & Greed）</h4>
+<p>CNN 綜合 7 個市場指標計算出的情緒分數（0–100），反映市場整體情緒。</p>
+<table class="guide-table">
+<tr><th>分數</th><th>情緒</th><th>說明</th></tr>
+<tr><td>0 – 25</td><td>極度恐懼</td><td>投資人大量拋售，可能是逢低買入機會</td></tr>
+<tr><td>25 – 44</td><td>恐懼</td><td>市場偏悲觀，風險偏好降低</td></tr>
+<tr><td>45 – 55</td><td>中立</td><td>市場情緒平衡</td></tr>
+<tr><td>56 – 74</td><td>貪婪</td><td>市場偏樂觀，追價意願高</td></tr>
+<tr><td>75 – 100</td><td>極度貪婪</td><td>市場過熱，可能是獲利了結時機</td></tr>
+</table>
+<p><strong>組成指標</strong>：市場動能、股價強度、股價廣度、Put/Call 比率、垃圾債需求、波動率（VIX）、避險天堂需求。</p>
+<div class="guide-tip">巴菲特名言：「別人恐懼時我貪婪，別人貪婪時我恐懼。」極端值通常是反向指標，但不要單獨用來做交易決策。</div>
+</div>
+<div class="guide-card">
+<h4>綜合判讀框架</h4>
+<p>機構投資者會同時檢視這些指標來判斷市場反彈是短期反彈還是新一輪行情：</p>
+<table class="guide-table">
+<tr><th>情境</th><th>指標訊號</th><th>判斷</th></tr>
+<tr><td>短期情緒調整</td><td>VIX 小幅上升 + 信用利差穩定 + 殖利率不變</td><td>市場只是消化利空，底部可能已近</td></tr>
+<tr><td>中期風險事件</td><td>VIX3M 逆價差 + 信用利差小幅擴大</td><td>短期壓力但長期影響有限，等待恐慌消退</td></tr>
+<tr><td>系統性風險</td><td>VIX 長短期同步飆升 + 信用利差急擴 + 殖利率急降</td><td>市場在定價衰退 / 金融危機，需大幅減倉避險</td></tr>
+</table>
+<div class="guide-tip">市場底部往往不像底部 — 當壞消息仍頻繁出現，但價格開始穩定時，通常就是重新定價風險的信號。觀察這些指標是否同步改善，比預測底部更可靠。</div>
+</div>`;
+
   // ── 技術分析 (NEW) ──
   const ta = `<div class="guide-card">
 <h4>什麼是技術分析？</h4>
@@ -2206,8 +2442,8 @@ function renderGuide() {
   const riskCombined = risk + riskExtra;
 
   el.innerHTML = `<div class="guide-wrap">${subTabs('guide', [
-    '投資入門', '台灣股票', '美國股票', '台灣期貨', '美國期貨', '選擇權', '加密貨幣', '技術分析', '風險管理'
-  ], [intro, twStock, usStock, twFuturesCombined, usFuturesCombined, optionsCombined, cryptoCombined, ta, riskCombined])}</div>`;
+    '投資入門', '市場指標', '台灣股票', '美國股票', '台灣期貨', '美國期貨', '選擇權', '加密貨幣', '技術分析', '風險管理'
+  ], [intro, indicators, twStock, usStock, twFuturesCombined, usFuturesCombined, optionsCombined, cryptoCombined, ta, riskCombined])}</div>`;
 }
 
 // 從 localStorage 快取恢復 ticker 顯示（頁面載入時）
@@ -2525,6 +2761,10 @@ function renderSettings() {
               <span class="stg-cb-region-label">指標</span>
               <label class="stg-cb"><input type="checkbox" id="stg-show-vix" ${CFG.showVix !== false ? 'checked' : ''}>VIX</label>
               <label class="stg-cb"><input type="checkbox" id="stg-show-fg" ${CFG.showFearGreed !== false ? 'checked' : ''}>恐懼與貪婪</label>
+              <label class="stg-cb"><input type="checkbox" id="stg-show-vixterm" ${CFG.showVixTerm !== false ? 'checked' : ''}>VIX3M</label>
+              <label class="stg-cb"><input type="checkbox" id="stg-show-vixratio" ${CFG.showVixRatio !== false ? 'checked' : ''}>VIX 期限結構</label>
+              <label class="stg-cb"><input type="checkbox" id="stg-show-credit" ${CFG.showCreditSpread !== false ? 'checked' : ''}>信用利差 OAS</label>
+              <label class="stg-cb"><input type="checkbox" id="stg-show-treasury" ${CFG.showTreasury !== false ? 'checked' : ''}>10Y 公債殖利率</label>
             </div>
           </div>
         </div>
@@ -2707,6 +2947,10 @@ function renderSettings() {
     $$('[data-idx]', body).forEach(cb => { CFG.indices[cb.dataset.idx] = cb.checked; });
     CFG.showVix = $('#stg-show-vix')?.checked ?? true;
     CFG.showFearGreed = $('#stg-show-fg')?.checked ?? true;
+    CFG.showVixTerm = $('#stg-show-vixterm')?.checked ?? true;
+    CFG.showVixRatio = $('#stg-show-vixratio')?.checked ?? true;
+    CFG.showCreditSpread = $('#stg-show-credit')?.checked ?? true;
+    CFG.showTreasury = $('#stg-show-treasury')?.checked ?? true;
     saveSettings(CFG);
     applySettings();
     _renderSentimentStrip();
@@ -2849,8 +3093,9 @@ function applySettings() {
     } else if (hasCache && !stale) {
       // Cache is fresh — also auto-fetch TAIFEX margins from cache/API
       fetchTaifexMarginBtn();
-      // Restore F&G from cache, or fetch if stale
+      // Restore F&G / Credit Spread from cache, or fetch if stale
       if (!_quoteCache.getFearGreed()) _fetchFearGreed();
+      if (!_quoteCache.getCreditSpread()) _fetchCreditSpread();
     }
   }
 
@@ -2890,6 +3135,7 @@ async function handleFetchIndices(updateForms) {
     _updateTickerTime(results);
     _renderSentimentStrip();
     _fetchFearGreed();
+    _fetchCreditSpread();
   } catch (e) { console.warn('[Prism] Index fetch error:', e.message); }
   btn.classList.remove('loading');
 }
@@ -4618,9 +4864,9 @@ document.addEventListener('keydown', e => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
   if (e.target.isContentEditable) return;
 
-  const tabs = ['margin', 'futures', 'options', 'journal', 'guide', 'settings'];
+  const tabs = ['margin', 'futures', 'options', 'crypto', 'journal', 'guide', 'settings'];
   const key = parseInt(e.key);
-  if (key >= 1 && key <= 6) {
+  if (key >= 1 && key <= 7) {
     const tab = tabs[key - 1];
     const tabBtn = $(`.main-tab[data-tab="${tab}"]`);
     if (tabBtn) { tabBtn.click(); e.preventDefault(); }
