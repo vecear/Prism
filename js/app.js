@@ -45,6 +45,8 @@ const INDEX_DEFS = {
   shanghai: { name: '上證指數',  placeholder: '3200',  market: 'cn', region: '亞洲', chart: 'SSE:000001' },
   hsi:      { name: '恆生指數',  placeholder: '20000', market: 'hk', region: '亞洲', chart: 'TVC:HSI' },
   btc:      { name: 'BTC',       placeholder: '85000', market: 'crypto', region: '加密貨幣', chart: 'COINBASE:BTCUSD' },
+  eth:      { name: 'ETH',       placeholder: '3500',  market: 'crypto', region: '加密貨幣', chart: 'COINBASE:ETHUSD' },
+  sol:      { name: 'SOL',       placeholder: '180',   market: 'crypto', region: '加密貨幣', chart: 'COINBASE:SOLUSD' },
 };
 
 // ================================================================
@@ -78,6 +80,7 @@ const PriceService = {
     twse:     { name: 'TWSE 證交所',       desc: '台灣即時報價 (僅台灣市場)',       markets: 'tw',    needsKey: false },
     tpex:     { name: 'TPEX 櫃買中心',     desc: '台灣上櫃即時 (僅台灣上櫃)',       markets: 'tw',    needsKey: false },
     finnhub:  { name: 'Finnhub',           desc: '美國即時 (需免費 API Key)',       markets: 'us',    needsKey: true, keyHint: '至 finnhub.io 免費註冊取得' },
+    binance:  { name: 'Binance',            desc: '加密貨幣即時報價',                markets: 'crypto', needsKey: false },
   },
 
   // ── CME 期貨合約月份解析 ──
@@ -116,7 +119,7 @@ const PriceService = {
 
   // ── Yahoo Finance ──
   yahoo: {
-    INDEX_MAP: { taiex: '^TWII', es: 'ES=F', nq: 'NQ=F', ym: 'YM=F', sox: '^SOX', nkd: 'NKD=F', kospi: '^KS11', shanghai: '000001.SS', hsi: '^HSI', vix: '^VIX', btc: 'BTC-USD' },
+    INDEX_MAP: { taiex: '^TWII', es: 'ES=F', nq: 'NQ=F', ym: 'YM=F', sox: '^SOX', nkd: 'NKD=F', kospi: '^KS11', shanghai: '000001.SS', hsi: '^HSI', vix: '^VIX', btc: 'BTC-USD', eth: 'ETH-USD', sol: 'SOL-USD' },
     async fetchQuote(symbol) {
       const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=1d`;
       const r = await PriceService._proxyFetch(url);
@@ -183,6 +186,19 @@ const PriceService = {
     formatSymbol(code) { return code.trim().toUpperCase(); }
   },
 
+  // ── Binance ──
+  binance: {
+    CRYPTO_MAP: { btc: 'BTCUSDT', eth: 'ETHUSDT', sol: 'SOLUSDT' },
+    async fetchQuote(symbol) {
+      const url = `https://api.binance.com/api/v3/ticker/24hr?symbol=${encodeURIComponent(symbol)}`;
+      const r = await PriceService._proxyFetch(url, 5000);
+      const d = await r.json();
+      if (!d.lastPrice) throw new Error('No data');
+      const price = parseFloat(d.lastPrice), prev = parseFloat(d.prevClosePrice) || price;
+      return { price, prevClose: prev, change: price - prev, changePct: prev ? ((price - prev) / prev * 100) : 0, currency: 'USDT', name: d.symbol };
+    },
+  },
+
   // ────────── ROUTING ──────────
   _getProvider(market) {
     const src = market === 'tw' ? CFG.twSource : CFG.usSource;
@@ -221,6 +237,17 @@ const PriceService = {
     }
 
     const market = INDEX_DEFS[key]?.market || 'us';
+
+    // 加密貨幣：依設定走 Binance 或 Yahoo
+    if (market === 'crypto') {
+      if (CFG.cryptoSource === 'binance' && this.binance.CRYPTO_MAP[key]) {
+        try { return await this.binance.fetchQuote(this.binance.CRYPTO_MAP[key]); }
+        catch { /* fallback Yahoo */ }
+      }
+      if (this.yahoo.INDEX_MAP[key]) return await this.yahoo.fetchQuote(this.yahoo.INDEX_MAP[key]);
+      throw new Error(`不支援: ${key}`);
+    }
+
     const provider = (market === 'tw' || market === 'us') ? this._getProvider(market) : this.yahoo;
     const symbol = provider.INDEX_MAP?.[key];
     if (symbol) {
@@ -760,12 +787,13 @@ const DEFAULT_SETTINGS = {
   theme: 'dark',               // 'dark' | 'light' | 'midnight' | 'emerald' | 'warm'
   autoFetch: true,
   refreshInterval: 10,
-  indices: { taiex: true, txf: true, es: true, nq: true, ym: true, sox: true, nkd: true, kospi: true, shanghai: true, hsi: true, btc: true },
+  indices: { taiex: true, txf: true, es: true, nq: true, ym: true, sox: true, nkd: true, kospi: true, shanghai: true, hsi: true, btc: true, eth: true, sol: true },
   showVix: true,
   showFearGreed: true,
   defaultMarket: 'tw',
   twSource: 'twse',        // 'yahoo' | 'twse' | 'tpex'
   usSource: 'yahoo',       // 'yahoo' | 'finnhub'
+  cryptoSource: 'binance', // 'binance' | 'yahoo'
   finnhubKey: '',
   fontScale: 'm',          // 'xs' | 's' | 'm' | 'l' | 'xl'
   colorMode: 'green-up',   // 'green-up' (綠漲紅跌) | 'red-up' (紅漲綠跌)
@@ -1079,6 +1107,8 @@ const StockDB = {
   }
 };
 window.StockDB = StockDB;
+window.FP = FP;
+window.STOCK_FUTURES_MAP = STOCK_FUTURES;
 
 // ── Builders ──
 function subTabs(prefix, tabs, contents) {
@@ -2463,6 +2493,13 @@ function renderSettings() {
           <input type="text" class="stg-input" id="stg-finnhub-key" value="${CFG.finnhubKey}" placeholder="輸入 API Key" spellcheck="false">
         </div>
         <div class="stg-row">
+          <label>加密貨幣報價來源<span class="stg-hint" id="stg-crypto-desc">${P[CFG.cryptoSource]?.desc || ''}</span></label>
+          <select class="stg-select" id="stg-crypto-source">
+            <option value="binance" ${CFG.cryptoSource === 'binance' ? 'selected' : ''}>Binance</option>
+            <option value="yahoo" ${CFG.cryptoSource === 'yahoo' ? 'selected' : ''}>Yahoo Finance</option>
+          </select>
+        </div>
+        <div class="stg-row">
           <label>自動取得報價<span class="stg-hint">進入頁面時自動查詢</span></label>
           <label class="stg-toggle"><input type="checkbox" id="stg-auto-fetch" ${CFG.autoFetch ? 'checked' : ''}><span class="slider"></span></label>
         </div>
@@ -2635,18 +2672,22 @@ function renderSettings() {
   const syncUI = () => {
     const tw = $('#stg-tw-source')?.value || 'twse';
     const us = $('#stg-us-source')?.value || 'yahoo';
-    const tdesc = $('#stg-tw-desc'), udesc = $('#stg-us-desc'), frow = $('#stg-finnhub-row');
+    const cr = $('#stg-crypto-source')?.value || 'binance';
+    const tdesc = $('#stg-tw-desc'), udesc = $('#stg-us-desc'), cdesc = $('#stg-crypto-desc'), frow = $('#stg-finnhub-row');
     if (tdesc) tdesc.textContent = P[tw]?.desc || '';
     if (udesc) udesc.textContent = P[us]?.desc || '';
+    if (cdesc) cdesc.textContent = P[cr]?.desc || (cr === 'yahoo' ? '全球市場 (透過代理)' : '');
     if (frow) frow.style.display = us === 'finnhub' ? '' : 'none';
   };
   $('#stg-tw-source')?.addEventListener('change', syncUI);
   $('#stg-us-source')?.addEventListener('change', syncUI);
+  $('#stg-crypto-source')?.addEventListener('change', syncUI);
 
   // Bind events — save on every change
   const save = () => {
     CFG.twSource = $('#stg-tw-source')?.value || 'twse';
     CFG.usSource = $('#stg-us-source')?.value || 'yahoo';
+    CFG.cryptoSource = $('#stg-crypto-source')?.value || 'binance';
     CFG.finnhubKey = $('#stg-finnhub-key')?.value?.trim() || '';
     CFG.autoFetch = $('#stg-auto-fetch')?.checked ?? true;
     CFG.refreshInterval = parseInt($('#stg-refresh')?.value || '0', 10);
@@ -4722,6 +4763,21 @@ window._resetSettingsToDefaults = function() {
   window._stgRendered = true;
 };
 
+// ── Commodity Futures (原物料期貨) ──
+const COMMODITY_FUTURES = [
+  { code: 'CL', name: '原油 WTI Crude', mul: 1000, exchange: 'NYMEX', yahoo: 'CL=F' },
+  { code: 'BZ', name: '布蘭特原油 Brent', mul: 1000, exchange: 'NYMEX', yahoo: 'BZ=F' },
+  { code: 'GC', name: '黃金 Gold', mul: 100, exchange: 'COMEX', yahoo: 'GC=F' },
+  { code: 'MGC', name: '微型黃金 Micro Gold', mul: 10, exchange: 'COMEX', yahoo: 'MGC=F' },
+  { code: 'SI', name: '白銀 Silver', mul: 5000, exchange: 'COMEX', yahoo: 'SI=F' },
+  { code: 'HG', name: '銅 Copper', mul: 25000, exchange: 'COMEX', yahoo: 'HG=F' },
+  { code: 'NG', name: '天然氣 Natural Gas', mul: 10000, exchange: 'NYMEX', yahoo: 'NG=F' },
+  { code: 'ZC', name: '玉米 Corn', mul: 50, exchange: 'CBOT', yahoo: 'ZC=F' },
+  { code: 'ZS', name: '黃豆 Soybeans', mul: 50, exchange: 'CBOT', yahoo: 'ZS=F' },
+  { code: 'ZW', name: '小麥 Wheat', mul: 50, exchange: 'CBOT', yahoo: 'ZW=F' },
+];
+window.COMMODITY_FUTURES = COMMODITY_FUTURES;
+
 // ================================================================
 //  CRYPTO FORM
 // ================================================================
@@ -4737,6 +4793,7 @@ const CRYPTO_PAIRS = [
   { symbol: 'LINKUSDT', name: 'Chainlink', base: 'LINK', quote: 'USDT' },
   { symbol: 'SUIUSDT', name: 'Sui', base: 'SUI', quote: 'USDT' },
 ];
+window.CRYPTO_PAIRS = CRYPTO_PAIRS;
 
 function renderCryptoForm() {
   const { mode, direction } = S.crypto;
@@ -4821,10 +4878,17 @@ async function fetchCryptoPrice() {
   const liveEl = $('#c-live-price');
   if (liveEl) liveEl.value = '取得中...';
   try {
-    const url = `https://api.binance.com/api/v3/ticker/price?symbol=${pair}`;
-    const r = await PriceService._proxyFetch(url, 5000);
-    const data = await r.json();
-    const price = parseFloat(data.price);
+    let price;
+    if (CFG.cryptoSource === 'yahoo') {
+      const base = pair.replace(/USDT$/i, '');
+      const q = await PriceService.yahoo.fetchQuote(base + '-USD');
+      price = q.price;
+    } else {
+      const url = `https://api.binance.com/api/v3/ticker/price?symbol=${pair}`;
+      const r = await PriceService._proxyFetch(url, 5000);
+      const data = await r.json();
+      price = parseFloat(data.price);
+    }
     if (liveEl) liveEl.value = price;
     // Auto-fill entry if empty
     const entryEl = $('#c-entry');
@@ -5042,7 +5106,7 @@ window._getCalcParamsForRecord = function(tab) {
     if (symbol) params.symbol = symbol;
   } else if (tab === 'futures') {
     params.market = S.futures.market;
-    params.type = 'futures';
+    params.type = S.futures.product === 'stock' ? 'stock_futures' : 'index_futures';
     const entry = gV('f-entry');
     const qty = gV('f-qty');
     if (entry) params.entry_price = entry;
@@ -5056,7 +5120,7 @@ window._getCalcParamsForRecord = function(tab) {
     if (qty) params.quantity = qty;
   } else if (tab === 'crypto') {
     params.market = 'crypto';
-    params.type = S.crypto.mode === 'perp' ? 'futures' : 'stock';
+    params.type = S.crypto.mode === 'perp' ? 'crypto_contract' : 'stock';
     const entry = gV('c-entry');
     const qty = gV('c-qty');
     if (entry) params.entry_price = entry;
