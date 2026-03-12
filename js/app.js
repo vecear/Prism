@@ -1353,19 +1353,14 @@ function _updateTickerTime(results) {
     if (q && !q.error && q.sourceTime && q.sourceTime > latestSrc) latestSrc = q.sourceTime;
   }
   const now = new Date().toLocaleTimeString('zh-TW', tFmt);
-  let timeHtml;
   if (latestSrc) {
     const src = new Date(latestSrc).toLocaleTimeString('zh-TW', tFmt);
-    timeHtml = `<span>報價 ${src}</span><span>抓取 ${now}</span>`;
+    timeEl.innerHTML = `<span>報價 ${src}</span><span>抓取 ${now}</span>`;
   } else {
     const lastT = _quoteCache.lastIndexTime();
     const fetchT = lastT ? new Date(lastT).toLocaleTimeString('zh-TW', tFmt) : now;
-    timeHtml = `<span>抓取 ${fetchT}</span>`;
+    timeEl.innerHTML = `<span>抓取 ${fetchT}</span>`;
   }
-  timeEl.innerHTML = timeHtml;
-  // Sync to sentiment refresh card
-  const sentTime = $('.sent-refresh-time');
-  if (sentTime) sentTime.innerHTML = timeHtml;
 }
 
 // ================================================================
@@ -1536,20 +1531,7 @@ function _renderSentimentStrip() {
     </a>`;
   }
 
-  // Refresh card (mobile: blends into grid as a gauge)
-  const timeEl = $('#ticker-time');
-  const timeHtml = timeEl ? timeEl.innerHTML : '';
-  const isLoading = $('#btn-fetch-indices')?.classList.contains('loading');
-  html += `<button class="sent-gauge sent-refresh-card" id="sent-refresh-card" title="更新報價" ${isLoading ? 'disabled' : ''}>
-    <div class="sent-top"><span class="sent-label">報價更新</span><svg class="sent-refresh-icon${isLoading ? ' loading' : ''}" viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 4v6h6"/><path d="M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg></div>
-    <div class="sent-bottom sent-refresh-time">${timeHtml}</div>
-  </button>`;
-
   strip.innerHTML = html;
-
-  // Bind refresh card click
-  const refreshCard = $('#sent-refresh-card');
-  if (refreshCard) refreshCard.addEventListener('click', () => handleFetchIndices(true));
 }
 
 async function _fetchFearGreed() {
@@ -3133,10 +3115,6 @@ async function handleFetchIndices(updateForms) {
   const btn = $('#btn-fetch-indices');
   if (!btn || btn.classList.contains('loading')) return;
   btn.classList.add('loading');
-  const sentCard = $('#sent-refresh-card');
-  const sentIcon = sentCard?.querySelector('.sent-refresh-icon');
-  if (sentCard) sentCard.disabled = true;
-  if (sentIcon) sentIcon.classList.add('loading');
 
   try {
     const results = await PriceService.fetchAllIndices();
