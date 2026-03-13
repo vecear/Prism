@@ -1641,13 +1641,13 @@ function renderHoldings() {
     }, 0);
     const qk = getLiveQuoteKey(g.trades[0]);
     const lq = liveQuotes[qk];
-    let unrealized = 0, currentPrice = null, hasQuote = false, currentNotional = 0;
+    let unrealized = 0, grossUnrealized = 0, currentPrice = null, hasQuote = false, currentNotional = 0;
     if (lq && lq.price) {
       currentPrice = lq.price;
       hasQuote = true;
       g.trades.forEach(t => {
         const upl = calcUnrealizedPL(t, lq.price);
-        if (upl) unrealized += upl.net;
+        if (upl) { unrealized += upl.net; grossUnrealized += upl.gross; }
         const q = parseFloat(t.quantity) || 0;
         const rawMul = parseFloat(t.contractMul);
         const mul = (isFuturesType(t.type) || t.type === 'options') ? (isNaN(rawMul) || rawMul === 0 ? 1 : rawMul) : 1;
@@ -1659,7 +1659,7 @@ function renderHoldings() {
     const dates = g.trades.map(t => t.date).filter(Boolean).sort();
     const firstDate = dates[0] || '';
     const lastDate = dates[dates.length - 1] || '';
-    return { ...g, totalQty, avgEntry, totalNotional, currentNotional, currentPrice, hasQuote, unrealized, totalFee, qk, firstDate, lastDate };
+    return { ...g, totalQty, avgEntry, totalNotional, currentNotional, currentPrice, hasQuote, unrealized, grossUnrealized, totalFee, qk, firstDate, lastDate };
   });
 
   // Sort by unrealized P&L (worst first for risk awareness), or by symbol if no quotes
@@ -1682,10 +1682,10 @@ function renderHoldings() {
   const mktKeys = Object.keys(uplByMkt);
   const uplSummary = mktKeys.map(m => `<strong class="${uplByMkt[m] >= 0 ? 'tg' : 'tr'}">${fmtMoney(uplByMkt[m], m)}</strong>`).join(' ');
 
-  let h = `<div class="j-summary-bar"><span>持倉 <strong>${openTrades.length}</strong> 筆（<strong>${groupList.length}</strong> 檔商品）</span>${mktKeys.length ? `<span>未實現損益：${uplSummary}</span>` : ''}</div>`;
+  let h = `<div class="j-summary-bar"><span>持倉 <strong>${openTrades.length}</strong> 筆（<strong>${groupList.length}</strong> 檔商品）</span>${mktKeys.length ? `<span>未實現淨損益：${uplSummary}</span>` : ''}</div>`;
 
   // Desktop: holdings table
-  h += `<div class="j-table-wrap"><table class="j-table j-holdings-table"><thead><tr><th>商品</th><th>方向</th><th>數量</th><th>均價</th><th>現價</th><th>成本 / 市值</th><th>未實現損益</th><th>筆數</th><th></th></tr></thead><tbody>`;
+  h += `<div class="j-table-wrap"><table class="j-table j-holdings-table"><thead><tr><th>商品</th><th>方向</th><th>數量</th><th>均價</th><th>現價</th><th>成本 / 市值</th><th>未實現淨損益</th><th>筆數</th><th></th></tr></thead><tbody>`;
   for (const g of groupList) {
     const plC = g.hasQuote ? (g.unrealized > 0 ? 'tg' : g.unrealized < 0 ? 'tr' : '') : 'tm';
     const plStr = g.hasQuote ? fmtMoney(g.unrealized, g.market) : '—';
@@ -1702,25 +1702,31 @@ function renderHoldings() {
       <td class="j-td-num">${fmtPrice(g.avgEntry, g.market, g.type)}</td>
       <td class="j-td-num">${cpStr}</td>
       <td class="j-td-num"><div>${costStr}</div>${g.hasQuote ? `<div class="${plC}" style="font-size:.72rem">${mktValStr}</div>` : ''}</td>
-      <td class="j-td-num ${plC}">${plStr}${chgStr}</td>
+      <td class="j-td-num ${plC}"><div>${plStr}${chgStr}</div>${g.hasQuote ? `<div style="font-size:.68rem;color:var(--t3)">(${fmtMoney(g.totalFee, g.market)} / ${fmtMoney(g.grossUnrealized, g.market)})</div>` : ''}</td>
       <td class="j-td-num">${g.trades.length}</td>
       <td class="j-td-actions"><div class="j-actions-wrap"><button class="j-act-btn j-hld-expand" data-key="${esc(g.symbol)}|${g.market}|${g.direction}" title="展開明細"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></button></div></td>
     </tr>`;
     // Hidden detail rows (individual trades)
     for (const t of g.trades) {
-      let tPlStr = '—', tPlC = 'tm';
+      let tPlStr = '—', tPlC = 'tm', tGrossStr = '', tFeeTotal = 0;
       if (g.hasQuote) {
         const upl = calcUnrealizedPL(t, g.currentPrice);
-        if (upl) { tPlStr = fmtMoney(upl.net, t.market); tPlC = upl.net > 0 ? 'tg' : upl.net < 0 ? 'tr' : ''; }
+        if (upl) { tPlStr = fmtMoney(upl.net, t.market); tPlC = upl.net > 0 ? 'tg' : upl.net < 0 ? 'tr' : ''; tGrossStr = fmtMoney(upl.gross, t.market); }
       }
+      tFeeTotal = (parseFloat(t.fee) || 0) + (parseFloat(t.tax) || 0);
+      const tQ = parseFloat(t.quantity) || 0;
+      const tRawMul = parseFloat(t.contractMul);
+      const tMul = (isFuturesType(t.type) || t.type === 'options') ? (isNaN(tRawMul) || tRawMul === 0 ? 1 : tRawMul) : 1;
+      const tCost = (parseFloat(t.entryPrice) || 0) * tQ * tMul;
+      const tMktVal = g.hasQuote ? g.currentPrice * tQ * tMul : null;
       h += `<tr class="j-holding-detail" data-parent="${esc(g.symbol)}|${g.market}|${g.direction}" style="display:none">
         <td class="j-td-date" style="padding-left:28px">${fmtDate(t.date)}</td>
         <td></td>
         <td class="j-td-num">${t.quantity || '—'}</td>
         <td class="j-td-num">${fmtPrice(parseFloat(t.entryPrice), t.market, t.type)}</td>
         <td class="j-td-num">${g.currentPrice != null ? fmtPrice(g.currentPrice, g.market, g.type) : '—'}</td>
-        <td></td>
-        <td class="j-td-num ${tPlC}">${tPlStr}</td>
+        <td class="j-td-num"><div>${fmtMoney(tCost, t.market)}</div>${tMktVal != null ? `<div class="${tPlC}" style="font-size:.72rem">${fmtMoney(tMktVal, t.market)}</div>` : ''}</td>
+        <td class="j-td-num ${tPlC}"><div>${tPlStr}</div>${g.hasQuote ? `<div style="font-size:.68rem;color:var(--t3)">(${fmtMoney(tFeeTotal, t.market)} / ${tGrossStr})</div>` : ''}</td>
         <td></td>
         <td class="j-td-actions"><div class="j-actions-wrap">${`<button class="j-act-btn j-act-close" data-id="${t.id}" title="平倉"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></button><button class="j-act-btn j-act-edit" data-id="${t.id}" title="編輯"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button><button class="j-act-btn j-act-del" data-id="${t.id}" title="刪除"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button>`}</div></td>
       </tr>`;
@@ -1762,18 +1768,24 @@ function renderHoldings() {
           <div class="j-card-field"><span class="j-card-label">現價</span><span class="j-card-val">${cpStr}</span></div>
           <div class="j-card-field"><span class="j-card-label">成本</span><span class="j-card-val">${fmtMoney(g.totalNotional, g.market)}</span></div>
           <div class="j-card-field"><span class="j-card-label">市值</span><span class="j-card-val">${g.hasQuote ? fmtMoney(g.currentNotional, g.market) : '—'}</span></div>
-          <div class="j-card-field"><span class="j-card-label">未實現損益</span><span class="j-card-val ${plC}">${plStr}${chgStr}</span></div>
-          <div class="j-card-field"><span class="j-card-label">手續費+稅</span><span class="j-card-val">${fmtMoney(g.totalFee, g.market)}</span></div>
+          <div class="j-card-field"><span class="j-card-label">未實現淨損益</span><span class="j-card-val ${plC}">${plStr}${chgStr}${g.hasQuote ? `<div style="font-size:.68rem;color:var(--t3)">(${fmtMoney(g.totalFee, g.market)} / ${fmtMoney(g.grossUnrealized, g.market)})</div>` : ''}</span></div>
           <div class="j-card-field"><span class="j-card-label">建倉期間</span><span class="j-card-val">${g.trades.length > 1 ? fmtDate(g.firstDate) + ' ~ ' + fmtDate(g.lastDate) : fmtDate(g.firstDate)}</span></div>
         </div>
         <div class="j-holding-sub-trades">
         ${g.trades.map(t => {
-          let tPlStr = '—', tPlC = 'tm';
-          if (g.hasQuote) { const upl = calcUnrealizedPL(t, g.currentPrice); if (upl) { tPlStr = fmtMoney(upl.net, t.market); tPlC = upl.net > 0 ? 'tg' : upl.net < 0 ? 'tr' : ''; } }
+          let tPlStr = '—', tPlC = 'tm', tGrossStr = '', tFeeTotal = 0;
+          if (g.hasQuote) { const upl = calcUnrealizedPL(t, g.currentPrice); if (upl) { tPlStr = fmtMoney(upl.net, t.market); tPlC = upl.net > 0 ? 'tg' : upl.net < 0 ? 'tr' : ''; tGrossStr = fmtMoney(upl.gross, t.market); } }
+          tFeeTotal = (parseFloat(t.fee) || 0) + (parseFloat(t.tax) || 0);
+          const tQ = parseFloat(t.quantity) || 0;
+          const tRawMul = parseFloat(t.contractMul);
+          const tMul = (isFuturesType(t.type) || t.type === 'options') ? (isNaN(tRawMul) || tRawMul === 0 ? 1 : tRawMul) : 1;
+          const tCost = (parseFloat(t.entryPrice) || 0) * tQ * tMul;
+          const tMktVal = g.hasQuote ? g.currentPrice * tQ * tMul : null;
           return `<div class="j-holding-sub-row">
             <span class="j-card-date">${fmtDate(t.date)}</span>
             <span>${fmtPrice(parseFloat(t.entryPrice), t.market, t.type)} × ${t.quantity || '—'}</span>
-            <span class="${tPlC}">${tPlStr}</span>
+            <span style="font-size:.72rem">成本 ${fmtMoney(tCost, t.market)}${tMktVal != null ? ` / 市值 ${fmtMoney(tMktVal, t.market)}` : ''}</span>
+            <span class="${tPlC}">${tPlStr}${g.hasQuote ? `<div style="font-size:.68rem;color:var(--t3)">(${fmtMoney(tFeeTotal, t.market)} / ${tGrossStr})</div>` : ''}</span>
             <span class="j-holding-sub-actions">
               <button class="j-act-btn j-act-close" data-id="${t.id}" title="平倉"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></button>
               <button class="j-act-btn j-act-edit" data-id="${t.id}" title="編輯"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
