@@ -1685,7 +1685,7 @@ function renderHoldings() {
   let h = `<div class="j-summary-bar"><span>持倉 <strong>${openTrades.length}</strong> 筆（<strong>${groupList.length}</strong> 檔商品）</span>${mktKeys.length ? `<span>未實現淨損益：${uplSummary}</span>` : ''}</div>`;
 
   // Desktop: holdings table
-  h += `<div class="j-table-wrap"><table class="j-table j-holdings-table"><thead><tr><th>商品</th><th>方向</th><th>數量</th><th>均價</th><th>現價</th><th>成本 / 市值</th><th>未實現淨損益</th><th>筆數</th><th></th></tr></thead><tbody>`;
+  h += `<div class="j-table-wrap"><table class="j-table j-holdings-table"><thead><tr><th>商品</th><th>方向</th><th>數量</th><th>均價</th><th>現價</th><th>成本 / 市值</th><th>未實現淨損益<div style="font-size:.65rem;font-weight:400;color:var(--t3)">(交易成本 / 原損益)</div></th><th>筆數</th><th></th></tr></thead><tbody>`;
   for (const g of groupList) {
     const plC = g.hasQuote ? (g.unrealized > 0 ? 'tg' : g.unrealized < 0 ? 'tr' : '') : 'tm';
     const plStr = g.hasQuote ? fmtMoney(g.unrealized, g.market) : '—';
