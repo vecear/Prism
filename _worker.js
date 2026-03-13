@@ -6,6 +6,7 @@ let dbInitPromise = null;
 async function ensureDB(db) {
   if (!dbInitPromise) {
     dbInitPromise = (async () => {
+      try {
       await db.batch([
         db.prepare("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, salt TEXT NOT NULL, created_at TEXT DEFAULT (datetime('now')))"),
         db.prepare("CREATE TABLE IF NOT EXISTS trades (id TEXT PRIMARY KEY, user_id INTEGER NOT NULL, date TEXT NOT NULL, market TEXT NOT NULL DEFAULT 'tw', type TEXT NOT NULL DEFAULT 'stock', symbol TEXT NOT NULL DEFAULT '', name TEXT NOT NULL DEFAULT '', direction TEXT NOT NULL DEFAULT 'long', status TEXT NOT NULL DEFAULT 'open', entry_price REAL, exit_price REAL, quantity REAL, contract_mul REAL, stop_loss REAL, take_profit REAL, fee REAL DEFAULT 0, tax REAL DEFAULT 0, tags TEXT DEFAULT '[]', notes TEXT DEFAULT '', created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')), FOREIGN KEY (user_id) REFERENCES users(id))"),
@@ -40,15 +41,21 @@ async function ensureDB(db) {
       try {
         await db.prepare("CREATE TABLE IF NOT EXISTS app_state (user_id INTEGER PRIMARY KEY, data TEXT NOT NULL DEFAULT '{}', updated_at TEXT DEFAULT (datetime('now')), FOREIGN KEY (user_id) REFERENCES users(id))").run();
       } catch {}
+      // v11 migration: indexes for trades table performance
+      try { await db.prepare("CREATE INDEX IF NOT EXISTS idx_trades_user_id ON trades(user_id)").run(); } catch {}
+      try { await db.prepare("CREATE INDEX IF NOT EXISTS idx_trades_user_date ON trades(user_id, date DESC)").run(); } catch {}
+      } catch (e) {
+        dbInitPromise = null;
+        throw e;
+      }
     })();
   }
   return dbInitPromise;
 }
 
 // ── CORS ──
-let _currentRequest = null;
 function corsHeaders(request) {
-  const req = request || _currentRequest;
+  const req = request;
   const origin = req?.headers?.get('Origin') || '';
   const allowed = ['https://prism-7t8.pages.dev', 'http://localhost:8788', 'http://127.0.0.1:8788', 'http://localhost:3000', 'http://127.0.0.1:3000'];
   const allowOrigin = allowed.includes(origin) ? origin : allowed[0];
@@ -140,7 +147,15 @@ async function verifyPassword(password, hash, saltHex) {
   const salt = hexToBuf(saltHex);
   const key = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']);
   const derived = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' }, key, 256);
-  return bufToHex(derived) === hash;
+  // Constant-time comparison via HMAC to prevent timing side-channel
+  const cmpKey = await crypto.subtle.generateKey({ name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const sig1 = await crypto.subtle.sign('HMAC', cmpKey, new TextEncoder().encode(bufToHex(derived)));
+  const sig2 = await crypto.subtle.sign('HMAC', cmpKey, new TextEncoder().encode(hash));
+  const a = new Uint8Array(sig1), b = new Uint8Array(sig2);
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
+  return diff === 0;
 }
 
 function getJwtSecret(env) {
@@ -506,7 +521,6 @@ async function handleMigrateTrades(request, env) {
 // ── Router ──
 export default {
   async fetch(request, env, ctx) {
-    _currentRequest = request;
     const url = new URL(request.url);
     const path = url.pathname;
     const method = request.method;

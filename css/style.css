@@ -229,7 +229,6 @@ body{font-family:var(--sans);background:var(--bg0);color:var(--t1);line-height:1
 
 /* ── Fee grid (2-col on desktop) ── */
 .stg-fee-cols{display:grid;grid-template-columns:1fr 1fr;gap:0 20px}
-.stg-fee-col{}
 
 /* ── Theme Picker ── */
 .stg-theme-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;padding:2px 0}
@@ -879,11 +878,6 @@ input[type="number"]{-moz-appearance:textfield}
 .j-td-tags-inline{display:flex;flex-wrap:wrap;gap:2px;margin-top:4px;justify-content:center}
 .j-td-actions .j-actions-wrap{display:flex;gap:3px;justify-content:center}
 
-/* ── Badges ── */
-.j-badge{display:inline-block;padding:2px 6px;border-radius:3px;font-size:.72rem;font-weight:600}
-.j-badge-tw{background:rgba(0,180,216,.12);color:var(--accent)}
-.j-badge-us{background:rgba(124,77,255,.12);color:#b388ff}
-.j-badge-crypto{background:rgba(255,167,38,.12);color:#ffb74d}
 .j-badge-type{background:var(--bg3);color:var(--t2)}
 .j-dir-long{color:var(--green);font-weight:600;font-size:.78rem}
 .j-dir-short{color:var(--red);font-weight:600;font-size:.78rem}
