@@ -1766,10 +1766,9 @@ function renderHoldings() {
           <div class="j-card-field"><span class="j-card-label">總數量</span><span class="j-card-val">${fmtNum(g.totalQty, g.totalQty % 1 ? 4 : 0)}</span></div>
           <div class="j-card-field"><span class="j-card-label">均價</span><span class="j-card-val">${fmtPrice(g.avgEntry, g.market, g.type)}</span></div>
           <div class="j-card-field"><span class="j-card-label">現價</span><span class="j-card-val">${cpStr}</span></div>
-          <div class="j-card-field"><span class="j-card-label">成本</span><span class="j-card-val">${fmtMoney(g.totalNotional, g.market)}</span></div>
-          <div class="j-card-field"><span class="j-card-label">市值</span><span class="j-card-val">${g.hasQuote ? fmtMoney(g.currentNotional, g.market) : '—'}</span></div>
-          <div class="j-card-field"><span class="j-card-label">未實現淨損益</span><span class="j-card-val ${plC}">${plStr}${chgStr}${g.hasQuote ? `<div style="font-size:.68rem;color:var(--t3)">(${fmtMoney(g.totalFee, g.market)} / ${fmtMoney(g.grossUnrealized, g.market)})</div>` : ''}</span></div>
           <div class="j-card-field"><span class="j-card-label">建倉期間</span><span class="j-card-val">${g.trades.length > 1 ? fmtDate(g.firstDate) + ' ~ ' + fmtDate(g.lastDate) : fmtDate(g.firstDate)}</span></div>
+          <div class="j-card-field j-card-field-wide"><span class="j-card-label">成本 / 市值</span><span class="j-card-val">${fmtMoney(g.totalNotional, g.market)} / ${g.hasQuote ? fmtMoney(g.currentNotional, g.market) : '—'}</span></div>
+          <div class="j-card-field j-card-field-wide"><span class="j-card-label">未實現淨損益</span><span class="j-card-val ${plC}">${plStr}${chgStr}${g.hasQuote ? ` <span style="font-size:.68rem;color:var(--t3)">(交易成本 ${fmtMoney(g.totalFee, g.market)} / 原損益 ${fmtMoney(g.grossUnrealized, g.market)})</span>` : ''}</span></div>
         </div>
         <div class="j-holding-sub-trades">
         ${g.trades.map(t => {
@@ -1781,16 +1780,20 @@ function renderHoldings() {
           const tMul = (isFuturesType(t.type) || t.type === 'options') ? (isNaN(tRawMul) || tRawMul === 0 ? 1 : tRawMul) : 1;
           const tCost = (parseFloat(t.entryPrice) || 0) * tQ * tMul;
           const tMktVal = g.hasQuote ? g.currentPrice * tQ * tMul : null;
-          return `<div class="j-holding-sub-row">
-            <span class="j-card-date">${fmtDate(t.date)}</span>
-            <span>${fmtPrice(parseFloat(t.entryPrice), t.market, t.type)} × ${t.quantity || '—'}</span>
-            <span style="font-size:.72rem">成本 ${fmtMoney(tCost, t.market)}${tMktVal != null ? ` / 市值 ${fmtMoney(tMktVal, t.market)}` : ''}</span>
-            <span class="${tPlC}">${tPlStr}${g.hasQuote ? `<div style="font-size:.68rem;color:var(--t3)">(${fmtMoney(tFeeTotal, t.market)} / ${tGrossStr})</div>` : ''}</span>
-            <span class="j-holding-sub-actions">
-              <button class="j-act-btn j-act-close" data-id="${t.id}" title="平倉"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></button>
-              <button class="j-act-btn j-act-edit" data-id="${t.id}" title="編輯"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
-              <button class="j-act-btn j-act-del" data-id="${t.id}" title="刪除"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button>
-            </span>
+          return `<div class="j-holding-sub-card">
+            <div class="j-sub-card-header">
+              <span class="j-card-date">${fmtDate(t.date)}</span>
+              <span class="j-holding-sub-actions">
+                <button class="j-act-btn j-act-close" data-id="${t.id}" title="平倉"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></button>
+                <button class="j-act-btn j-act-edit" data-id="${t.id}" title="編輯"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+                <button class="j-act-btn j-act-del" data-id="${t.id}" title="刪除"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button>
+              </span>
+            </div>
+            <div class="j-sub-card-body">
+              <div class="j-sub-card-row"><span class="j-sub-label">進場</span><span>${fmtPrice(parseFloat(t.entryPrice), t.market, t.type)} × ${t.quantity || '—'}</span></div>
+              <div class="j-sub-card-row"><span class="j-sub-label">成本 / 市值</span><span>${fmtMoney(tCost, t.market)}${tMktVal != null ? ` / ${fmtMoney(tMktVal, t.market)}` : ''}</span></div>
+              <div class="j-sub-card-row"><span class="j-sub-label">淨損益</span><span class="${tPlC}">${tPlStr}${g.hasQuote ? ` <span style="font-size:.68rem;color:var(--t3)">(${fmtMoney(tFeeTotal, t.market)} / ${tGrossStr})</span>` : ''}</span></div>
+            </div>
           </div>`;
         }).join('')}
         </div>
