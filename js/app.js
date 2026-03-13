@@ -860,15 +860,26 @@ const DEFAULT_SETTINGS = {
   fontScale: 'm',          // 'xs' | 's' | 'm' | 'l' | 'xl'
   colorMode: 'green-up',   // 'green-up' (綠漲紅跌) | 'red-up' (紅漲綠跌)
   // 台灣股票
-  twFeeDisc: '0.5',        // 手續費折扣
-  twTaxRate: '0.003',      // 證交稅率
+  twFeeDisc: '0.5',        // 股票手續費折扣
+  twTaxRate: '0.003',      // 股票證交稅率
+  // 台灣 ETF
+  twEtfFeeDisc: '0.5',     // ETF 手續費折扣
+  twEtfTaxRate: '0.001',   // ETF 證交稅率
   // 美國股票
   usComm: '0',             // Commission per trade
+  // 美國 ETF
+  usEtfComm: '0',          // ETF Commission per trade
   // 台灣期貨
-  twFutComm: '60',         // 指數期貨手續費 (元/口)
-  twStkFutComm: '40',      // 股票期貨手續費 (元/口)
+  twTxComm: '60',           // 大台手續費 (元/口)
+  twMtxComm: '30',          // 小台手續費 (元/口)
+  twMxfComm: '16',          // 微台手續費 (元/口)
+  twFutComm: '60',          // 其他指數期貨手續費 (元/口)
+  twFutTaxRate: '0.00002',  // 指數期貨期交稅率
+  twStkFutComm: '40',       // 股票期貨手續費 (元/口)
+  twStkFutTaxRate: '0.00002', // 股票期貨期交稅率
   // 台灣選擇權
   twOptComm: '25',         // 選擇權手續費 (元/口)
+  twOptTaxRate: '0.001',   // 選擇權期交稅率 (千分之一，以權利金計算)
   // 美國期貨
   usFutComm: '2.25',       // 期貨 Commission (USD/口)
   // 美國選擇權
@@ -3029,36 +3040,74 @@ function renderSettings() {
       <div class="stg-group open">
         <div class="stg-group-title"><span><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>台灣</span>${_chevron}</div>
         <div class="stg-group-body">
-          <div class="stg-sub-label">股票 / ETF</div>
+          <div class="stg-sub-label">股票</div>
           <div class="stg-row">
             <label>手續費折扣</label>
             <select class="stg-select" id="stg-tw-fee-disc">
-              <option value="1" ${CFG.twFeeDisc === '1' ? 'selected' : ''}>全額 0.1425%</option>
-              <option value="0.6" ${CFG.twFeeDisc === '0.6' ? 'selected' : ''}>6折</option>
-              <option value="0.5" ${CFG.twFeeDisc === '0.5' ? 'selected' : ''}>5折</option>
-              <option value="0.38" ${CFG.twFeeDisc === '0.38' ? 'selected' : ''}>3.8折</option>
-              <option value="0.28" ${CFG.twFeeDisc === '0.28' ? 'selected' : ''}>2.8折</option>
-              <option value="0" ${CFG.twFeeDisc === '0' ? 'selected' : ''}>免手續費</option>
+              ${['1','0.6','0.5','0.38','0.28','0.2','0'].map(v => {
+                const lb = v === '1' ? '全額 0.1425%' : v === '0' ? '免手續費' : (parseFloat(v)*10)+'折';
+                return `<option value="${v}" ${CFG.twFeeDisc === v ? 'selected' : ''}>${lb}</option>`;
+              }).join('')}
             </select>
           </div>
           <div class="stg-row">
             <label>證交稅率</label>
             <select class="stg-select" id="stg-tw-tax-rate">
-              <option value="0.003" ${CFG.twTaxRate === '0.003' ? 'selected' : ''}>0.3% 股票</option>
-              <option value="0.001" ${CFG.twTaxRate === '0.001' ? 'selected' : ''}>0.1% ETF</option>
-              <option value="0.0015" ${CFG.twTaxRate === '0.0015' ? 'selected' : ''}>0.15% 當沖</option>
+              <option value="0.003" ${CFG.twTaxRate === '0.003' ? 'selected' : ''}>0.3%</option>
+              <option value="0.0015" ${CFG.twTaxRate === '0.0015' ? 'selected' : ''}>0.15% (當沖)</option>
             </select>
           </div>
           <div class="stg-dec-row"><label>價格位數</label><input type="number" class="stg-input stg-dec-input" id="stg-dec-tw" value="${CFG.priceDecTw}" min="0" max="10" step="1" placeholder="2"><label class="stg-toggle-label"><input type="checkbox" id="stg-dec-tw-round" ${CFG.priceDecTwRound?'checked':''}> 四捨五入</label><label class="stg-toggle-label"><input type="checkbox" id="stg-dec-tw-trim" ${CFG.priceDecTwTrim?'checked':''}> 去尾 0</label></div>
 
-          <div class="stg-sub-label">期貨</div>
+          <div class="stg-sub-label">ETF</div>
           <div class="stg-row">
-            <label>指數期貨<span class="stg-hint">NT$/口</span></label>
+            <label>手續費折扣</label>
+            <select class="stg-select" id="stg-tw-etf-fee-disc">
+              ${['1','0.6','0.5','0.38','0.28','0.2','0'].map(v => {
+                const lb = v === '1' ? '全額 0.1425%' : v === '0' ? '免手續費' : (parseFloat(v)*10)+'折';
+                return `<option value="${v}" ${CFG.twEtfFeeDisc === v ? 'selected' : ''}>${lb}</option>`;
+              }).join('')}
+            </select>
+          </div>
+          <div class="stg-row">
+            <label>證交稅率</label>
+            <select class="stg-select" id="stg-tw-etf-tax-rate">
+              <option value="0.001" ${CFG.twEtfTaxRate === '0.001' ? 'selected' : ''}>0.1%</option>
+              <option value="0.003" ${CFG.twEtfTaxRate === '0.003' ? 'selected' : ''}>0.3%</option>
+              <option value="0" ${CFG.twEtfTaxRate === '0' ? 'selected' : ''}>免稅</option>
+            </select>
+          </div>
+
+          <div class="stg-sub-label">指數期貨</div>
+          <div class="stg-row">
+            <label>大台 (TX)<span class="stg-hint">NT$/口</span></label>
+            <input type="number" class="stg-input" id="stg-tw-tx-comm" value="${CFG.twTxComm}" step="any" min="0" placeholder="60">
+          </div>
+          <div class="stg-row">
+            <label>小台 (MTX)<span class="stg-hint">NT$/口</span></label>
+            <input type="number" class="stg-input" id="stg-tw-mtx-comm" value="${CFG.twMtxComm}" step="any" min="0" placeholder="30">
+          </div>
+          <div class="stg-row">
+            <label>微台 (MXF)<span class="stg-hint">NT$/口</span></label>
+            <input type="number" class="stg-input" id="stg-tw-mxf-comm" value="${CFG.twMxfComm}" step="any" min="0" placeholder="16">
+          </div>
+          <div class="stg-row">
+            <label>其他指數期貨<span class="stg-hint">NT$/口</span></label>
             <input type="number" class="stg-input" id="stg-tw-fut-comm" value="${CFG.twFutComm}" step="any" min="0" placeholder="60">
           </div>
           <div class="stg-row">
-            <label>股票期貨<span class="stg-hint">NT$/口</span></label>
+            <label>期交稅率</label>
+            <input type="number" class="stg-input" id="stg-tw-fut-tax-rate" value="${CFG.twFutTaxRate}" step="any" min="0" placeholder="0.00002">
+          </div>
+
+          <div class="stg-sub-label">股票期貨</div>
+          <div class="stg-row">
+            <label>手續費<span class="stg-hint">NT$/口</span></label>
             <input type="number" class="stg-input" id="stg-tw-stk-fut-comm" value="${CFG.twStkFutComm}" step="any" min="0" placeholder="40">
+          </div>
+          <div class="stg-row">
+            <label>期交稅率</label>
+            <input type="number" class="stg-input" id="stg-tw-stk-fut-tax-rate" value="${CFG.twStkFutTaxRate}" step="any" min="0" placeholder="0.00002">
           </div>
           <div class="stg-dec-row"><label>價格位數</label><input type="number" class="stg-input stg-dec-input" id="stg-dec-tw-fut" value="${CFG.priceDecTwFut}" min="0" max="10" step="1" placeholder="0"><label class="stg-toggle-label"><input type="checkbox" id="stg-dec-tw-fut-round" ${CFG.priceDecTwFutRound?'checked':''}> 四捨五入</label><label class="stg-toggle-label"><input type="checkbox" id="stg-dec-tw-fut-trim" ${CFG.priceDecTwFutTrim?'checked':''}> 去尾 0</label></div>
 
@@ -3067,6 +3116,10 @@ function renderSettings() {
             <label>手續費<span class="stg-hint">NT$/口</span></label>
             <input type="number" class="stg-input" id="stg-tw-opt-comm" value="${CFG.twOptComm}" step="any" min="0" placeholder="25">
           </div>
+          <div class="stg-row">
+            <label>期交稅率</label>
+            <input type="number" class="stg-input" id="stg-tw-opt-tax-rate" value="${CFG.twOptTaxRate}" step="any" min="0" placeholder="0.001">
+          </div>
           <div class="stg-dec-row"><label>價格位數</label><input type="number" class="stg-input stg-dec-input" id="stg-dec-tw-opt" value="${CFG.priceDecTwOpt}" min="0" max="10" step="1" placeholder="1"><label class="stg-toggle-label"><input type="checkbox" id="stg-dec-tw-opt-round" ${CFG.priceDecTwOptRound?'checked':''}> 四捨五入</label><label class="stg-toggle-label"><input type="checkbox" id="stg-dec-tw-opt-trim" ${CFG.priceDecTwOptTrim?'checked':''}> 去尾 0</label></div>
         </div>
       </div>
@@ -3074,10 +3127,16 @@ function renderSettings() {
       <div class="stg-group">
         <div class="stg-group-title"><span><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>美國</span>${_chevron}</div>
         <div class="stg-group-body">
-          <div class="stg-sub-label">股票 / ETF</div>
+          <div class="stg-sub-label">股票</div>
           <div class="stg-row">
             <label>Commission<span class="stg-hint">USD/筆</span></label>
             <input type="number" class="stg-input" id="stg-us-comm" value="${CFG.usComm}" step="any" min="0" placeholder="0">
+          </div>
+
+          <div class="stg-sub-label">ETF</div>
+          <div class="stg-row">
+            <label>Commission<span class="stg-hint">USD/筆</span></label>
+            <input type="number" class="stg-input" id="stg-us-etf-comm" value="${CFG.usEtfComm}" step="any" min="0" placeholder="0">
           </div>
           <div class="stg-dec-row"><label>價格位數</label><input type="number" class="stg-input stg-dec-input" id="stg-dec-us" value="${CFG.priceDecUs}" min="0" max="10" step="1" placeholder="3"><label class="stg-toggle-label"><input type="checkbox" id="stg-dec-us-round" ${CFG.priceDecUsRound?'checked':''}> 四捨五入</label><label class="stg-toggle-label"><input type="checkbox" id="stg-dec-us-trim" ${CFG.priceDecUsTrim?'checked':''}> 去尾 0</label></div>
 
@@ -3192,10 +3251,19 @@ function renderSettings() {
     CFG.colorMode = $('#stg-color-mode')?.value || 'green-up';
     CFG.twFeeDisc = $('#stg-tw-fee-disc')?.value || '0.5';
     CFG.twTaxRate = $('#stg-tw-tax-rate')?.value || '0.003';
+    CFG.twEtfFeeDisc = $('#stg-tw-etf-fee-disc')?.value || '0.5';
+    CFG.twEtfTaxRate = $('#stg-tw-etf-tax-rate')?.value || '0.001';
+    CFG.twTxComm = $('#stg-tw-tx-comm')?.value || '60';
+    CFG.twMtxComm = $('#stg-tw-mtx-comm')?.value || '30';
+    CFG.twMxfComm = $('#stg-tw-mxf-comm')?.value || '16';
     CFG.twFutComm = $('#stg-tw-fut-comm')?.value || '60';
+    CFG.twFutTaxRate = $('#stg-tw-fut-tax-rate')?.value || '0.00002';
     CFG.twStkFutComm = $('#stg-tw-stk-fut-comm')?.value || '40';
+    CFG.twStkFutTaxRate = $('#stg-tw-stk-fut-tax-rate')?.value || '0.00002';
     CFG.twOptComm = $('#stg-tw-opt-comm')?.value || '25';
+    CFG.twOptTaxRate = $('#stg-tw-opt-tax-rate')?.value || '0.001';
     CFG.usComm = $('#stg-us-comm')?.value || '0';
+    CFG.usEtfComm = $('#stg-us-etf-comm')?.value || '0';
     CFG.usFutComm = $('#stg-us-fut-comm')?.value || '2.25';
     CFG.usOptComm = $('#stg-us-opt-comm')?.value || '0.65';
     CFG.defaultFee = $('#stg-default-fee')?.value || '';
