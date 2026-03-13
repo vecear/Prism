@@ -86,6 +86,37 @@ async function loadTrades() {
 function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
 // ── Format helpers ──
 function fmtNum(n, d = 0) { return n == null || isNaN(n) || !isFinite(n) ? '—' : Number(n).toLocaleString('zh-TW', { minimumFractionDigits: d, maximumFractionDigits: d }); }
+function getPriceOpts(market, type) {
+  const s = typeof CFG !== 'undefined' ? CFG : (JSON.parse(localStorage.getItem('tg-settings')) || {});
+  const p = v => { const n = parseInt(v); return isNaN(n) ? undefined : n; };
+  let prefix;
+  if (market === 'crypto') prefix = 'priceDecCrypto';
+  else if (market === 'us') {
+    if (type === 'options') prefix = 'priceDecUsOpt';
+    else if (isFuturesType(type)) prefix = 'priceDecUsFut';
+    else prefix = 'priceDecUs';
+  } else {
+    if (type === 'options') prefix = 'priceDecTwOpt';
+    else if (isFuturesType(type)) prefix = 'priceDecTwFut';
+    else prefix = 'priceDecTw';
+  }
+  const defaults = { priceDecTw:2, priceDecTwFut:0, priceDecTwOpt:1, priceDecUs:3, priceDecUsFut:2, priceDecUsOpt:2, priceDecCrypto:4 };
+  return {
+    dec: p(s[prefix]) ?? defaults[prefix] ?? 2,
+    round: s[prefix + 'Round'] !== false,
+    trim: s[prefix + 'Trim'] !== false,
+  };
+}
+function fmtPrice(n, market, type) {
+  if (n == null || isNaN(n) || !isFinite(n)) return '—';
+  const { dec: d, round, trim } = getPriceOpts(market, type);
+  if (!round) {
+    const str = String(Number(n)), dec = str.includes('.') ? str.split('.')[1].length : 0;
+    const digits = Math.min(dec, 10);
+    return Number(n).toLocaleString('zh-TW', { minimumFractionDigits: trim ? 0 : digits, maximumFractionDigits: digits });
+  }
+  return Number(n).toLocaleString('zh-TW', { minimumFractionDigits: trim ? 0 : d, maximumFractionDigits: d });
+}
 const MKT_CURRENCY = { tw: { sym: 'NT$', d: 0 }, us: { sym: 'US$', d: 2 }, crypto: { sym: 'USDT', d: 2 } };
 function fmtMoney(n, market, d) {
   if (n == null || isNaN(n) || !isFinite(n)) return '—';
@@ -93,6 +124,21 @@ function fmtMoney(n, market, d) {
   const dec = d ?? c.d;
   return (n < 0 ? '-' : '') + c.sym + ' ' + fmtNum(Math.abs(n), dec);
 }
+// Resolve fee/tax value: if mode is "pct", compute percentage of notional
+function resolveFeeVal(inputId, modeId) {
+  const raw = parseFloat($('#' + inputId)?.value) || 0;
+  const mode = $('#' + modeId)?.dataset.mode || 'fixed';
+  if (mode === 'fixed') return raw;
+  // pct mode: raw is percentage, compute notional × raw/100
+  const en = parseFloat($('#jf-entry')?.value) || 0;
+  const ex = parseFloat($('#jf-exit')?.value) || 0;
+  const q = parseFloat($('#jf-qty')?.value) || 0;
+  const typeVal = $('#jf-type2')?.value || 'stock';
+  const mul = (isFuturesType(typeVal) || typeVal === 'options') ? (parseFloat($('#jf-mul')?.value) || 1) : 1;
+  const notional = (en + (ex || en)) * q * mul;
+  return Math.round(notional * raw / 100 * 100) / 100;
+}
+
 function fmtDate(iso) {
   if (!iso) return '—';
   const d = new Date(iso);
@@ -353,8 +399,8 @@ function applyTemplate(tpl) {
   if ($('#jf-type2')) { $('#jf-type2').value = tpl.type || 'stock'; $('#jf-type2').dispatchEvent(new Event('change')); }
   if ($('#jf-dir')) $('#jf-dir').value = tpl.direction || 'long';
   if ($('#jf-mul')) $('#jf-mul').value = tpl.contractMul || '';
-  if ($('#jf-fee')) $('#jf-fee').value = tpl.fee || '';
-  if ($('#jf-tax')) $('#jf-tax').value = tpl.tax || '';
+  if ($('#jf-fee')) { $('#jf-fee').value = tpl.fee || ''; const b = $('#jf-fee-mode'); if (b) { b.dataset.mode = 'fixed'; b.textContent = '元'; } }
+  if ($('#jf-tax')) { $('#jf-tax').value = tpl.tax || ''; const b = $('#jf-tax-mode'); if (b) { b.dataset.mode = 'fixed'; b.textContent = '元'; } }
   if ($('#jf-account')) $('#jf-account').value = tpl.account || '';
   const tagsEl = $('#jf-tags');
   if (tagsEl) $$('.j-tag-btn', tagsEl).forEach(b => b.classList.toggle('active', (tpl.tags || []).includes(b.dataset.tag)));
@@ -371,7 +417,7 @@ async function quickCloseTrade(id) {
   if (!t || t.status !== 'open') return;
   const lq = liveQuotes[getLiveQuoteKey(t)];
   if (!lq || !lq.price) { alert('無法取得即時報價，請手動平倉'); return; }
-  if (!confirm(`以現價 ${fmtNum(lq.price, 2)} 平倉 ${t.symbol}？`)) return;
+  if (!confirm(`以現價 ${fmtPrice(lq.price, t.market, t.type)} 平倉 ${t.symbol}？`)) return;
   const data = { ...t, exitPrice: lq.price, status: 'closed' };
   try {
     await api(`/trades/${id}`, { method: 'PUT', body: JSON.stringify(data) });
@@ -398,8 +444,8 @@ function checkSLTPAlerts() {
     if (hit) {
       alertDismissed[key] = true;
       const msg = hit === 'stopLoss'
-        ? `${t.symbol} 已觸及停損 ${fmtNum(sl,2)} (現價 ${fmtNum(price,2)})`
-        : `${t.symbol} 已觸及停利 ${fmtNum(tp,2)} (現價 ${fmtNum(price,2)})`;
+        ? `${t.symbol} 已觸及停損 ${fmtPrice(sl, t.market, t.type)} (現價 ${fmtPrice(price, t.market, t.type)})`
+        : `${t.symbol} 已觸及停利 ${fmtPrice(tp, t.market, t.type)} (現價 ${fmtPrice(price, t.market, t.type)})`;
       showSLTPAlert(msg, t.id);
     }
   }
@@ -632,7 +678,7 @@ function exportReport() {
   </tbody></table>
   <h3>交易明細</h3>
   <table><thead><tr><th>日期</th><th>市場</th><th>代號</th><th>方向</th><th>進場</th><th>出場</th><th>數量</th><th>淨損益</th></tr></thead><tbody>
-  ${[...pls].sort((a, b) => b.date.localeCompare(a.date)).map(t => `<tr><td>${t.date?.slice(0, 10)}</td><td>${ML_FULL[t.market]||t.market}</td><td>${esc(t.symbol)}</td><td>${t.direction === 'long' ? '多' : '空'}</td><td>${fmtNum(parseFloat(t.entryPrice), 2)}</td><td>${fmtNum(parseFloat(t.exitPrice), 2)}</td><td>${t.quantity}</td><td class="${t.pl.net >= 0 ? 'green' : 'red'}">${fmtMoney(t.pl.net, t.market)}</td></tr>`).join('')}
+  ${[...pls].sort((a, b) => b.date.localeCompare(a.date)).map(t => `<tr><td>${t.date?.slice(0, 10)}</td><td>${ML_FULL[t.market]||t.market}</td><td>${esc(t.symbol)}</td><td>${t.direction === 'long' ? '多' : '空'}</td><td>${fmtPrice(parseFloat(t.entryPrice), t.market, t.type)}</td><td>${fmtPrice(parseFloat(t.exitPrice), t.market, t.type)}</td><td>${t.quantity}</td><td class="${t.pl.net >= 0 ? 'green' : 'red'}">${fmtMoney(t.pl.net, t.market)}</td></tr>`).join('')}
   </tbody></table>
   </body></html>`;
 
@@ -1054,7 +1100,7 @@ window.PrismJournal = {
       const pl = calcPL(t);
       const plStr = pl ? (pl.net >= 0 ? '+' : '') + fmtNum(pl.net, 0) : '—';
       const plCls = pl ? (pl.net >= 0 ? 'tg' : 'tr') : '';
-      return `<div class="j-mini-row"><span class="j-mini-date">${fmtDate(t.date)}</span><span class="j-mini-dir j-dir-${t.direction}">${t.direction === 'long' ? '多' : '空'}</span><span class="j-mini-price">${fmtNum(parseFloat(t.entryPrice),2)}→${t.exitPrice?fmtNum(parseFloat(t.exitPrice),2):'?'}</span><span class="j-mini-pl ${plCls}">${plStr}</span></div>`;
+      return `<div class="j-mini-row"><span class="j-mini-date">${fmtDate(t.date)}</span><span class="j-mini-dir j-dir-${t.direction}">${t.direction === 'long' ? '多' : '空'}</span><span class="j-mini-price">${fmtPrice(parseFloat(t.entryPrice), t.market, t.type)}→${t.exitPrice?fmtPrice(parseFloat(t.exitPrice), t.market, t.type):'?'}</span><span class="j-mini-pl ${plCls}">${plStr}</span></div>`;
     }).join('');
     return `<div class="j-mini-trades"><div class="j-mini-title">近期交易紀錄</div>${rows}</div>`;
   }
@@ -1425,9 +1471,9 @@ function renderTradeList() {
   let h = batchBar;
   // Avg cost display for open positions
   const openSymbols = [...new Set(filtered.filter(t => t.status === 'open' && t.symbol).map(t => `${t.symbol}|${t.market}`))];
-  const avgCostInfos = openSymbols.map(k => { const [sym, mkt] = k.split('|'); return calcAvgCost(sym, mkt); }).filter(Boolean);
+  const avgCostInfos = openSymbols.map(k => { const [sym, mkt] = k.split('|'); const r = calcAvgCost(sym, mkt); if (r) { r.market = mkt; const ft = trades.find(t => t.status === 'open' && t.symbol === sym && t.market === mkt); r.type = ft?.type || 'stock'; } return r; }).filter(Boolean);
   if (avgCostInfos.length) {
-    h += `<div class="j-avg-cost-bar">${avgCostInfos.map(a => `<span>${a.count}筆持倉 均價 <strong class="ta">${fmtNum(a.avgPrice, 2)}</strong> 共 ${a.totalQty}</span>`).join(' ')}</div>`;
+    h += `<div class="j-avg-cost-bar">${avgCostInfos.map(a => `<span>${a.count}筆持倉 均價 <strong class="ta">${fmtPrice(a.avgPrice, a.market, a.type)}</strong> 共 ${a.totalQty}</span>`).join(' ')}</div>`;
   }
   // Per-market closed P&L
   const cpByMkt={};
@@ -1447,12 +1493,12 @@ function renderTradeList() {
     let plStr='—',plC='tm',plExtra='';
     if(t.status==='open'){
       const qk=getLiveQuoteKey(t),lq=liveQuotes[qk];
-      if(lq&&lq.price){const upl=calcUnrealizedPL(t,lq.price);if(upl){plStr=fmtMoney(upl.net,t.market);plC=upl.net>0?'tg':upl.net<0?'tr':'';plExtra=`<div class="j-live-price">現價 ${fmtNum(lq.price,2)}</div>`;}}
+      if(lq&&lq.price){const upl=calcUnrealizedPL(t,lq.price);if(upl){plStr=fmtMoney(upl.net,t.market);plC=upl.net>0?'tg':upl.net<0?'tr':'';plExtra=`<div class="j-live-price">現價 ${fmtPrice(lq.price, t.market, t.type)}</div>`;}}
       else if(lq&&lq.error){plStr='<span class="j-live-price" title="'+esc(lq.error)+'">無法取得報價</span>';}
       else{plStr='<span class="j-pl-loading" data-key="'+qk+'">查詢中…</span>';}
     }else{const pl=calcPL(t);if(pl){plStr=fmtMoney(pl.net,t.market);plC=pl.net>0?'tg':pl.net<0?'tr':'';}}
     const tagHtml=(t.tags||[]).length?`<div class="j-td-tags-inline">${t.tags.map(tag=>`<span class="j-tag">${esc(tag)}</span>`).join('')}</div>`:'';
-  h+=`<tr class="j-row" data-id="${t.id}">${batchMode?`<td><input type="checkbox" class="j-batch-cb" data-id="${t.id}" ${batchSelected.has(t.id)?'checked':''}></td>`:''}<td class="j-td-date">${fmtDate(t.date)}</td><td class="j-td-sym"><div class="j-sym-row"><strong>${esc(t.symbol)}</strong><span class="j-badge j-badge-${t.market}">${ML[t.market]||t.market}</span><span class="j-badge j-badge-type">${TL[t.type]||t.type}</span><span class="${DC[t.direction]}">${DL[t.direction]}</span></div>${t.name?`<span class="j-sym-name">${esc(t.name)}</span>`:''}</td><td class="j-td-price"><span class="j-td-num">${fmtNum(parseFloat(t.entryPrice),2)}</span><span class="j-price-arrow">→</span><span class="j-td-num">${t.exitPrice?fmtNum(parseFloat(t.exitPrice),2):'—'}</span></td><td class="j-td-num">${t.quantity||'—'}</td><td class="j-td-num ${plC}">${plStr}${plExtra}</td><td><span class="j-status j-status-${t.status}">${SL[t.status]}</span>${tagHtml}</td><td class="j-td-actions"><div class="j-actions-wrap">${t.status==='open'?`<button class="j-act-btn j-act-close" data-id="${t.id}" title="快速平倉"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></button>`:''}<button class="j-act-btn j-act-dup" data-id="${t.id}" title="複製交易"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button>${t.status==='open'&&parseFloat(t.quantity)>1?`<button class="j-act-btn j-act-partial" data-id="${t.id}" title="部分平倉"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 3h5v5"/><path d="M8 21H3v-5"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg></button>`:''}<button class="j-act-btn j-act-view" data-id="${t.id}" title="檢視"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button><button class="j-act-btn j-act-edit" data-id="${t.id}" title="編輯"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button><button class="j-act-btn j-act-del" data-id="${t.id}" title="刪除"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button></div></td></tr>`;}
+  h+=`<tr class="j-row" data-id="${t.id}">${batchMode?`<td><input type="checkbox" class="j-batch-cb" data-id="${t.id}" ${batchSelected.has(t.id)?'checked':''}></td>`:''}<td class="j-td-date">${fmtDate(t.date)}</td><td class="j-td-sym"><div class="j-sym-row"><strong>${esc(t.symbol)}</strong><span class="j-badge j-badge-${t.market}">${ML[t.market]||t.market}</span><span class="j-badge j-badge-type">${TL[t.type]||t.type}</span><span class="${DC[t.direction]}">${DL[t.direction]}</span></div>${t.name?`<span class="j-sym-name">${esc(t.name)}</span>`:''}</td><td class="j-td-price"><span class="j-td-num">${fmtPrice(parseFloat(t.entryPrice), t.market, t.type)}</span><span class="j-price-arrow">→</span><span class="j-td-num">${t.exitPrice?fmtPrice(parseFloat(t.exitPrice), t.market, t.type):'—'}</span></td><td class="j-td-num">${t.quantity||'—'}</td><td class="j-td-num ${plC}">${plStr}${plExtra}</td><td><span class="j-status j-status-${t.status}">${SL[t.status]}</span>${tagHtml}</td><td class="j-td-actions"><div class="j-actions-wrap">${t.status==='open'?`<button class="j-act-btn j-act-close" data-id="${t.id}" title="快速平倉"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></button>`:''}<button class="j-act-btn j-act-dup" data-id="${t.id}" title="複製交易"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button>${t.status==='open'&&parseFloat(t.quantity)>1?`<button class="j-act-btn j-act-partial" data-id="${t.id}" title="部分平倉"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 3h5v5"/><path d="M8 21H3v-5"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg></button>`:''}<button class="j-act-btn j-act-view" data-id="${t.id}" title="檢視"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button><button class="j-act-btn j-act-edit" data-id="${t.id}" title="編輯"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button><button class="j-act-btn j-act-del" data-id="${t.id}" title="刪除"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button></div></td></tr>`;}
   h+='</tbody></table></div>';
 
   // Mobile: card view
@@ -1461,7 +1507,7 @@ function renderTradeList() {
     let cPlStr='—',cPlC='tm',cFeeStr='—',cLiveInfo='';
     if(t.status==='open'){
       const qk=getLiveQuoteKey(t),lq=liveQuotes[qk];
-      if(lq&&lq.price){const upl=calcUnrealizedPL(t,lq.price);if(upl){cPlStr=fmtMoney(upl.net,t.market);cPlC=upl.net>0?'tg':upl.net<0?'tr':'';cLiveInfo=`<div class="j-card-field"><span class="j-card-label">現價</span><span class="j-card-val">${fmtNum(lq.price,2)}</span></div><div class="j-card-field"><span class="j-card-label">未實現損益</span><span class="j-card-val ${cPlC}">${cPlStr}</span></div>`;}}
+      if(lq&&lq.price){const upl=calcUnrealizedPL(t,lq.price);if(upl){cPlStr=fmtMoney(upl.net,t.market);cPlC=upl.net>0?'tg':upl.net<0?'tr':'';cLiveInfo=`<div class="j-card-field"><span class="j-card-label">現價</span><span class="j-card-val">${fmtPrice(lq.price, t.market, t.type)}</span></div><div class="j-card-field"><span class="j-card-label">未實現損益</span><span class="j-card-val ${cPlC}">${cPlStr}</span></div>`;}}
       else if(lq&&lq.error){cPlStr='—';}
       else{cPlStr='<span class="j-pl-loading" data-key="'+qk+'">…</span>';}
       const fe=parseFloat(t.fee)||0,ta=parseFloat(t.tax)||0;cFeeStr=fmtMoney(fe+ta,t.market);
@@ -1481,15 +1527,15 @@ function renderTradeList() {
       </div>
       <div class="j-card-sub">
         <span class="j-card-date">${fmtDate(t.date)}</span>
-        <span class="j-card-price">${fmtNum(parseFloat(t.entryPrice),2)} → ${t.exitPrice?fmtNum(parseFloat(t.exitPrice),2):'—'}</span>
+        <span class="j-card-price">${fmtPrice(parseFloat(t.entryPrice), t.market, t.type)} → ${t.exitPrice?fmtPrice(parseFloat(t.exitPrice), t.market, t.type):'—'}</span>
         <span class="j-status j-status-${t.status}">${SL[t.status]}</span>
       </div>
       <div class="j-card-detail">
         <div class="j-card-detail-grid">
           <div class="j-card-field"><span class="j-card-label">數量</span><span class="j-card-val">${t.quantity||'—'}</span></div>
           ${t.contractMul?`<div class="j-card-field"><span class="j-card-label">乘數</span><span class="j-card-val">${t.contractMul}</span></div>`:''}
-          <div class="j-card-field"><span class="j-card-label">進場</span><span class="j-card-val">${fmtNum(parseFloat(t.entryPrice),2)}</span></div>
-          <div class="j-card-field"><span class="j-card-label">出場</span><span class="j-card-val">${t.exitPrice?fmtNum(parseFloat(t.exitPrice),2):'—'}</span></div>
+          <div class="j-card-field"><span class="j-card-label">進場</span><span class="j-card-val">${fmtPrice(parseFloat(t.entryPrice), t.market, t.type)}</span></div>
+          <div class="j-card-field"><span class="j-card-label">出場</span><span class="j-card-val">${t.exitPrice?fmtPrice(parseFloat(t.exitPrice), t.market, t.type):'—'}</span></div>
           ${cLiveInfo}
           <div class="j-card-field"><span class="j-card-label">手續費</span><span class="j-card-val">${t.fee?fmtNum(parseFloat(t.fee),0):'—'}</span></div>
           <div class="j-card-field"><span class="j-card-label">交易稅</span><span class="j-card-val">${t.tax?fmtNum(parseFloat(t.tax),0):'—'}</span></div>
@@ -1643,7 +1689,7 @@ function renderHoldings() {
   for (const g of groupList) {
     const plC = g.hasQuote ? (g.unrealized > 0 ? 'tg' : g.unrealized < 0 ? 'tr' : '') : 'tm';
     const plStr = g.hasQuote ? fmtMoney(g.unrealized, g.market) : '—';
-    const cpStr = g.currentPrice != null ? fmtNum(g.currentPrice, 2) : '<span class="j-pl-loading" data-key="' + g.qk + '">查詢中…</span>';
+    const cpStr = g.currentPrice != null ? fmtPrice(g.currentPrice, g.market, g.type) : '<span class="j-pl-loading" data-key="' + g.qk + '">查詢中…</span>';
     const chgPct = g.hasQuote && g.avgEntry > 0 ? ((g.currentPrice - g.avgEntry) / g.avgEntry * 100 * (g.direction === 'long' ? 1 : -1)).toFixed(2) : null;
     const chgStr = chgPct != null ? `<span class="${parseFloat(chgPct) >= 0 ? 'tg' : 'tr'}" style="font-size:.72rem;margin-left:3px">(${parseFloat(chgPct) >= 0 ? '+' : ''}${chgPct}%)</span>` : '';
     const costStr = fmtMoney(g.totalNotional, g.market);
@@ -1653,7 +1699,7 @@ function renderHoldings() {
       <td class="j-td-sym"><div class="j-sym-row"><strong>${esc(g.symbol)}</strong><span class="j-badge j-badge-${g.market}">${ML[g.market] || g.market}</span><span class="j-badge j-badge-type">${TL[g.type] || g.type}</span></div>${g.name ? `<span class="j-sym-name">${esc(g.name)}</span>` : ''}${dateRange}</td>
       <td><span class="${DC[g.direction]}">${DL[g.direction]}</span></td>
       <td class="j-td-num">${fmtNum(g.totalQty, g.totalQty % 1 ? 4 : 0)}</td>
-      <td class="j-td-num">${fmtNum(g.avgEntry, 2)}</td>
+      <td class="j-td-num">${fmtPrice(g.avgEntry, g.market, g.type)}</td>
       <td class="j-td-num">${cpStr}</td>
       <td class="j-td-num"><div>${costStr}</div>${g.hasQuote ? `<div class="${plC}" style="font-size:.72rem">${mktValStr}</div>` : ''}</td>
       <td class="j-td-num ${plC}">${plStr}${chgStr}</td>
@@ -1671,12 +1717,12 @@ function renderHoldings() {
         <td class="j-td-date" style="padding-left:28px">${fmtDate(t.date)}</td>
         <td></td>
         <td class="j-td-num">${t.quantity || '—'}</td>
-        <td class="j-td-num">${fmtNum(parseFloat(t.entryPrice), 2)}</td>
-        <td class="j-td-num">${g.currentPrice != null ? fmtNum(g.currentPrice, 2) : '—'}</td>
+        <td class="j-td-num">${fmtPrice(parseFloat(t.entryPrice), t.market, t.type)}</td>
+        <td class="j-td-num">${g.currentPrice != null ? fmtPrice(g.currentPrice, g.market, g.type) : '—'}</td>
         <td></td>
         <td class="j-td-num ${tPlC}">${tPlStr}</td>
         <td></td>
-        <td class="j-td-actions"><div class="j-actions-wrap">${`<button class="j-act-btn j-act-close" data-id="${t.id}" title="平倉"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></button><button class="j-act-btn j-act-edit" data-id="${t.id}" title="編輯"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>`}</div></td>
+        <td class="j-td-actions"><div class="j-actions-wrap">${`<button class="j-act-btn j-act-close" data-id="${t.id}" title="平倉"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></button><button class="j-act-btn j-act-edit" data-id="${t.id}" title="編輯"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button><button class="j-act-btn j-act-del" data-id="${t.id}" title="刪除"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button>`}</div></td>
       </tr>`;
     }
   }
@@ -1687,7 +1733,7 @@ function renderHoldings() {
   for (const g of groupList) {
     const plC = g.hasQuote ? (g.unrealized > 0 ? 'tg' : g.unrealized < 0 ? 'tr' : '') : 'tm';
     const plStr = g.hasQuote ? fmtMoney(g.unrealized, g.market) : '—';
-    const cpStr = g.currentPrice != null ? fmtNum(g.currentPrice, 2) : '查詢中…';
+    const cpStr = g.currentPrice != null ? fmtPrice(g.currentPrice, g.market, g.type) : '查詢中…';
     const chgPct = g.hasQuote && g.avgEntry > 0 ? ((g.currentPrice - g.avgEntry) / g.avgEntry * 100 * (g.direction === 'long' ? 1 : -1)).toFixed(2) : null;
     const chgStr = chgPct != null ? ` (${parseFloat(chgPct) >= 0 ? '+' : ''}${chgPct}%)` : '';
 
@@ -1706,13 +1752,13 @@ function renderHoldings() {
       </div>
       <div class="j-card-sub">
         <span class="j-card-date">${g.trades.length} 筆</span>
-        <span class="j-card-price">均 ${fmtNum(g.avgEntry, 2)} → 現 ${cpStr}</span>
+        <span class="j-card-price">均 ${fmtPrice(g.avgEntry, g.market, g.type)} → 現 ${cpStr}</span>
         <span class="${plC}" style="font-size:.72rem">${chgStr}</span>
       </div>
       <div class="j-card-detail">
         <div class="j-card-detail-grid">
           <div class="j-card-field"><span class="j-card-label">總數量</span><span class="j-card-val">${fmtNum(g.totalQty, g.totalQty % 1 ? 4 : 0)}</span></div>
-          <div class="j-card-field"><span class="j-card-label">均價</span><span class="j-card-val">${fmtNum(g.avgEntry, 2)}</span></div>
+          <div class="j-card-field"><span class="j-card-label">均價</span><span class="j-card-val">${fmtPrice(g.avgEntry, g.market, g.type)}</span></div>
           <div class="j-card-field"><span class="j-card-label">現價</span><span class="j-card-val">${cpStr}</span></div>
           <div class="j-card-field"><span class="j-card-label">成本</span><span class="j-card-val">${fmtMoney(g.totalNotional, g.market)}</span></div>
           <div class="j-card-field"><span class="j-card-label">市值</span><span class="j-card-val">${g.hasQuote ? fmtMoney(g.currentNotional, g.market) : '—'}</span></div>
@@ -1726,11 +1772,12 @@ function renderHoldings() {
           if (g.hasQuote) { const upl = calcUnrealizedPL(t, g.currentPrice); if (upl) { tPlStr = fmtMoney(upl.net, t.market); tPlC = upl.net > 0 ? 'tg' : upl.net < 0 ? 'tr' : ''; } }
           return `<div class="j-holding-sub-row">
             <span class="j-card-date">${fmtDate(t.date)}</span>
-            <span>${fmtNum(parseFloat(t.entryPrice), 2)} × ${t.quantity || '—'}</span>
+            <span>${fmtPrice(parseFloat(t.entryPrice), t.market, t.type)} × ${t.quantity || '—'}</span>
             <span class="${tPlC}">${tPlStr}</span>
             <span class="j-holding-sub-actions">
               <button class="j-act-btn j-act-close" data-id="${t.id}" title="平倉"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></button>
               <button class="j-act-btn j-act-edit" data-id="${t.id}" title="編輯"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+              <button class="j-act-btn j-act-del" data-id="${t.id}" title="刪除"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button>
             </span>
           </div>`;
         }).join('')}
@@ -1771,6 +1818,7 @@ function renderHoldings() {
   // Action buttons
   $$('.j-act-close').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); quickCloseTrade(b.dataset.id); }));
   $$('.j-act-edit').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); openTradeForm(b.dataset.id); }));
+  $$('.j-act-del').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); deleteTrade(b.dataset.id); }));
 
   // Fetch live quotes for open trades then re-render
   const needsFetch = openTrades.some(t => !liveQuotes[getLiveQuoteKey(t)]);
@@ -2517,8 +2565,8 @@ function openTradeForm(id, prefill) {
         <div class="j-fg ${isFuturesType(t.type)||t.type==='options'?'':'j-hidden'}" id="jf-mul-wrap"><label>合約乘數</label><input type="number" id="jf-mul" step="any" value="${t.contractMul||''}" placeholder="例：200 (大台)"></div>
         <div class="j-fg"><label>停損價</label><input type="number" id="jf-sl" step="any" value="${t.stopLoss||''}" placeholder="可選"></div>
         <div class="j-fg"><label>停利價</label><input type="number" id="jf-tp" step="any" value="${t.takeProfit||''}" placeholder="可選"></div>
-        <div class="j-fg"><label>手續費</label><input type="number" id="jf-fee" step="any" value="${t.fee||''}" placeholder="0"></div>
-        <div class="j-fg"><label>交易稅</label><input type="number" id="jf-tax" step="any" value="${t.tax||''}" placeholder="0"></div>
+        <div class="j-fg"><label>手續費</label><div class="j-fee-input-wrap"><input type="number" id="jf-fee" step="any" value="${t.fee||''}" placeholder="0"><button type="button" class="j-fee-mode-btn" id="jf-fee-mode" data-mode="fixed">元</button></div></div>
+        <div class="j-fg"><label>交易稅</label><div class="j-fee-input-wrap"><input type="number" id="jf-tax" step="any" value="${t.tax||''}" placeholder="0"><button type="button" class="j-fee-mode-btn" id="jf-tax-mode" data-mode="fixed">元</button></div></div>
         <div class="j-fg"><label>帳戶</label><input type="text" id="jf-account" value="${esc(t.account||'')}" placeholder="例：元大、IB" list="jf-acct-list"><datalist id="jf-acct-list">${[...new Set(trades.map(x=>x.account).filter(Boolean))].map(a=>`<option value="${esc(a)}">`).join('')}</datalist></div>
         <div class="j-fg"><label>截圖網址</label><input type="url" id="jf-image-url" value="${esc(t.imageUrl||'')}" placeholder="貼上圖片連結 (可選)"></div>
         <div class="j-fg"><label>自評 (1-5)</label><div class="j-rating-picker" id="jf-rating">${[1,2,3,4,5].map(i=>`<span class="j-star ${i<=(t.rating||0)?'j-star-on':''}" data-rate="${i}" style="cursor:pointer;font-size:1.2rem">${i<=(t.rating||0)?'★':'☆'}</span>`).join('')}</div><input type="hidden" id="jf-rating-val" value="${t.rating||0}"></div>
@@ -2624,8 +2672,9 @@ function openTradeForm(id, prefill) {
     const qty = $('#jf-qty')?.value || '';
     const mul = $('#jf-mul')?.value || '';
     const fees = calcSmartFees(market, type, entry, qty, mul);
-    if (fees.fee && $('#jf-fee')) $('#jf-fee').value = fees.fee;
-    if (fees.tax && $('#jf-tax')) $('#jf-tax').value = fees.tax;
+    // Smart fill always produces fixed amounts, reset mode to fixed
+    if (fees.fee && $('#jf-fee')) { $('#jf-fee').value = fees.fee; const b = $('#jf-fee-mode'); if (b) { b.dataset.mode = 'fixed'; b.textContent = '元'; } }
+    if (fees.tax && $('#jf-tax')) { $('#jf-tax').value = fees.tax; const b = $('#jf-tax-mode'); if (b) { b.dataset.mode = 'fixed'; b.textContent = '元'; } }
     $('#jf-fee')?.dispatchEvent(new Event('input', { bubbles: true }));
   }
 
@@ -2803,10 +2852,21 @@ function openTradeForm(id, prefill) {
     }));
   });
 
-  const updatePV=()=>{const p=$('#jf-pl-preview');if(!p)return;const en=parseFloat($('#jf-entry')?.value),ex=parseFloat($('#jf-exit')?.value),q=parseFloat($('#jf-qty')?.value),fe=parseFloat($('#jf-fee')?.value)||0,ta=parseFloat($('#jf-tax')?.value)||0,di=$('#jf-dir')?.value==='long'?1:-1,mu=(isFuturesType($('#jf-type2')?.value)||$('#jf-type2')?.value==='options')?(parseFloat($('#jf-mul')?.value)||1):1;if(isNaN(en)||isNaN(ex)||isNaN(q)){p.innerHTML='';return;}const g=di*(ex-en)*q*mu,n=g-fe-ta;p.innerHTML=`<div class="j-pl-box ${n>=0?'j-pl-profit':'j-pl-loss'}"><span>預估損益</span><strong>${fmtNum(n,0)}</strong><span class="j-pl-detail">毛利 ${fmtNum(g,0)} - 費用 ${fmtNum(fe+ta,0)}</span></div>`;};
+  const updatePV=()=>{const p=$('#jf-pl-preview');if(!p)return;const en=parseFloat($('#jf-entry')?.value),ex=parseFloat($('#jf-exit')?.value),q=parseFloat($('#jf-qty')?.value),fe=resolveFeeVal('jf-fee','jf-fee-mode'),ta=resolveFeeVal('jf-tax','jf-tax-mode'),di=$('#jf-dir')?.value==='long'?1:-1,mu=(isFuturesType($('#jf-type2')?.value)||$('#jf-type2')?.value==='options')?(parseFloat($('#jf-mul')?.value)||1):1;if(isNaN(en)||isNaN(ex)||isNaN(q)){p.innerHTML='';return;}const g=di*(ex-en)*q*mu,n=g-fe-ta;p.innerHTML=`<div class="j-pl-box ${n>=0?'j-pl-profit':'j-pl-loss'}"><span>預估損益</span><strong>${fmtNum(n,0)}</strong><span class="j-pl-detail">毛利 ${fmtNum(g,0)} - 費用 ${fmtNum(fe+ta,0)}</span></div>`;};
   const debouncedPV = debounce(updatePV, 150);
   $$('#jf-entry,#jf-exit,#jf-qty,#jf-fee,#jf-tax,#jf-mul',modal).forEach(el=>{if(el)el.addEventListener('input',debouncedPV);});
   $('#jf-dir')?.addEventListener('change',updatePV);$('#jf-type2')?.addEventListener('change',updatePV);updatePV();
+  // ── Fee/Tax mode toggle (元 ↔ %) ──
+  ['jf-fee-mode', 'jf-tax-mode'].forEach(id => {
+    const btn = $('#' + id);
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+      const next = btn.dataset.mode === 'fixed' ? 'pct' : 'fixed';
+      btn.dataset.mode = next;
+      btn.textContent = next === 'fixed' ? '元' : '%';
+      debouncedPV();
+    });
+  });
 
   // Save template
   $('#jf-save-tpl')?.addEventListener('click', () => {
@@ -2869,7 +2929,7 @@ async function saveTrade() {
     entryPrice:$('#jf-entry')?.value||'', exitPrice:$('#jf-exit')?.value||'',
     quantity:$('#jf-qty')?.value||'', contractMul:$('#jf-mul')?.value||'',
     stopLoss:$('#jf-sl')?.value||'', takeProfit:$('#jf-tp')?.value||'',
-    fee:$('#jf-fee')?.value||'', tax:$('#jf-tax')?.value||'',
+    fee:String(resolveFeeVal('jf-fee','jf-fee-mode')||''), tax:String(resolveFeeVal('jf-tax','jf-tax-mode')||''),
     tags:$$('.j-tag-btn.active:not(.j-tpl-btn)',$('#jf-tags')).map(b=>b.dataset.tag),
     notes:$('#jf-notes')?.value||'',
     account:$('#jf-account')?.value.trim()||'',
@@ -2905,18 +2965,18 @@ function openTradeDetail(id) {
     <div class="j-detail-item"><span class="j-dl">類型</span><span class="j-dv">${TL[t.type]}</span></div>
     <div class="j-detail-item"><span class="j-dl">方向</span><span class="j-dv j-dir-${t.direction}">${DL[t.direction]}</span></div>
     <div class="j-detail-item"><span class="j-dl">狀態</span><span class="j-dv"><span class="j-status j-status-${t.status}">${SL[t.status]}</span></span></div>
-    <div class="j-detail-item"><span class="j-dl">進場價</span><span class="j-dv">${fmtNum(en,2)}</span></div>
-    <div class="j-detail-item"><span class="j-dl">出場價</span><span class="j-dv">${t.exitPrice?fmtNum(parseFloat(t.exitPrice),2):'—'}</span></div>
+    <div class="j-detail-item"><span class="j-dl">進場價</span><span class="j-dv">${fmtPrice(en, t.market, t.type)}</span></div>
+    <div class="j-detail-item"><span class="j-dl">出場價</span><span class="j-dv">${t.exitPrice?fmtPrice(parseFloat(t.exitPrice), t.market, t.type):'—'}</span></div>
     <div class="j-detail-item"><span class="j-dl">數量</span><span class="j-dv">${t.quantity||'—'}</span></div>
     ${(isFuturesType(t.type)||t.type==='options')&&t.contractMul?`<div class="j-detail-item"><span class="j-dl">合約乘數</span><span class="j-dv">${t.contractMul}</span></div>`:''}
-    ${t.stopLoss?`<div class="j-detail-item"><span class="j-dl">停損</span><span class="j-dv">${fmtNum(sl,2)}${rp?` <span class="tr">(${rp}%)</span>`:''}</span></div>`:''}
-    ${t.takeProfit?`<div class="j-detail-item"><span class="j-dl">停利</span><span class="j-dv">${fmtNum(tp,2)}${rwp?` <span class="tg">(${rwp}%)</span>`:''}</span></div>`:''}
+    ${t.stopLoss?`<div class="j-detail-item"><span class="j-dl">停損</span><span class="j-dv">${fmtPrice(sl, t.market, t.type)}${rp?` <span class="tr">(${rp}%)</span>`:''}</span></div>`:''}
+    ${t.takeProfit?`<div class="j-detail-item"><span class="j-dl">停利</span><span class="j-dv">${fmtPrice(tp, t.market, t.type)}${rwp?` <span class="tg">(${rwp}%)</span>`:''}</span></div>`:''}
     ${rr?`<div class="j-detail-item"><span class="j-dl">風報比</span><span class="j-dv ta">1:${rr}</span></div>`:''}
     ${t.fee?`<div class="j-detail-item"><span class="j-dl">手續費</span><span class="j-dv">${fmtMoney(parseFloat(t.fee),t.market)}</span></div>`:''}
     ${t.tax?`<div class="j-detail-item"><span class="j-dl">交易稅</span><span class="j-dv">${fmtMoney(parseFloat(t.tax),t.market)}</span></div>`:''}
   </div>
   ${pl?`<div class="j-pl-box ${pl.net>=0?'j-pl-profit':'j-pl-loss'} j-pl-detail-box"><div class="j-pl-row"><span>毛損益</span><strong>${fmtMoney(pl.gross,t.market)}</strong></div><div class="j-pl-row"><span>手續費+稅</span><span>-${fmtMoney(pl.fee+pl.tax,t.market)}</span></div><div class="j-pl-row j-pl-total"><span>淨損益</span><strong>${fmtMoney(pl.net,t.market)}</strong></div></div>`:''}
-  ${upl?`<div class="j-pl-box ${upl.net>=0?'j-pl-profit':'j-pl-loss'} j-pl-detail-box"><div class="j-pl-row"><span>目前價格</span><strong>${fmtNum(upl.currentPrice,2)}</strong></div><div class="j-pl-row"><span>未實現毛損益</span><strong>${fmtMoney(upl.gross,t.market)}</strong></div><div class="j-pl-row"><span>手續費+稅</span><span>-${fmtMoney((parseFloat(t.fee)||0)+(parseFloat(t.tax)||0),t.market)}</span></div><div class="j-pl-row j-pl-total"><span>未實現淨損益</span><strong>${fmtMoney(upl.net,t.market)}</strong></div></div>`:''}
+  ${upl?`<div class="j-pl-box ${upl.net>=0?'j-pl-profit':'j-pl-loss'} j-pl-detail-box"><div class="j-pl-row"><span>目前價格</span><strong>${fmtPrice(upl.currentPrice, t.market, t.type)}</strong></div><div class="j-pl-row"><span>未實現毛損益</span><strong>${fmtMoney(upl.gross,t.market)}</strong></div><div class="j-pl-row"><span>手續費+稅</span><span>-${fmtMoney((parseFloat(t.fee)||0)+(parseFloat(t.tax)||0),t.market)}</span></div><div class="j-pl-row j-pl-total"><span>未實現淨損益</span><strong>${fmtMoney(upl.net,t.market)}</strong></div></div>`:''}
   ${(t.tags||[]).length?`<div class="j-detail-tags">${t.tags.map(tag=>`<span class="j-tag">${esc(tag)}</span>`).join('')}</div>`:''}
   ${t.account?`<div class="j-detail-item" style="grid-column:1/-1"><span class="j-dl">帳戶</span><span class="j-dv">${esc(t.account)}</span></div>`:''}
   ${t.rating?`<div class="j-detail-item"><span class="j-dl">自評</span><span class="j-dv">${ratingHTML(t.rating)}</span></div>`:''}
