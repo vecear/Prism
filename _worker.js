@@ -54,8 +54,9 @@ async function ensureDB(db) {
 }
 
 // ── CORS ──
+let _currentRequest = null;
 function corsHeaders(request) {
-  const req = request;
+  const req = request || _currentRequest;
   const origin = req?.headers?.get('Origin') || '';
   const allowed = ['https://prism-7t8.pages.dev', 'http://localhost:8788', 'http://127.0.0.1:8788', 'http://localhost:3000', 'http://127.0.0.1:3000'];
   const allowOrigin = allowed.includes(origin) ? origin : allowed[0];
@@ -521,6 +522,7 @@ async function handleMigrateTrades(request, env) {
 // ── Router ──
 export default {
   async fetch(request, env, ctx) {
+    _currentRequest = request;
     const url = new URL(request.url);
     const path = url.pathname;
     const method = request.method;
