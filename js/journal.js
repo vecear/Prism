@@ -134,8 +134,8 @@ function resolveFeeVal(inputId, modeId) {
   const ex = parseFloat($('#jf-exit')?.value) || 0;
   const q = parseFloat($('#jf-qty')?.value) || 0;
   const typeVal = $('#jf-type2')?.value || 'stock';
-  const mul = (isFuturesType(typeVal) || typeVal === 'options') ? (parseFloat($('#jf-mul')?.value) || 1) : 1;
-  const notional = (en + (ex || en)) * q * mul;
+  const mul = (isFuturesType(typeVal) || typeVal === 'options') ? (parseFloat($('#jf-mul')?.value) || 1) : 1; // inline: form values, not trade object
+  const notional = (en + (ex || 0)) * q * mul;
   return Math.round(notional * raw / 100 * 100) / 100;
 }
 
@@ -165,12 +165,13 @@ const TYPE_LABELS = {
 function isFuturesType(type) {
   return ['futures','index_futures','stock_futures','commodity_futures','crypto_contract'].includes(type);
 }
+function getContractMul(t) {
+  const rawMul = parseFloat(t.contractMul);
+  return (isFuturesType(t.type) || t.type === 'options') ? (isNaN(rawMul) || rawMul === 0 ? 1 : rawMul) : 1;
+}
 function typeLabel(type) { return TYPE_LABELS[type] || type; }
 
-function getDefaultFees() {
-  try { const s = JSON.parse(localStorage.getItem('tg-settings')) || {}; return { fee: s.defaultFee || '', tax: s.defaultTax || '' }; }
-  catch { return { fee: '', tax: '' }; }
-}
+function getDefaultFees() { return { fee: '', tax: '' }; }
 
 // Smart fee/tax calculation based on market + type + price + qty
 function calcSmartFees(market, type, entryPrice, qty, contractMul) {
@@ -243,8 +244,7 @@ function calcPL(t) {
   const entry = parseFloat(t.entryPrice), exit = parseFloat(t.exitPrice), qty = parseFloat(t.quantity);
   const fee = parseFloat(t.fee) || 0, tax = parseFloat(t.tax) || 0;
   if (isNaN(entry) || isNaN(exit) || isNaN(qty)) return null;
-  const rawMul = parseFloat(t.contractMul);
-  const mul = (isFuturesType(t.type) || t.type === 'options') ? (isNaN(rawMul) || rawMul === 0 ? 1 : rawMul) : 1;
+  const mul = getContractMul(t);
   const dir = t.direction === 'long' ? 1 : -1;
   const gross = Math.round(dir * (exit - entry) * qty * mul * 100) / 100;
   const totalFee = Math.round((fee + tax) * 100) / 100;
@@ -254,8 +254,7 @@ function calcPL(t) {
 function calcUnrealizedPL(t, currentPrice) {
   const entry = parseFloat(t.entryPrice), qty = parseFloat(t.quantity);
   if (isNaN(entry) || isNaN(qty) || isNaN(currentPrice)) return null;
-  const rawMul = parseFloat(t.contractMul);
-  const mul = (isFuturesType(t.type) || t.type === 'options') ? (isNaN(rawMul) || rawMul === 0 ? 1 : rawMul) : 1;
+  const mul = getContractMul(t);
   const dir = t.direction === 'long' ? 1 : -1;
   const fee = parseFloat(t.fee) || 0, tax = parseFloat(t.tax) || 0;
   const gross = Math.round(dir * (currentPrice - entry) * qty * mul * 100) / 100;
@@ -1400,7 +1399,7 @@ function renderFilters() {
     </div>
     <div class="j-filter-search-wrap"><input type="text" id="jf-search" class="j-filter-search" placeholder="搜尋代號/名稱/備註..." value="${filterState.search}"></div>
   </div>`;
-  const refresh = () => { viewMode==='list'?renderTradeList():renderStats(); };
+  const refresh = () => { if(viewMode==='list')renderTradeList();else if(viewMode==='holdings')renderHoldings();else if(viewMode==='calendar')renderCalendar();else if(viewMode==='diary')renderDiary();else renderStats(); };
   const update = () => {
     filterState.market=$('#jf-market')?.value||'all'; filterState.type=$('#jf-type')?.value||'all'; filterState.tag=$('#jf-tag')?.value||'all';
     filterState.account=$('#jf-account-filter')?.value||'all'; filterState.status=$('#jf-status-filter')?.value||'all'; filterState.search=$('#jf-search')?.value||'';
@@ -1462,7 +1461,7 @@ function renderTradeList() {
   // Batch mode toolbar
   let batchBar = '';
   if (batchMode) {
-    batchBar = `<div class="j-batch-bar"><span>已選 <strong>${batchSelected.size}</strong> 筆</span>
+    batchBar = `<div class="j-batch-bar"><span>已選 <strong id="jb-count">${batchSelected.size}</strong> 筆</span>
       <button class="j-batch-action" id="jb-del">刪除</button>
       <button class="j-batch-action" id="jb-tag">加標籤</button>
       <button class="j-batch-action" id="jb-close">批次平倉</button>
@@ -1569,7 +1568,8 @@ function renderTradeList() {
       e.stopPropagation();
       if (e.target.checked) batchSelected.add(e.target.dataset.id);
       else batchSelected.delete(e.target.dataset.id);
-      renderTradeList();
+      const bar = $('#jb-count');
+      if (bar) bar.textContent = batchSelected.size;
     }));
     $('#jb-all')?.addEventListener('change', e => {
       filtered.forEach(t => { if (e.target.checked) batchSelected.add(t.id); else batchSelected.delete(t.id); });
@@ -1635,9 +1635,7 @@ function renderHoldings() {
     // 計算含乘數的實際投入成本（用於現貨=進場價×數量，期貨=進場價×數量×乘數）
     const totalNotional = g.trades.reduce((s, t) => {
       const ep = parseFloat(t.entryPrice) || 0, q = parseFloat(t.quantity) || 0;
-      const rawMul = parseFloat(t.contractMul);
-      const mul = (isFuturesType(t.type) || t.type === 'options') ? (isNaN(rawMul) || rawMul === 0 ? 1 : rawMul) : 1;
-      return s + ep * q * mul;
+      return s + ep * q * getContractMul(t);
     }, 0);
     const qk = getLiveQuoteKey(g.trades[0]);
     const lq = liveQuotes[qk];
@@ -1649,9 +1647,7 @@ function renderHoldings() {
         const upl = calcUnrealizedPL(t, lq.price);
         if (upl) { unrealized += upl.net; grossUnrealized += upl.gross; }
         const q = parseFloat(t.quantity) || 0;
-        const rawMul = parseFloat(t.contractMul);
-        const mul = (isFuturesType(t.type) || t.type === 'options') ? (isNaN(rawMul) || rawMul === 0 ? 1 : rawMul) : 1;
-        currentNotional += lq.price * q * mul;
+        currentNotional += lq.price * q * getContractMul(t);
       });
     }
     const totalFee = g.trades.reduce((s, t) => s + (parseFloat(t.fee) || 0) + (parseFloat(t.tax) || 0), 0);
@@ -1715,8 +1711,7 @@ function renderHoldings() {
       }
       tFeeTotal = (parseFloat(t.fee) || 0) + (parseFloat(t.tax) || 0);
       const tQ = parseFloat(t.quantity) || 0;
-      const tRawMul = parseFloat(t.contractMul);
-      const tMul = (isFuturesType(t.type) || t.type === 'options') ? (isNaN(tRawMul) || tRawMul === 0 ? 1 : tRawMul) : 1;
+      const tMul = getContractMul(t);
       const tCost = (parseFloat(t.entryPrice) || 0) * tQ * tMul;
       const tMktVal = g.hasQuote ? g.currentPrice * tQ * tMul : null;
       h += `<tr class="j-holding-detail" data-parent="${esc(g.symbol)}|${g.market}|${g.direction}" style="display:none">
@@ -2352,8 +2347,8 @@ function _renderDiaryEntryCard(j, moodEmojis) {
     </div>
     ${(j.tags||[]).length?`<div class="j-diary-entry-tags">${j.tags.map(tag=>`<span class="j-diary-entry-tag">${esc(tag)}</span>`).join('')}</div>`:''}
     ${j.takeaway?`<div class="j-diary-entry-takeaway">💡 ${esc(j.takeaway)}</div>`:''}
-    ${j.marketNote?`<div class="j-diary-entry-text"><span class="j-diary-entry-label">盤勢</span> ${esc(j.marketNote).slice(0,80)}${j.marketNote.length>80?'...':''}</div>`:''}
-    ${j.review?`<div class="j-diary-entry-text"><span class="j-diary-entry-label">檢討</span> ${esc(j.review).slice(0,80)}${j.review.length>80?'...':''}</div>`:''}
+    ${j.marketNote?`<div class="j-diary-entry-text"><span class="j-diary-entry-label">盤勢</span> ${esc(j.marketNote.length>80?j.marketNote.slice(0,80)+'...':j.marketNote)}</div>`:''}
+    ${j.review?`<div class="j-diary-entry-text"><span class="j-diary-entry-label">檢討</span> ${esc(j.review.length>80?j.review.slice(0,80)+'...':j.review)}</div>`:''}
   </div>`;
 }
 
@@ -2954,11 +2949,9 @@ async function saveTrade() {
     reviewTiming:parseInt($('#jf-rv-timing')?.value)||0,
     reviewSizing:parseInt($('#jf-rv-sizing')?.value)||0,
   };
-  try {
-    if(editingId){await api(`/trades/${editingId}`,{method:'PUT',body:JSON.stringify(data)});const idx=trades.findIndex(t=>t.id===editingId);if(idx>=0)trades[idx]=data;}
-    else{const res=await api('/trades',{method:'POST',body:JSON.stringify(data)});data.id=res.id;trades.unshift(data);}
-    if($('#tab-journal')?.classList.contains('active'))renderJournal();
-  }catch(e){throw e;}
+  if(editingId){await api(`/trades/${editingId}`,{method:'PUT',body:JSON.stringify(data)});const idx=trades.findIndex(t=>t.id===editingId);if(idx>=0)trades[idx]=data;}
+  else{const res=await api('/trades',{method:'POST',body:JSON.stringify(data)});data.id=res.id;trades.unshift(data);}
+  if($('#tab-journal')?.classList.contains('active'))renderJournal();
 }
 
 // ================================================================

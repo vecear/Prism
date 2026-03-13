@@ -120,7 +120,7 @@ const PriceService = {
     function thirdFriday(year, month) {
       const d = new Date(year, month - 1, 1);
       const firstDay = d.getDay();
-      const firstFri = firstDay <= 5 ? (5 - firstDay + 1) : (5 + 7 - firstDay + 1);
+      const firstFri = (5 - firstDay + 7) % 7 + 1;
       return new Date(year, month - 1, firstFri + 14);
     }
     const exch = this._cmeExchange[base] || 'CME';
@@ -1106,8 +1106,9 @@ window.savePresetsToServer = savePresetsToServer;
 // ── Stock Database (local autocomplete) ──
 const StockDB = {
   _key: 'prism_stock_db',
-  _get() { try { return JSON.parse(localStorage.getItem(this._key)) || {}; } catch { return {}; } },
-  _set(data) { localStorage.setItem(this._key, JSON.stringify(data)); },
+  _cache: null,
+  _get() { if (this._cache) return this._cache; try { this._cache = JSON.parse(localStorage.getItem(this._key)) || {}; return this._cache; } catch { return {}; } },
+  _set(data) { this._cache = data; localStorage.setItem(this._key, JSON.stringify(data)); },
   getList(market) { return this._get()[market]?.list || []; },
   getTime(market) { return this._get()[market]?.time || 0; },
 
@@ -3485,7 +3486,7 @@ async function handleFetchStock() {
     _displayStockInfo(q, code, market, infoEl);
     _fillStockPrice(q, true);
   } catch (e) {
-    if (infoEl) infoEl.innerHTML = `<span class="tr">${e.message}</span>`;
+    if (infoEl) infoEl.innerHTML = `<span class="tr">${_esc(e.message)}</span>`;
   }
   if (fetchBtn) { fetchBtn.disabled = false; fetchBtn.textContent = '查詢'; }
 }
@@ -3536,6 +3537,7 @@ function _restoreStockFromCache() {
 }
 
 // ── Stock Autocomplete ──
+let _marginACDocClick = null;
 function _setupMarginAutocomplete(input, market) {
   const list = $('#m-sym-ac');
   if (!input || !list) return;
@@ -3585,9 +3587,9 @@ function _setupMarginAutocomplete(input, market) {
     if (items[i]) selectItem(items[i].code, items[i].name);
   });
 
-  document.addEventListener('click', e => {
-    if (!e.target.closest('.sym-ac-wrap')) close();
-  });
+  if (_marginACDocClick) document.removeEventListener('click', _marginACDocClick);
+  _marginACDocClick = e => { if (!e.target.closest('.sym-ac-wrap')) close(); };
+  document.addEventListener('click', _marginACDocClick);
 }
 
 function _highlightAC(list, idx) {
@@ -3618,6 +3620,7 @@ function _autoDetectETF(code, market) {
 }
 
 // ── Stock Futures Autocomplete (TW) ──
+let _futuresACDocClick = null;
 function _setupFuturesAC(input) {
   const list = $('#f-stk-ac');
   if (!input || !list) return;
@@ -3661,7 +3664,9 @@ function _setupFuturesAC(input) {
     const el = e.target.closest('.sym-ac-item');
     if (el && items[el.dataset.i]) selectItem(items[el.dataset.i].code);
   });
-  document.addEventListener('click', e => { if (!e.target.closest('.sym-ac-wrap')) close(); });
+  if (_futuresACDocClick) document.removeEventListener('click', _futuresACDocClick);
+  _futuresACDocClick = e => { if (!e.target.closest('.sym-ac-wrap')) close(); };
+  document.addEventListener('click', _futuresACDocClick);
 }
 
 // ================================================================
@@ -4501,7 +4506,7 @@ async function _fetchTaifexStockFutures(cid) {
     if (mmInput && !mmInput.value) { mmInput.value = estMm; mmInput.dispatchEvent(new Event('input', { bubbles: true })); }
     calcFutures();
   } catch (e) {
-    if (infoEl) infoEl.innerHTML = `<span class="tr">${e.message}</span>`;
+    if (infoEl) infoEl.innerHTML = `<span class="tr">${_esc(e.message)}</span>`;
   }
 }
 
@@ -4545,7 +4550,7 @@ async function _fetchFuturesStockPrice(code) {
     }
     calcFutures();
   } catch (e) {
-    if (infoEl) infoEl.innerHTML = `<span class="tr">${e.message}</span>`;
+    if (infoEl) infoEl.innerHTML = `<span class="tr">${_esc(e.message)}</span>`;
   }
 }
 
@@ -4898,7 +4903,7 @@ async function _fetchOptionsStockPrice(code) {
     if (ulEl) { ulEl.value = q.price.toFixed(2); ulEl.dispatchEvent(new Event('input', { bubbles: true })); }
     calcOptions();
   } catch (e) {
-    if (infoEl) infoEl.innerHTML = `<span class="tr">${e.message}</span>`;
+    if (infoEl) infoEl.innerHTML = `<span class="tr">${_esc(e.message)}</span>`;
   }
 }
 
@@ -4976,8 +4981,8 @@ function calcOptions() {
   const oComm = gV('o-comm') || 0;
   const oTaxRate = parseFloat($('#o-tax-rate')?.value || '0');
   const oCommTotal = oComm * qty * 2; // open + close
-  const oOpenTax = Math.round(prem * mul * qty * oTaxRate); // tax on premium at open
-  const oCloseTax = Math.round(prem * mul * qty * oTaxRate); // approximate (close at same premium)
+  const oOpenTax = Math.round(prem * mul * qty * oTaxRate);
+  const oCloseTax = oOpenTax; // 預估：以進場權利金計算平倉稅
   const oFees = oCommTotal + oOpenTax + oCloseTax;
 
   const totalPrem = prem * mul * qty;
@@ -5299,21 +5304,6 @@ window._resetSettingsToDefaults = function() {
   renderSettings();
   window._stgRendered = true;
 };
-
-// ── Commodity Futures (原物料期貨) ──
-const COMMODITY_FUTURES = [
-  { code: 'CL', name: '原油 WTI Crude', mul: 1000, exchange: 'NYMEX', yahoo: 'CL=F' },
-  { code: 'BZ', name: '布蘭特原油 Brent', mul: 1000, exchange: 'NYMEX', yahoo: 'BZ=F' },
-  { code: 'GC', name: '黃金 Gold', mul: 100, exchange: 'COMEX', yahoo: 'GC=F' },
-  { code: 'MGC', name: '微型黃金 Micro Gold', mul: 10, exchange: 'COMEX', yahoo: 'MGC=F' },
-  { code: 'SI', name: '白銀 Silver', mul: 5000, exchange: 'COMEX', yahoo: 'SI=F' },
-  { code: 'HG', name: '銅 Copper', mul: 25000, exchange: 'COMEX', yahoo: 'HG=F' },
-  { code: 'NG', name: '天然氣 Natural Gas', mul: 10000, exchange: 'NYMEX', yahoo: 'NG=F' },
-  { code: 'ZC', name: '玉米 Corn', mul: 50, exchange: 'CBOT', yahoo: 'ZC=F' },
-  { code: 'ZS', name: '黃豆 Soybeans', mul: 50, exchange: 'CBOT', yahoo: 'ZS=F' },
-  { code: 'ZW', name: '小麥 Wheat', mul: 50, exchange: 'CBOT', yahoo: 'ZW=F' },
-];
-window.COMMODITY_FUTURES = COMMODITY_FUTURES;
 
 // ================================================================
 //  CRYPTO FORM
@@ -5645,8 +5635,8 @@ window._getCalcParamsForRecord = function(tab) {
   if (tab === 'margin') {
     params.market = S.margin.market;
     params.type = 'stock';
-    const price = gV('m-price');
-    const qty = gV('m-shares');
+    const price = S.margin.direction === 'short' ? gV('m-sell-price') : gV('m-buy-price');
+    const qty = gV('m-qty');
     if (price) params.entry_price = price;
     if (qty) params.quantity = qty;
     const symbol = gVraw('m-symbol');
@@ -5661,7 +5651,7 @@ window._getCalcParamsForRecord = function(tab) {
   } else if (tab === 'options') {
     params.market = S.options.market;
     params.type = 'options';
-    const premium = gV('o-prem');
+    const premium = gV('o-premium');
     const qty = gV('o-qty');
     if (premium) params.entry_price = premium;
     if (qty) params.quantity = qty;
