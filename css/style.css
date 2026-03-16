@@ -617,21 +617,23 @@ input[type="number"]{-moz-appearance:textfield}
   .ha-user{padding:4px 8px;font-size:.72rem;gap:4px}
   .ha-user svg{width:12px;height:12px}
 
-  /* Ticker bar — collapsed by default on mobile, expand on click */
+  /* Ticker bar — show first N items on mobile, rest collapsed */
   .ticker-bar{padding:3px 0;flex-direction:row;gap:0;align-items:center}
-  .ticker-strip{display:flex;gap:0;flex:1;min-width:0;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;max-height:26px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
-  .ticker-strip::-webkit-scrollbar{display:none}
-  .ticker-bar.expanded .ticker-strip{flex-wrap:wrap;max-height:none;overflow:visible}
+  .ticker-strip{display:flex;gap:0;flex:1;min-width:0;flex-wrap:wrap;overflow:hidden;max-height:22px}
+  .ticker-bar.expanded .ticker-strip{max-height:none}
   .ticker-chip{display:flex;align-items:baseline;gap:3px;padding:1px 0;white-space:nowrap;flex-shrink:0}
-  .ticker-chip+.ticker-chip::before{content:'';display:inline-block;width:1px;height:10px;background:var(--bdr2);margin:0 6px;vertical-align:middle;flex-shrink:0}
+  .ticker-chip+.ticker-chip::before{content:'';display:inline-block;width:1px;height:10px;background:var(--bdr2);margin:0 5px;vertical-align:middle;flex-shrink:0}
   .ticker-chip:hover{background:none}
   .tc-name{font-size:.52rem;color:var(--t3);font-weight:600;line-height:1}
-  .tc-price{font-size:.7rem;font-weight:700;line-height:1.2}
-  .tc-chg{font-size:.5rem;line-height:1}
-  .ticker-basis{font-size:.48rem;margin-top:0}
+  .tc-price{font-size:.68rem;font-weight:700;line-height:1.2}
+  .tc-chg{font-size:.48rem;line-height:1}
+  .ticker-basis{font-size:.46rem;margin-top:0}
   .ticker-toggle{display:flex}
-  .ticker-bar-actions{flex-shrink:0}
-  .ticker-time{font-size:.52rem}
+  .ticker-bar-actions{flex-shrink:0;gap:2px}
+  .ticker-time{display:none}
+  .ticker-chip[data-mobile-hide="1"]{display:none}
+  .ticker-chip[data-mobile-hide="1"]+.ticker-chip::before{display:none}
+  .ticker-bar.expanded .ticker-chip[data-mobile-hide="1"]{display:flex}
 
   /* Sentiment strip — 3x2 grid on mobile, all visible at once */
   .sentiment-strip{display:grid;grid-template-columns:repeat(3,1fr);gap:2px;padding:3px 4px;overflow:visible;white-space:normal}

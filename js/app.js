@@ -1338,6 +1338,22 @@ function _saveTickerOrder() {
   saveSettings(CFG);
 }
 
+function _applyMobileTickerCount() {
+  const count = CFG.mobileTickerCount ?? 3;
+  const chips = $$('.ticker-chip[data-idx]');
+  const isMobile = window.innerWidth <= 768;
+  if (!isMobile || count === 0) {
+    chips.forEach(c => c.removeAttribute('data-mobile-hide'));
+    return;
+  }
+  let visible = 0;
+  chips.forEach(c => {
+    if (c.style.display === 'none') return; // hidden by user setting
+    visible++;
+    c.setAttribute('data-mobile-hide', visible > count ? '1' : '0');
+  });
+}
+
 function buildTickerBar() {
   const container = $('#ticker-inputs');
   if (!container) return;
@@ -1362,6 +1378,7 @@ function buildTickerBar() {
     </a>`;
   }).join('');
   _initTickerDrag(container);
+  _applyMobileTickerCount();
 }
 
 // 報價卡片拖曳排序（桌面 drag & 手機 touch）
@@ -2824,6 +2841,7 @@ function init() {
   }
 }
 document.addEventListener('DOMContentLoaded', init);
+window.addEventListener('resize', debounce(_applyMobileTickerCount, 200));
 
 // Pause refresh timer when tab is hidden (saves bandwidth)
 document.addEventListener('visibilitychange', () => {
@@ -2990,6 +3008,17 @@ function renderSettings() {
               <label class="stg-cb"><input type="checkbox" id="stg-show-credit" ${CFG.showCreditSpread !== false ? 'checked' : ''}>信用利差 OAS</label>
               <label class="stg-cb"><input type="checkbox" id="stg-show-treasury" ${CFG.showTreasury !== false ? 'checked' : ''}>10Y 公債殖利率</label>
             </div>
+          </div>
+          <div class="stg-row">
+            <label>手機報價顯示數量<span class="stg-hint">行動裝置預設顯示的報價數量，其餘折疊</span></label>
+            <select class="stg-select" id="stg-mobile-ticker">
+              <option value="2" ${(CFG.mobileTickerCount||3)==2?'selected':''}>2</option>
+              <option value="3" ${(CFG.mobileTickerCount||3)==3?'selected':''}>3</option>
+              <option value="4" ${(CFG.mobileTickerCount||3)==4?'selected':''}>4</option>
+              <option value="5" ${(CFG.mobileTickerCount||3)==5?'selected':''}>5</option>
+              <option value="6" ${(CFG.mobileTickerCount||3)==6?'selected':''}>6</option>
+              <option value="0" ${(CFG.mobileTickerCount||3)==0?'selected':''}>全部</option>
+            </select>
           </div>
         </div>
       </div>
@@ -3278,8 +3307,11 @@ function renderSettings() {
     CFG.showVixRatio = $('#stg-show-vixratio')?.checked ?? true;
     CFG.showCreditSpread = $('#stg-show-credit')?.checked ?? true;
     CFG.showTreasury = $('#stg-show-treasury')?.checked ?? true;
+    const mtv = parseInt($('#stg-mobile-ticker')?.value);
+    CFG.mobileTickerCount = isNaN(mtv) ? 3 : mtv;
     saveSettings(CFG);
     applySettings();
+    _applyMobileTickerCount();
     _renderSentimentStrip();
   };
   body.addEventListener('change', save);
