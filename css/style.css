@@ -331,6 +331,9 @@ body{font-family:var(--sans);background:var(--bg0);color:var(--t1);line-height:1
 /* ========== Sentiment Strip ========== */
 .sentiment-strip{display:flex;align-items:center;gap:4px;padding:4px 8px;border-bottom:1px solid var(--bdr);overflow-x:auto;overflow-y:hidden;white-space:nowrap;scrollbar-width:none;-webkit-overflow-scrolling:touch;min-height:28px}
 .sentiment-strip:empty{border-bottom:none;min-height:0;padding:0}
+.sentiment-strip{position:relative}
+.sentiment-strip::after{content:'';position:absolute;right:0;top:0;bottom:0;width:20px;background:linear-gradient(to right,transparent,var(--bg0));pointer-events:none;opacity:0;transition:opacity .2s}
+@media(max-width:768px){.sentiment-strip::after{opacity:1}}
 .sentiment-strip::-webkit-scrollbar{display:none}
 .sent-gauge{display:inline-flex;align-items:baseline;gap:4px;padding:3px 8px;background:var(--bg1);border:1px solid var(--bdr);border-radius:6px;text-decoration:none;color:inherit;cursor:pointer;transition:border-color var(--dur);flex-shrink:0;white-space:nowrap}
 .sent-gauge:hover{border-color:var(--accent)}
@@ -630,13 +633,14 @@ input[type="number"]{-moz-appearance:textfield}
   .ticker-bar-actions{flex-shrink:0}
   .ticker-time{font-size:.52rem}
 
-  /* Sentiment strip — compact on mobile */
-  .sentiment-strip{gap:3px;padding:3px 6px}
-  .sent-gauge{padding:2px 6px;border-radius:5px;gap:3px}
-  .sent-label{font-size:.52rem}
+  /* Sentiment strip — 3x2 grid on mobile, all visible at once */
+  .sentiment-strip{display:grid;grid-template-columns:repeat(3,1fr);gap:2px;padding:3px 4px;overflow:visible;white-space:normal}
+  .sentiment-strip::after{display:none}
+  .sent-gauge{display:flex;align-items:baseline;gap:3px;padding:3px 5px;border-radius:4px;justify-content:center}
+  .sent-label{font-size:.5rem}
   .sent-value{font-size:.68rem}
-  .sent-tag{font-size:.46rem;padding:1px 3px}
-  .sent-chg{font-size:.48rem}
+  .sent-tag{display:none}
+  .sent-chg{font-size:.46rem}
 
   /* Main tabs: fixed bottom nav bar — app style */
   .main-tabs{position:fixed;bottom:0;left:0;right:0;z-index:var(--z-bottom-nav);border-top:1px solid var(--bdr2);border-bottom:none;gap:0;flex-wrap:nowrap;padding:4px 8px calc(4px + env(safe-area-inset-bottom, 0px));overflow:visible;background:var(--bg0)}
@@ -775,8 +779,9 @@ input[type="number"]{-moz-appearance:textfield}
   .ticker-time{font-size:.56rem!important}
 
   /* Sentiment: even tighter */
-  .sent-gauge{padding:2px 4px;gap:2px}
-  .sent-label{font-size:.48rem}
+  .sent-gauge{padding:2px 3px;gap:2px}
+  .sent-label{font-size:.46rem}
+  .sent-value{font-size:.6rem}
   .sent-value{font-size:.62rem}
   .sent-tag{font-size:.46rem}
 
@@ -1245,7 +1250,7 @@ input[type="number"]{-moz-appearance:textfield}
 .j-csv-btns{display:flex;gap:4px}
 
 /* ── Quick Filters ── */
-.j-quick-filters{display:flex;gap:6px;padding:8px 0;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.j-quick-filters{display:flex;gap:6px;padding:8px 0;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;position:relative}
 .j-quick-filters::-webkit-scrollbar{display:none}
 .j-qf-chip{flex-shrink:0}
 .j-qf-chip{display:flex;align-items:center;gap:4px;padding:5px 14px;background:var(--bg1);border:1px solid var(--bdr);border-radius:20px;color:var(--t2);font-size:.78rem;font-weight:600;cursor:pointer;transition:all var(--dur);white-space:nowrap}

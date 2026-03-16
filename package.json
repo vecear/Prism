@@ -6,6 +6,7 @@
     "deploy": "wrangler pages deploy ."
   },
   "devDependencies": {
+    "puppeteer": "^24.39.1",
     "wrangler": "^4.71.0"
   }
 }
