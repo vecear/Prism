@@ -1414,7 +1414,7 @@ function renderDashboard() {
       pill('今日', fmtMoney(d.today, m), cls(d.today)),
       pill('本週', fmtMoney(d.week, m), cls(d.week)),
       pill('本月', fmtMoney(d.month, m), cls(d.month)),
-      pill('未實現', d.unreal ? fmtMoney(d.unreal, m) : '—', cls(d.unreal)),
+      pill('未實現', d.unreal ? fmtMoney(d.unreal, m) : ' —', cls(d.unreal)),
       pill('持倉', String(openCount), ''),
     ].join(sep);
   } else {

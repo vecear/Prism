@@ -616,7 +616,8 @@ input[type="number"]{-moz-appearance:textfield}
 
   /* Ticker bar — collapsed by default on mobile, expand on click */
   .ticker-bar{padding:3px 0;flex-direction:row;gap:0;align-items:center}
-  .ticker-strip{display:flex;gap:0;flex:1;min-width:0;flex-wrap:nowrap;overflow:hidden;max-height:24px}
+  .ticker-strip{display:flex;gap:0;flex:1;min-width:0;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;max-height:26px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .ticker-strip::-webkit-scrollbar{display:none}
   .ticker-bar.expanded .ticker-strip{flex-wrap:wrap;max-height:none;overflow:visible}
   .ticker-chip{display:flex;align-items:baseline;gap:3px;padding:1px 0;white-space:nowrap;flex-shrink:0}
   .ticker-chip+.ticker-chip::before{content:'';display:inline-block;width:1px;height:10px;background:var(--bdr2);margin:0 6px;vertical-align:middle;flex-shrink:0}
@@ -1233,9 +1234,7 @@ input[type="number"]{-moz-appearance:textfield}
   .j-stats-strip .j-refresh-quotes-btn{width:28px;height:28px}
   .j-stats-overview{grid-template-columns:1fr}
   .j-csv-btns{display:none}
-  .j-quick-filters{gap:4px;padding:4px 0;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
-  .j-quick-filters::-webkit-scrollbar{display:none}
-  .j-qf-chip{flex-shrink:0}
+  .j-quick-filters{gap:4px;padding:4px 0}
   .j-qf-chip{padding:4px 10px;font-size:.72rem}
   .j-cal-grid{grid-template-columns:repeat(7,1fr);font-size:.7rem}
   .j-cal-cell{min-height:52px;padding:3px}
@@ -1246,7 +1245,9 @@ input[type="number"]{-moz-appearance:textfield}
 .j-csv-btns{display:flex;gap:4px}
 
 /* ── Quick Filters ── */
-.j-quick-filters{display:flex;gap:6px;padding:8px 0;flex-wrap:wrap}
+.j-quick-filters{display:flex;gap:6px;padding:8px 0;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.j-quick-filters::-webkit-scrollbar{display:none}
+.j-qf-chip{flex-shrink:0}
 .j-qf-chip{display:flex;align-items:center;gap:4px;padding:5px 14px;background:var(--bg1);border:1px solid var(--bdr);border-radius:20px;color:var(--t2);font-size:.78rem;font-weight:600;cursor:pointer;transition:all var(--dur);white-space:nowrap}
 .j-qf-chip:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-d)}
 .j-qf-chip.active{background:var(--accent-d);border-color:var(--accent);color:var(--accent);font-weight:700}
