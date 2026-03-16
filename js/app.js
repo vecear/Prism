@@ -858,6 +858,7 @@ const DEFAULT_SETTINGS = {
   cryptoSource: 'binance', // 'binance' | 'yahoo'
   finnhubKey: '',
   fontScale: 'm',          // 'xs' | 's' | 'm' | 'l' | 'xl'
+  fontSizes: null,         // per-area font multipliers { ticker, sentiment, tab, input, result, journal }
   colorMode: 'green-up',   // 'green-up' (綠漲紅跌) | 'red-up' (紅漲綠跌)
   // 台灣股票
   twFeeDisc: '0.5',        // 股票手續費折扣
@@ -910,7 +911,7 @@ function loadSettings() {
   } catch { return { ...DEFAULT_SETTINGS }; }
 }
 // Keys that stay local-only (not synced to cloud)
-const LOCAL_ONLY_KEYS = ['fontScale'];
+const LOCAL_ONLY_KEYS = ['fontScale', 'fontSizes'];
 function saveSettings(s) {
   try { localStorage.setItem('tg-settings', JSON.stringify(s)); }
   catch (e) { console.warn('[Prism] localStorage save failed:', e.message); }
@@ -2932,13 +2933,7 @@ function renderSettings() {
         </div>
         <div class="stg-row">
           <label>字體大小</label>
-          <select class="stg-select" id="stg-font-scale">
-            <option value="xs" ${CFG.fontScale === 'xs' ? 'selected' : ''}>小</option>
-            <option value="s" ${CFG.fontScale === 's' ? 'selected' : ''}>適中</option>
-            <option value="m" ${CFG.fontScale === 'm' ? 'selected' : ''}>標準</option>
-            <option value="l" ${CFG.fontScale === 'l' ? 'selected' : ''}>大</option>
-            <option value="xl" ${CFG.fontScale === 'xl' ? 'selected' : ''}>特大</option>
-          </select>
+          <button class="stg-fs-open" id="stg-font-size-open"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/></svg>自訂</button>
         </div>
         <div class="stg-row">
           <label>漲跌顏色</label>
@@ -3234,6 +3229,9 @@ function renderSettings() {
     saveSettings(CFG);
   }));
 
+  // Font size sub-page
+  $('#stg-font-size-open')?.addEventListener('click', _openFontSizePage);
+
   // Update descriptions & show/hide Finnhub key row on source change
   const syncUI = () => {
     const tw = $('#stg-tw-source')?.value || 'twse';
@@ -3258,7 +3256,6 @@ function renderSettings() {
     CFG.autoFetch = $('#stg-auto-fetch')?.checked ?? true;
     CFG.refreshInterval = parseInt($('#stg-refresh')?.value || '0', 10);
     CFG.defaultMarket = $('#stg-default-market')?.value || 'tw';
-    CFG.fontScale = $('#stg-font-scale')?.value || 'm';
     CFG.colorMode = $('#stg-color-mode')?.value || 'green-up';
     CFG.twFeeDisc = $('#stg-tw-fee-disc')?.value || '0.5';
     CFG.twTaxRate = $('#stg-tw-tax-rate')?.value || '0.003';
@@ -3406,11 +3403,200 @@ function applyColorMode(mode) {
   }
 }
 
+// Font size groups — each group has multiple slider items
+const FONT_SIZE_GROUPS = [
+  { id: 'ticker', label: '報價列', icon: '<path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>',
+    items: [
+      { key: 'ticker-name',  label: '名稱',   css: '--fs-ticker-name',  base: .75 },
+      { key: 'ticker-price', label: '價格',   css: '--fs-ticker-price', base: .88 },
+      { key: 'ticker-chg',   label: '漲跌幅', css: '--fs-ticker-chg',   base: .72 },
+    ]},
+  { id: 'sentiment', label: '情緒指標', icon: '<circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/>',
+    items: [
+      { key: 'sent-label', label: '標籤', css: '--fs-sent-label', base: .62 },
+      { key: 'sent-value', label: '數值', css: '--fs-sent-value', base: .78 },
+      { key: 'sent-tag',   label: '標記', css: '--fs-sent-tag',   base: .56 },
+    ]},
+  { id: 'nav', label: '導航標籤', icon: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/>',
+    items: [
+      { key: 'tab',    label: '主標籤', css: '--fs-tab',    base: .88 },
+      { key: 'subtab', label: '子標籤', css: '--fs-subtab', base: .82 },
+    ]},
+  { id: 'input', label: '計算器輸入', icon: '<path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/>',
+    items: [
+      { key: 'input-label', label: '標籤',   css: '--fs-input-label', base: .85 },
+      { key: 'input-value', label: '輸入值', css: '--fs-input-value', base: .88 },
+    ]},
+  { id: 'result', label: '計算結果', icon: '<path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>',
+    items: [
+      { key: 'result-label', label: '標籤',   css: '--fs-result-label', base: .72 },
+      { key: 'result-value', label: '數值',   css: '--fs-result-value', base: 1 },
+      { key: 'result-sub',   label: '說明',   css: '--fs-result-sub',   base: .72 },
+    ]},
+  { id: 'journal', label: '交易日誌', icon: '<path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/>',
+    items: [
+      { key: 'journal-head', label: '表頭',   css: '--fs-journal-head', base: .78 },
+      { key: 'journal-body', label: '表格',   css: '--fs-journal-body', base: .84 },
+      { key: 'journal-stat', label: '統計',   css: '--fs-journal-stat', base: .82 },
+    ]},
+];
+const _ALL_FS_ITEMS = FONT_SIZE_GROUPS.flatMap(g => g.items);
+
+function _applyFontSizes() {
+  const fs = CFG.fontSizes || {};
+  const el = document.documentElement;
+  _ALL_FS_ITEMS.forEach(a => {
+    el.style.setProperty(a.css, fs[a.key] ?? 1);
+  });
+}
+
+function _openFontSizePage() {
+  const body = $('#settings-body');
+  if (!body) return;
+
+  const fs = { ...(CFG.fontSizes || {}) };
+  _ALL_FS_ITEMS.forEach(a => { if (fs[a.key] == null) fs[a.key] = 1; });
+
+  // Save original settings HTML and replace with font size sub-page
+  const _savedHTML = body.innerHTML;
+
+  const _s = (base, scale) => `${(base * scale).toFixed(2)}rem`;
+
+  const _previewFor = (groupId) => {
+    const g = fs;
+    switch (groupId) {
+      case 'ticker': return `<div style="display:flex;align-items:baseline;gap:4px;flex-wrap:wrap">
+        <span style="font-size:${_s(.75,g['ticker-name'])};color:var(--t3);font-weight:600">台指期</span>
+        <span style="font-family:var(--mono);font-size:${_s(.88,g['ticker-price'])};font-weight:700">22,456</span>
+        <span style="font-family:var(--mono);font-size:${_s(.72,g['ticker-chg'])};color:var(--green)">+1.23%</span>
+        <span style="margin-left:4px;font-size:${_s(.75,g['ticker-name'])};color:var(--t3);font-weight:600">S&P</span>
+        <span style="font-family:var(--mono);font-size:${_s(.88,g['ticker-price'])};font-weight:700">5,892</span>
+        <span style="font-family:var(--mono);font-size:${_s(.72,g['ticker-chg'])};color:var(--red)">-0.56%</span></div>`;
+      case 'sentiment': return `<div style="display:flex;gap:4px;flex-wrap:wrap">
+        <span style="display:inline-flex;align-items:baseline;gap:3px;padding:2px 4px;background:var(--bg1);border:1px solid var(--bdr);border-radius:4px">
+          <span style="font-size:${_s(.62,g['sent-label'])};color:var(--t3);font-weight:600">VIX</span>
+          <span style="font-family:var(--mono);font-size:${_s(.78,g['sent-value'])};font-weight:700;color:var(--green)">14.52</span>
+          <span style="font-size:${_s(.56,g['sent-tag'])};color:var(--green);font-weight:600;padding:0 2px;border-radius:2px;background:var(--green-d)">低</span></span>
+        <span style="display:inline-flex;align-items:baseline;gap:3px;padding:2px 4px;background:var(--bg1);border:1px solid var(--bdr);border-radius:4px">
+          <span style="font-size:${_s(.62,g['sent-label'])};color:var(--t3);font-weight:600">恐貪</span>
+          <span style="font-family:var(--mono);font-size:${_s(.78,g['sent-value'])};font-weight:700;color:var(--yellow)">62</span>
+          <span style="font-size:${_s(.56,g['sent-tag'])};color:var(--yellow);font-weight:600;padding:0 2px;border-radius:2px;background:var(--yellow-d)">貪婪</span></span></div>`;
+      case 'nav': return `<div style="display:flex;flex-direction:column;gap:2px">
+        <div style="display:flex;gap:0;border-bottom:1px solid var(--bdr)">
+          <span style="padding:3px 10px;font-size:${_s(.88,g['tab'])};font-weight:600;color:var(--accent);border-bottom:2px solid var(--accent)">保證金</span>
+          <span style="padding:3px 10px;font-size:${_s(.88,g['tab'])};font-weight:600;color:var(--t3)">期貨</span></div>
+        <div style="display:flex;gap:0">
+          <span style="padding:2px 8px;font-size:${_s(.82,g['subtab'])};font-weight:600;color:var(--accent);border-bottom:2px solid var(--accent)">總覽</span>
+          <span style="padding:2px 8px;font-size:${_s(.82,g['subtab'])};font-weight:600;color:var(--t3)">明細</span></div></div>`;
+      case 'input': return `<div style="display:flex;flex-direction:column;gap:3px">
+        <div><span style="font-size:${_s(.85,g['input-label'])};color:var(--t2);font-weight:500">買進價格</span>
+          <div style="margin-top:1px;padding:3px 6px;background:var(--bg1);border:1px solid var(--bdr);border-radius:4px;font-family:var(--mono);font-size:${_s(.88,g['input-value'])};color:var(--t1)">150.00</div></div></div>`;
+      case 'result': return `<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px">
+        <div style="background:var(--bg1);border:1px solid var(--bdr);border-radius:4px;padding:4px 6px">
+          <div style="font-size:${_s(.72,g['result-label'])};color:var(--t3);font-weight:600">投入金額</div>
+          <div style="font-family:var(--mono);font-size:${_s(1,g['result-value'])};font-weight:700">$150,000</div>
+          <div style="font-size:${_s(.72,g['result-sub'])};color:var(--t3)">150 × 1000股</div></div>
+        <div style="background:var(--green-d);border:1px solid var(--green);border-radius:4px;padding:4px 6px">
+          <div style="font-size:${_s(.72,g['result-label'])};color:var(--t3);font-weight:600">報酬率</div>
+          <div style="font-family:var(--mono);font-size:${_s(1,g['result-value'])};font-weight:700;color:var(--green)">+5.32%</div>
+          <div style="font-size:${_s(.72,g['result-sub'])};color:var(--t3)">+$7,980</div></div></div>`;
+      case 'journal': return `<div>
+        <div style="display:flex;justify-content:space-between;padding:2px 0;border-bottom:1px solid var(--bdr);color:var(--t2);font-weight:600;font-size:${_s(.78,g['journal-head'])}"><span>標的</span><span>損益</span></div>
+        <div style="display:flex;justify-content:space-between;padding:2px 0;font-size:${_s(.84,g['journal-body'])}"><span>2330</span><span style="color:var(--green);font-family:var(--mono);font-weight:600">+$12,450</span></div>
+        <div style="margin-top:3px;display:flex;gap:6px;align-items:baseline">
+          <span style="font-size:${_s(.68,g['journal-stat'])};color:var(--t3);font-weight:600">勝率</span>
+          <span style="font-family:var(--mono);font-size:${_s(.82,g['journal-stat'])};font-weight:700;color:var(--green)">65%</span></div></div>`;
+      default: return '';
+    }
+  };
+
+  const _buildCards = () => FONT_SIZE_GROUPS.map(g => `
+    <div class="stg-fs-card" data-group="${g.id}">
+      <div class="stg-fs-card-hdr">
+        <svg class="stg-fs-card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${g.icon}</svg>
+        <span class="stg-fs-card-name">${g.label}</span>
+      </div>
+      <div class="stg-fs-preview" data-preview="${g.id}">${_previewFor(g.id)}</div>
+      ${g.items.map(i => `<div class="stg-fs-row">
+        <span class="stg-fs-label">${i.label}</span>
+        <input type="range" class="stg-fs-slider" data-key="${i.key}" min="0.6" max="1.5" step="0.05" value="${fs[i.key]}">
+        <span class="stg-fs-val" data-val="${i.key}">${Math.round(fs[i.key] * 100)}%</span>
+      </div>`).join('')}
+    </div>`).join('');
+
+  body.innerHTML = `<div class="stg-fs-page">
+    <div class="stg-fs-header">
+      <button class="stg-fs-back" id="stg-fs-back"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>設定</button>
+      <span class="stg-fs-title">字體大小</span>
+      <button class="stg-fs-reset" id="stg-fs-reset">重置</button>
+    </div>
+    <div class="stg-fs-base-row">
+      <span class="stg-fs-base-label">基礎大小</span>
+      <select class="stg-select" id="stg-fs-base" style="max-width:110px">
+        <option value="xs" ${CFG.fontScale==='xs'?'selected':''}>小 (14px)</option>
+        <option value="s" ${CFG.fontScale==='s'?'selected':''}>適中 (15px)</option>
+        <option value="m" ${CFG.fontScale==='m'?'selected':''}>標準 (16px)</option>
+        <option value="l" ${CFG.fontScale==='l'?'selected':''}>大 (17px)</option>
+        <option value="xl" ${CFG.fontScale==='xl'?'selected':''}>特大 (18.5px)</option>
+      </select>
+    </div>
+    <div class="stg-fs-grid">${_buildCards()}</div>
+  </div>`;
+
+  // Back — restore settings page
+  const _goBack = () => {
+    body.innerHTML = _savedHTML;
+    window._stgRendered = false;
+    renderSettings();
+    window._stgRendered = true;
+  };
+  $('#stg-fs-back').addEventListener('click', _goBack);
+
+  $('#stg-fs-base').addEventListener('change', e => {
+    CFG.fontScale = e.target.value;
+    document.documentElement.setAttribute('data-font-scale', CFG.fontScale);
+    saveSettings(CFG);
+  });
+
+  $('#stg-fs-reset').addEventListener('click', () => {
+    _ALL_FS_ITEMS.forEach(a => { fs[a.key] = 1; });
+    CFG.fontSizes = null;
+    saveSettings(CFG);
+    _applyFontSizes();
+    body.querySelectorAll('.stg-fs-slider').forEach(s => { s.value = 1; });
+    body.querySelectorAll('[data-val]').forEach(v => { v.textContent = '100%'; });
+    FONT_SIZE_GROUPS.forEach(g => {
+      const prev = body.querySelector(`[data-preview="${g.id}"]`);
+      if (prev) prev.innerHTML = _previewFor(g.id);
+    });
+  });
+
+  body.querySelectorAll('.stg-fs-slider').forEach(slider => {
+    slider.addEventListener('input', () => {
+      const key = slider.dataset.key;
+      const val = parseFloat(slider.value);
+      fs[key] = val;
+      const valEl = body.querySelector(`[data-val="${key}"]`);
+      if (valEl) valEl.textContent = Math.round(val * 100) + '%';
+      const group = FONT_SIZE_GROUPS.find(g => g.items.some(i => i.key === key));
+      if (group) {
+        const prev = body.querySelector(`[data-preview="${group.id}"]`);
+        if (prev) prev.innerHTML = _previewFor(group.id);
+      }
+      CFG.fontSizes = { ...fs };
+      _applyFontSizes();
+      saveSettings(CFG);
+    });
+  });
+}
+
 function applySettings() {
   // Apply theme
   applyTheme(CFG.theme);
   // Apply font scale
   document.documentElement.setAttribute('data-font-scale', CFG.fontScale || 'm');
+  // Apply per-area font sizes
+  _applyFontSizes();
   // Apply color mode (green-up / red-up) — swap --green and --red CSS vars
   applyColorMode(CFG.colorMode);
 
