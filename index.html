@@ -269,12 +269,6 @@
         regs.forEach(function(r) { r.unregister(); });
       });
     } else {
-      var refreshing = false;
-      navigator.serviceWorker.addEventListener('controllerchange', function() {
-        if (refreshing) return;
-        refreshing = true;
-        location.reload();
-      });
       navigator.serviceWorker.register('/sw.js').catch(function(){});
     }
   }
