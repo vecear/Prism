@@ -28,7 +28,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+TC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=20260316i">
+  <link rel="stylesheet" href="css/style.css?v=20260316j">
 </head>
 <body>
   <div id="app">
@@ -275,7 +275,9 @@
           if (!nw) return;
           nw.addEventListener('statechange', function() {
             if (nw.state === 'activated' && navigator.serviceWorker.controller) {
-              // New version activated — prompt reload
+              // Prevent showing after reload
+              if (sessionStorage.getItem('sw-updated')) return;
+              sessionStorage.setItem('sw-updated', '1');
               var bar = document.createElement('div');
               bar.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:var(--accent,#00b4d8);color:#fff;text-align:center;padding:10px 16px;font-size:14px;cursor:pointer;font-family:sans-serif';
               bar.textContent = '已更新至新版本，點擊重新載入';
@@ -288,7 +290,7 @@
     }
   }
   </script>
-  <script src="js/app.js?v=20260316i" defer></script>
-  <script src="js/journal.js?v=20260316i" defer></script>
+  <script src="js/app.js?v=20260316j" defer></script>
+  <script src="js/journal.js?v=20260316j" defer></script>
 </body>
 </html>

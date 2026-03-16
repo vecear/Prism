@@ -1560,7 +1560,7 @@ function renderFilters() {
   const allAccounts = [...new Set(trades.map(t => t.account).filter(Boolean))].sort();
   const drv = _dateRangeValue();
   const customActive = drv === 'custom';
-  el.innerHTML = `<div class="j-filter-row">
+  el.innerHTML = `<button class="j-filter-toggle" id="j-filter-toggle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/></svg>篩選</button><div class="j-filter-row">
     <div class="j-filter-group">
       <select id="jf-market" class="j-filter-select"><option value="all">全部市場</option><option value="tw" ${filterState.market==='tw'?'selected':''}>台灣</option><option value="us" ${filterState.market==='us'?'selected':''}>美國</option><option value="crypto" ${filterState.market==='crypto'?'selected':''}>加密貨幣</option></select>
       <select id="jf-type" class="j-filter-select"><option value="all">全部類型</option><option value="stock" ${filterState.type==='stock'?'selected':''}>股票</option><option value="futures" ${filterState.type==='futures'?'selected':''}>期貨(全部)</option><option value="index_futures" ${filterState.type==='index_futures'?'selected':''}>指數期貨</option><option value="stock_futures" ${filterState.type==='stock_futures'?'selected':''}>個股期貨</option><option value="commodity_futures" ${filterState.type==='commodity_futures'?'selected':''}>原物料期貨</option><option value="crypto_contract" ${filterState.type==='crypto_contract'?'selected':''}>加密貨幣合約</option><option value="crypto_spot" ${filterState.type==='crypto_spot'?'selected':''}>加密貨幣現貨</option><option value="options" ${filterState.type==='options'?'selected':''}>選擇權</option><option value="etf" ${filterState.type==='etf'?'selected':''}>ETF</option></select>
@@ -1607,6 +1607,10 @@ function renderFilters() {
   $('#jf-to')?.addEventListener('change', () => { filterState.dateTo=$('#jf-to')?.value||''; refresh(); });
   $$('#j-filters select:not(#jf-date-range),#jf-search').forEach(e=>e.addEventListener('change',update));
   $('#jf-search')?.addEventListener('input',update);
+  // Mobile filter toggle
+  $('#j-filter-toggle')?.addEventListener('click', () => {
+    el.classList.toggle('expanded');
+  });
 }
 
 function getFilteredTrades() {

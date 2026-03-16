@@ -613,18 +613,20 @@ input[type="number"]{-moz-appearance:textfield}
   .ha-user{padding:4px 8px;font-size:.72rem;gap:4px}
   .ha-user svg{width:12px;height:12px}
 
-  /* Ticker bar — compact card grid on mobile, all visible */
-  .ticker-bar{padding:4px 0;flex-direction:column;gap:4px;align-items:stretch}
-  .ticker-strip{display:grid;grid-template-columns:repeat(3,1fr);gap:2px;flex:none;align-items:stretch}
-  .ticker-chip{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0;padding:3px 2px;background:var(--bg1);border:1px solid var(--bdr);border-radius:5px;white-space:nowrap;min-height:30px;box-sizing:border-box}
-  .ticker-chip+.ticker-chip::before{display:none}
-  .ticker-chip:hover{background:var(--bg2)}
-  .tc-name{font-size:.5rem;color:var(--t3);font-weight:600;line-height:1}
+  /* Ticker bar — collapsed by default on mobile, expand on click */
+  .ticker-bar{padding:3px 0;flex-direction:row;gap:0;align-items:center}
+  .ticker-strip{display:flex;gap:0;flex:1;min-width:0;flex-wrap:nowrap;overflow:hidden;max-height:24px}
+  .ticker-bar.expanded .ticker-strip{flex-wrap:wrap;max-height:none;overflow:visible}
+  .ticker-chip{display:flex;align-items:baseline;gap:3px;padding:1px 0;white-space:nowrap;flex-shrink:0}
+  .ticker-chip+.ticker-chip::before{content:'';display:inline-block;width:1px;height:10px;background:var(--bdr2);margin:0 6px;vertical-align:middle;flex-shrink:0}
+  .ticker-chip:hover{background:none}
+  .tc-name{font-size:.52rem;color:var(--t3);font-weight:600;line-height:1}
   .tc-price{font-size:.7rem;font-weight:700;line-height:1.2}
   .tc-chg{font-size:.5rem;line-height:1}
   .ticker-basis{font-size:.48rem;margin-top:0}
-  .ticker-bar-actions{justify-content:center}
-  .ticker-time{font-size:.56rem}
+  .ticker-toggle{display:flex}
+  .ticker-bar-actions{flex-shrink:0}
+  .ticker-time{font-size:.52rem}
 
   /* Sentiment strip — compact on mobile */
   .sentiment-strip{gap:3px;padding:3px 6px}
@@ -833,6 +835,7 @@ input[type="number"]{-moz-appearance:textfield}
 
 /* ── Filters ── */
 .j-filters{padding:6px 0;border-bottom:1px solid var(--bdr)}
+.j-filter-toggle{display:none}
 .j-filter-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .j-filter-group{display:flex;gap:6px;align-items:center}
 .j-filter-select{padding:7px 28px 7px 10px;background:var(--bg0);border:1px solid var(--bdr);border-radius:5px;color:var(--t1);font-family:var(--sans);font-size:.85rem;outline:none;cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%235a6f82' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 8px center}
@@ -847,7 +850,7 @@ input[type="number"]{-moz-appearance:textfield}
 .j-filter-search::placeholder{color:var(--t3)}
 
 /* ── Summary Bar ── */
-.j-summary-bar{display:flex;gap:16px;padding:10px 16px;background:var(--bg2);border:1px solid var(--bdr);border-radius:var(--r);margin:8px 0;font-size:.84rem;color:var(--t2);flex-wrap:wrap;align-items:center;box-shadow:var(--shadow-sm)}
+.j-summary-bar{display:flex;gap:12px;padding:8px 12px;background:var(--bg2);border:1px solid var(--bdr);border-radius:var(--r);margin:6px 0;font-size:.82rem;color:var(--t2);flex-wrap:wrap;align-items:center}
 .j-summary-bar strong{font-weight:600;color:var(--t1)}
 .j-summary-bar span{display:flex;align-items:center;gap:4px}
 
@@ -1153,9 +1156,10 @@ input[type="number"]{-moz-appearance:textfield}
   .j-toast{bottom:calc(64px + env(safe-area-inset-bottom,0px));font-size:.78rem;padding:8px 14px;gap:8px}
   .j-toast-btn{padding:5px 10px;font-size:.74rem}
 
-  /* Filters — two-row compact layout */
+  /* Filters — collapsed by default on mobile */
   .j-filters{padding:4px 0}
-  .j-filter-row{display:grid;grid-template-columns:1fr 1fr;gap:4px}
+  .j-filter-row{display:grid;grid-template-columns:1fr 1fr;gap:3px;max-height:0;overflow:hidden;transition:max-height .2s ease}
+  .j-filters.expanded .j-filter-row{max-height:300px}
   .j-filter-group{display:contents}
   .j-filter-select{padding:5px 22px 5px 6px;font-size:.74rem;border-radius:4px;min-width:0}
   .j-filter-custom-date{grid-column:1/-1;display:flex;gap:4px;align-items:center}
@@ -1163,9 +1167,12 @@ input[type="number"]{-moz-appearance:textfield}
   .j-filter-sep{display:block;font-size:.7rem}
   .j-filter-search-wrap{grid-column:1/-1;min-width:0}
   .j-filter-search{padding:5px 8px;font-size:.76rem;border-radius:4px}
+  .j-filter-toggle{display:flex;align-items:center;gap:4px;padding:4px 10px;background:none;border:1px solid var(--bdr);border-radius:5px;color:var(--t3);font-size:.72rem;font-weight:600;cursor:pointer;margin-bottom:4px}
+  .j-filter-toggle svg{width:12px;height:12px;transition:transform .2s}
+  .j-filters.expanded .j-filter-toggle svg{transform:rotate(180deg)}
 
   /* Summary bar — tighter */
-  .j-summary-bar{padding:6px 10px;font-size:.76rem;gap:8px;margin:6px 0;border-radius:4px}
+  .j-summary-bar{padding:5px 8px;font-size:.72rem;gap:4px 8px;margin:4px 0;border-radius:4px}
   /* Hide table, show card list on mobile */
   .j-table-wrap{display:none}
   .j-card-list{display:flex;flex-direction:column;gap:8px}
@@ -1225,7 +1232,9 @@ input[type="number"]{-moz-appearance:textfield}
   .j-stats-strip .j-refresh-quotes-btn{width:28px;height:28px}
   .j-stats-overview{grid-template-columns:1fr}
   .j-csv-btns{display:none}
-  .j-quick-filters{gap:4px;padding:6px 0}
+  .j-quick-filters{gap:4px;padding:4px 0;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .j-quick-filters::-webkit-scrollbar{display:none}
+  .j-qf-chip{flex-shrink:0}
   .j-qf-chip{padding:4px 10px;font-size:.72rem}
   .j-cal-grid{grid-template-columns:repeat(7,1fr);font-size:.7rem}
   .j-cal-cell{min-height:52px;padding:3px}
@@ -1512,10 +1521,8 @@ input[type="number"]{-moz-appearance:textfield}
   .st-wrap.scrolled-end::after{opacity:0}
 }
 
-/* ── Ticker 3-column on very small screens ── */
+/* ── Very small screens ── */
 @media(max-width:420px){
-  .ticker-strip{display:grid!important;grid-template-columns:repeat(3,1fr);gap:2px;flex-wrap:nowrap}
-  .ticker-chip{min-width:0}
   .j-stat-val{font-size:.68rem}
   .j-stat-mkt .j-stat-val{font-size:.64rem}
   .j-card-detail-grid{grid-template-columns:1fr 1fr}
