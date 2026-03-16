@@ -955,9 +955,9 @@ const S = _savedS || {
   futures: { market: 'tw', direction: 'long', product: 'index' },
   options: { market: 'tw', side: 'buyer', product: 'index' },
   crypto: { mode: 'spot', direction: 'long' },
-  activeTab: 'margin'
+  activeTab: 'journal'
 };
-if (!S.activeTab) S.activeTab = 'margin';
+if (!S.activeTab) S.activeTab = 'journal';
 if (!S.crypto) S.crypto = { mode: 'spot', direction: 'long' };
 function _saveState() {
   localStorage.setItem('prism_state', JSON.stringify(S));
@@ -988,7 +988,7 @@ async function loadAppStateFromServer() {
     const data = await res.json();
     if (data.state && Object.keys(data.state).length > 0) {
       Object.assign(S, data.state);
-      if (!S.activeTab) S.activeTab = 'margin';
+      if (!S.activeTab) S.activeTab = 'journal';
       if (!S.crypto) S.crypto = { mode: 'spot', direction: 'long' };
       localStorage.setItem('prism_state', JSON.stringify(S));
     }
@@ -1671,31 +1671,31 @@ function _renderSentimentStrip() {
     return srcStr ? `來源報價時間：${srcStr}\n本地抓取時間：${fetchStr}` : (fetchStr ? `本地抓取時間：${fetchStr}` : '');
   }
 
-  // Build each gauge keyed by id
+  // Build each gauge keyed by id — compact inline pill format
   const gauges = {};
+
+  // Helper: build a compact inline pill
+  function _pill(key, label, value, lv, chgHtml, tip, href) {
+    return `<a class="sent-gauge" data-sent="${key}" draggable="true" title="${tip}" href="${href}" target="_blank" rel="noopener"><span class="sent-label">${label}</span><span class="sent-value" style="color:${lv.color}">${value}</span><span class="sent-tag" style="color:${lv.color}">${lv.label}</span>${chgHtml}</a>`;
+  }
+  function _chg(val, decimals, invert) {
+    if (val == null) return '';
+    const cls = invert ? (val <= 0 ? 'up' : 'down') : (val >= 0 ? 'up' : 'down');
+    return `<span class="sent-chg ${cls}">${val >= 0 ? '+' : ''}${val.toFixed(decimals)}</span>`;
+  }
 
   if (showVix) {
     const lv = _vixLevel(vixVal);
-    const vixChg = vixQ.change != null ? vixQ.change : null;
-    const vixChgHtml = vixChg != null ? `<span class="sent-chg ${vixChg <= 0 ? 'up' : 'down'}">${vixChg >= 0 ? '+' : ''}${vixChg.toFixed(2)}</span>` : '';
-    gauges.vix = `<a class="sent-gauge" data-sent="vix" draggable="true" title="${_sentTip('vix', vixQ)}" href="https://www.tradingview.com/chart/?symbol=CBOE%3AVIX" target="_blank" rel="noopener">
-      <div class="sent-top"><span class="sent-label">VIX</span><span class="sent-tag" style="color:${lv.color}">${lv.label}</span></div>
-      <div class="sent-bottom"><span class="sent-value" style="color:${lv.color}">${vixVal.toFixed(2)}</span>${vixChgHtml}</div>
-    </a>`;
+    gauges.vix = _pill('vix', 'VIX', vixVal.toFixed(2), lv, _chg(vixQ.change, 2, true), _sentTip('vix', vixQ), 'https://www.tradingview.com/chart/?symbol=CBOE%3AVIX');
   }
 
   if (showVixTerm) {
     const vix3mVal = vix3mQ.price;
     const lv = _vixLevel(vix3mVal);
-    const vix3mChg = vix3mQ.change != null ? vix3mQ.change : null;
-    const chgHtml = vix3mChg != null ? `<span class="sent-chg ${vix3mChg <= 0 ? 'up' : 'down'}">${vix3mChg >= 0 ? '+' : ''}${vix3mChg.toFixed(2)}</span>` : '';
     const ratio = vixVal / vix3mVal;
     const structure = ratio >= 1 ? '逆價差' : '正價差';
     const tip = `VIX3M: ${vix3mVal.toFixed(2)}\nVIX/VIX3M 比值: ${ratio.toFixed(3)} (${structure})\n${structure === '逆價差' ? '短期恐慌高於長期 → 急性壓力' : '長期高於短期 → 正常結構'}\n${_sentTip('vix3m', vix3mQ)}`;
-    gauges.vix3m = `<a class="sent-gauge" data-sent="vix3m" draggable="true" title="${tip}" href="https://www.tradingview.com/chart/?symbol=CBOE%3AVIX3M" target="_blank" rel="noopener">
-      <div class="sent-top"><span class="sent-label">VIX3M</span><span class="sent-tag" style="color:${lv.color}">${lv.label}</span></div>
-      <div class="sent-bottom"><span class="sent-value" style="color:${lv.color}">${vix3mVal.toFixed(2)}</span>${chgHtml}</div>
-    </a>`;
+    gauges.vix3m = _pill('vix3m', 'VIX3M', vix3mVal.toFixed(2), lv, _chg(vix3mQ.change, 2, true), tip, 'https://www.tradingview.com/chart/?symbol=CBOE%3AVIX3M');
   }
 
   if (showVixRatio) {
@@ -1703,50 +1703,33 @@ function _renderSentimentStrip() {
     const lv = _vixTermLevel(vixVal, vix3mQ.price);
     const structure = ratio >= 1 ? '逆價差' : '正價差';
     const tip = `VIX: ${vixVal.toFixed(2)} / VIX3M: ${vix3mQ.price.toFixed(2)}\n比值: ${ratio.toFixed(3)}\n${ratio >= 1 ? '逆價差 (Backwardation) → 短期恐慌高於長期' : '正價差 (Contango) → 正常結構'}`;
-    gauges.vixRatio = `<a class="sent-gauge" data-sent="vixRatio" draggable="true" title="${tip}" href="https://www.tradingview.com/chart/?symbol=CBOE%3AVIX3M" target="_blank" rel="noopener">
-      <div class="sent-top"><span class="sent-label">VIX 期限結構</span><span class="sent-tag" style="color:${lv.color}">${lv.label}</span></div>
-      <div class="sent-bottom"><span class="sent-value" style="color:${lv.color}">${ratio.toFixed(3)}</span><span class="sent-chg" style="color:${lv.color}">${structure}</span></div>
-    </a>`;
+    gauges.vixRatio = _pill('vixRatio', '期限結構', ratio.toFixed(3), lv, `<span class="sent-chg" style="color:${lv.color}">${structure}</span>`, tip, 'https://www.tradingview.com/chart/?symbol=CBOE%3AVIX3M');
   }
 
   if (showCredit) {
     const lv = _creditSpreadLevel(csData.spread);
-    const chg = csData.change;
-    const chgHtml = chg != null ? `<span class="sent-chg ${chg <= 0 ? 'up' : 'down'}">${chg >= 0 ? '+' : ''}${chg.toFixed(2)}</span>` : '';
     const csCache = _quoteCache._load().creditSpread;
     const csFetchStr = csCache?.time ? new Date(csCache.time).toLocaleTimeString('zh-TW', tFmt) : '';
     const tip = `ICE BofA US High Yield OAS\n信用利差: ${csData.spread.toFixed(2)}%\n前值: ${csData.prevSpread != null ? csData.prevSpread.toFixed(2) + '%' : '—'} (${csData.prevDate || ''})\n資料日期: ${csData.date}\n利差擴大 = 風險升高\n本地抓取時間：${csFetchStr}`;
-    gauges.credit = `<a class="sent-gauge" data-sent="credit" draggable="true" title="${tip}" href="https://fred.stlouisfed.org/series/BAMLH0A0HYM2" target="_blank" rel="noopener">
-      <div class="sent-top"><span class="sent-label">信用利差 OAS</span><span class="sent-tag" style="color:${lv.color}">${lv.label}</span></div>
-      <div class="sent-bottom"><span class="sent-value" style="color:${lv.color}">${csData.spread.toFixed(2)}%</span>${chgHtml}</div>
-    </a>`;
+    gauges.credit = _pill('credit', 'OAS', csData.spread.toFixed(2) + '%', lv, _chg(csData.change, 2, true), tip, 'https://fred.stlouisfed.org/series/BAMLH0A0HYM2');
   }
 
   if (showTreasury) {
     const lv = _tnxLevel(tnxQ.price);
-    const chg = tnxQ.change != null ? tnxQ.change : null;
-    const chgHtml = chg != null ? `<span class="sent-chg ${chg <= 0 ? 'up' : 'down'}">${chg >= 0 ? '+' : ''}${chg.toFixed(3)}%</span>` : '';
     const tip = `美國 10 年期公債殖利率\n殖利率急降 = 市場預期經濟衰退\n${_sentTip('tnx', tnxQ)}`;
-    gauges.treasury = `<a class="sent-gauge" data-sent="treasury" draggable="true" title="${tip}" href="https://www.tradingview.com/chart/?symbol=TVC%3AUS10Y" target="_blank" rel="noopener">
-      <div class="sent-top"><span class="sent-label">10Y 殖利率</span><span class="sent-tag" style="color:${lv.color}">${lv.label}</span></div>
-      <div class="sent-bottom"><span class="sent-value" style="color:${lv.color}">${tnxQ.price.toFixed(3)}%</span>${chgHtml}</div>
-    </a>`;
+    gauges.treasury = _pill('treasury', '10Y', tnxQ.price.toFixed(3) + '%', lv, _chg(tnxQ.change, 3, true), tip, 'https://www.tradingview.com/chart/?symbol=TVC%3AUS10Y');
   }
 
   if (showFg) {
     const lv = _fgLevel(fgData.score);
     const chg = fgData.previousClose != null ? fgData.score - fgData.previousClose : null;
-    const chgHtml = chg != null ? `<span class="sent-chg ${chg >= 0 ? 'up' : 'down'}">${chg >= 0 ? '+' : ''}${chg}</span>` : '';
     const fgCache = _quoteCache._load().fearGreed;
     const fgFetchStr = fgCache?.time ? new Date(fgCache.time).toLocaleTimeString('zh-TW', tFmt) : '';
     const fgSrcStr = fgData.timestamp ? new Date(fgData.timestamp).toLocaleTimeString('zh-TW', tFmt) : '';
     const fgTip = fgSrcStr
       ? `來源報價時間：${fgSrcStr}\n本地抓取時間：${fgFetchStr}`
       : (fgFetchStr ? `本地抓取時間：${fgFetchStr}` : '');
-    gauges.fg = `<a class="sent-gauge" data-sent="fg" draggable="true" title="${fgTip}" href="https://edition.cnn.com/markets/fear-and-greed" target="_blank" rel="noopener">
-      <div class="sent-top"><span class="sent-label">恐懼與貪婪</span><span class="sent-tag" style="color:${lv.color}">${lv.label}</span></div>
-      <div class="sent-bottom"><span class="sent-value" style="color:${lv.color}">${fgData.score}</span>${chgHtml}</div>
-    </a>`;
+    gauges.fg = _pill('fg', 'F&G', String(fgData.score), lv, _chg(chg, 0, false), fgTip, 'https://edition.cnn.com/markets/fear-and-greed');
   }
 
   // Apply saved order
@@ -2788,7 +2771,7 @@ function init() {
   _syncToggles();
 
   // Restore active tab
-  if (S.activeTab && S.activeTab !== 'margin') {
+  if (S.activeTab && S.activeTab !== 'journal') {
     const tabBtn = $(`.main-tab[data-tab="${S.activeTab}"]`);
     if (tabBtn) {
       $$('.main-tab').forEach(x => x.classList.remove('active'));

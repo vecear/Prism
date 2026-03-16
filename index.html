@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>Prism — 交易風險計算工具</title>
   <meta name="description" content="Prism 是一站式交易風險計算工具，支援台灣與美國股票、期貨、選擇權的保證金計算、損益分析與交易日誌。">
   <meta name="keywords" content="交易計算器,保證金計算,期貨計算,選擇權計算,風險管理,台股,美股">
@@ -28,7 +28,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+TC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=20260313f">
+  <link rel="stylesheet" href="css/style.css?v=20260316h">
 </head>
 <body>
   <div id="app">
@@ -77,7 +77,11 @@
 
     <!-- Main Tabs -->
     <nav class="main-tabs">
-      <button class="main-tab active" data-tab="margin">
+      <button class="main-tab active" data-tab="journal">
+        <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/><line x1="12" y1="12" x2="12" y2="18"/></svg>
+        <span class="tab-label">紀錄</span>
+      </button>
+      <button class="main-tab" data-tab="margin">
         <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 17l10-10M12 7l10 10"/><path d="M5 3v4M19 17v4"/><circle cx="5" cy="7" r="1.5" fill="currentColor" stroke="none"/><circle cx="19" cy="17" r="1.5" fill="currentColor" stroke="none"/></svg>
         <span class="tab-label">股票</span>
       </button>
@@ -93,17 +97,13 @@
         <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 2h5l3.5 7-6 13-6-13z"/><path d="M6.5 9h11"/><path d="M8.5 2l3.5 7M15.5 2l-3.5 7"/></svg>
         <span class="tab-label">加密貨幣</span>
       </button>
-      <button class="main-tab" data-tab="journal">
-        <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/><line x1="12" y1="12" x2="12" y2="18"/></svg>
-        <span class="tab-label">紀錄</span>
-      </button>
     </nav>
 
     <!-- Tab Contents -->
     <main class="main-content">
 
       <!-- MARGIN TAB -->
-      <section id="tab-margin" class="tab-content active">
+      <section id="tab-margin" class="tab-content">
         <div class="calc-layout">
           <div class="calc-left">
             <div class="controls-bar">
@@ -208,7 +208,7 @@
       </section>
 
       <!-- JOURNAL TAB -->
-      <section id="tab-journal" class="tab-content">
+      <section id="tab-journal" class="tab-content active">
         <div id="journal-root"></div>
       </section>
 
@@ -288,7 +288,7 @@
     }
   }
   </script>
-  <script src="js/app.js?v=20260313f" defer></script>
-  <script src="js/journal.js?v=20260313f" defer></script>
+  <script src="js/app.js?v=20260316h" defer></script>
+  <script src="js/journal.js?v=20260316h" defer></script>
 </body>
 </html>

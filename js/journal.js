@@ -31,7 +31,8 @@ let editingId = null;
 let filterState = { market: 'all', type: 'all', tag: 'all', account: 'all', status: 'all', search: '', dateFrom: '', dateTo: '' };
 let sortState = { field: 'date', asc: false };
 let viewMode = 'list'; // 'list' | 'calendar' | 'stats'
-let statsMarketTab = 'overview'; // 'overview' | 'tw' | 'us' | 'crypto'
+let statsMarketFilter = 'all'; // 'all' | 'tw' | 'us' | 'crypto'
+let statsDimension = 'month'; // 'month' | 'symbol' | 'type' | 'weekday' | 'tag' | 'account' | 'rating'
 let liveQuotes = {}; // { "symbol|market": { price, time } }
 let alertDismissed = {}; // dismissed SL/TP alerts this session
 let calMonth = null; // for calendar view: { year, month }
@@ -1023,6 +1024,7 @@ function showLoginModal() {
   modal.id = 'j-global-modal';
   modal.className = 'j-modal open';
   modal.style.width = '380px';
+  modal.style.maxWidth = '92vw';
 
   modal.innerHTML = `
     <div class="j-modal-header">
@@ -1316,7 +1318,7 @@ function renderJournal() {
     <div class="j-header">
       <div class="j-header-left">
         <div class="j-view-toggle">
-          <button class="j-vt-btn ${viewMode === 'list' ? 'active' : ''}" data-view="list"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>紀錄</button>
+          <button class="j-vt-btn ${viewMode === 'list' ? 'active' : ''}" data-view="list"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>交易</button>
           <button class="j-vt-btn ${viewMode === 'calendar' ? 'active' : ''}" data-view="calendar"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>日曆</button>
           <button class="j-vt-btn ${viewMode === 'stats' ? 'active' : ''}" data-view="stats"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>統計</button>
           <button class="j-vt-btn ${viewMode === 'holdings' ? 'active' : ''}" data-view="holdings"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>庫存</button>
@@ -1399,34 +1401,33 @@ function renderDashboard() {
   const ML_SHORT = { tw: '台股', us: '美股', crypto: '加密' };
   const mktRows = Object.entries(dashByMkt);
   const hasOpen = openCount > 0;
-  let dashHTML = '';
+  const refreshBtn = hasOpen ? `<button class="j-refresh-quotes-btn" id="j-refresh-quotes" title="更新未平倉報價"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 4v6h6"/><path d="M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg></button>` : '';
+
+  // Build inline stat pills
+  const pill = (label, val, c) => `<span class="j-stat-pill"><span class="j-stat-lbl">${label}</span><span class="j-stat-val ${c}">${val}</span></span>`;
+  const sep = '<span class="j-stat-sep">\u00b7</span>';
+
+  let statsHTML;
   if (mktRows.length <= 1) {
-    // Single market or no trades — simple row
     const m = mktRows[0]?.[0] || 'tw', d = mktRows[0]?.[1] || { today: 0, week: 0, month: 0, unreal: 0 };
-    dashHTML = `<div class="j-dashboard">
-      <div class="j-dash-item"><span class="j-dash-label">今日</span><span class="j-dash-value ${cls(d.today)}">${fmtMoney(d.today, m)}</span></div>
-      <div class="j-dash-item"><span class="j-dash-label">本週</span><span class="j-dash-value ${cls(d.week)}">${fmtMoney(d.week, m)}</span></div>
-      <div class="j-dash-item"><span class="j-dash-label">本月</span><span class="j-dash-value ${cls(d.month)}">${fmtMoney(d.month, m)}</span></div>
-      <div class="j-dash-item"><span class="j-dash-label">未實現</span><span class="j-dash-value ${cls(d.unreal)}">${d.unreal ? fmtMoney(d.unreal, m) : '—'}</span></div>
-      <div class="j-dash-item"><span class="j-dash-label">持倉</span><span class="j-dash-value">${openCount}</span></div>
-      ${hasOpen ? `<div class="j-dash-item j-dash-refresh"><button class="j-refresh-quotes-btn" id="j-refresh-quotes" title="更新未平倉報價"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 4v6h6"/><path d="M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg></button></div>` : ''}
-    </div>`;
+    statsHTML = [
+      pill('今日', fmtMoney(d.today, m), cls(d.today)),
+      pill('本週', fmtMoney(d.week, m), cls(d.week)),
+      pill('本月', fmtMoney(d.month, m), cls(d.month)),
+      pill('未實現', d.unreal ? fmtMoney(d.unreal, m) : '—', cls(d.unreal)),
+      pill('持倉', String(openCount), ''),
+    ].join(sep);
   } else {
-    // Multi-market — per-market rows
-    dashHTML = `<div class="j-dashboard j-dashboard-multi">
-      <div class="j-dash-header"><div class="j-dash-mkt-label"></div><div>今日</div><div>本週</div><div>本月</div><div>未實現</div></div>
-      ${mktRows.map(([m, d]) => `<div class="j-dash-mkt-row">
-        <div class="j-dash-mkt-label"><span class="j-badge j-badge-${m}">${ML_SHORT[m]}</span></div>
-        <div class="${cls(d.today)}">${fmtMoney(d.today, m)}</div>
-        <div class="${cls(d.week)}">${fmtMoney(d.week, m)}</div>
-        <div class="${cls(d.month)}">${fmtMoney(d.month, m)}</div>
-        <div class="${cls(d.unreal)}">${d.unreal ? fmtMoney(d.unreal, m) : '—'}</div>
-      </div>`).join('')}
-      <div class="j-dash-row-extra"><span>持倉 <strong>${openCount}</strong></span>${hasOpen ? `<button class="j-refresh-quotes-btn" id="j-refresh-quotes" title="更新未平倉報價"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 4v6h6"/><path d="M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg></button>` : ''}
-      </div>
-    </div>`;
+    // Multi-market: show market badge + values inline per market
+    const mktPills = mktRows.map(([m, d]) => {
+      const badge = `<span class="j-badge j-badge-${m}">${ML_SHORT[m]}</span>`;
+      return `<span class="j-stat-mkt">${badge}${pill('日', fmtMoney(d.today, m), cls(d.today))}${pill('週', fmtMoney(d.week, m), cls(d.week))}${pill('月', fmtMoney(d.month, m), cls(d.month))}${pill('未', d.unreal ? fmtMoney(d.unreal, m) : '—', cls(d.unreal))}</span>`;
+    });
+    statsHTML = mktPills.join(sep) + sep + pill('持倉', String(openCount), '');
   }
-  el.innerHTML = dashHTML + `
+
+  el.innerHTML = `
+  <div class="j-stats-strip">${statsHTML}${refreshBtn}</div>
   <div class="j-quick-filters" id="j-quick-filters">
     <button class="j-qf-chip" data-qf="all">全部<span class="j-qf-count">${trades.length}</span></button>
     <button class="j-qf-chip" data-qf="today">今日<span class="j-qf-count">${todayCount}</span></button>
@@ -1496,7 +1497,7 @@ function renderCalendar() {
     const cls = closed.length ? (totalPL > 0 ? 'j-cal-profit' : totalPL < 0 ? 'j-cal-loss' : '') : '';
     const plHTML = mks.length <= 1
       ? (closed.length ? `<span class="j-cal-pl ${totalPL >= 0 ? 'tg' : 'tr'}">${fmtMoney(totalPL, mks[0] || 'tw')}</span>` : '')
-      : mks.map(m => `<span class="j-cal-pl ${plByMkt[m] >= 0 ? 'tg' : 'tr'}" style="font-size:.58rem">${fmtMoney(plByMkt[m], m)}</span>`).join('');
+      : mks.map(m => `<span class="j-cal-pl ${plByMkt[m] >= 0 ? 'tg' : 'tr'}">${fmtMoney(plByMkt[m], m)}</span>`).join('');
     html += `<div class="j-cal-cell ${cls} ${isToday ? 'j-cal-today' : ''}" data-day="${d}">
       <span class="j-cal-day">${d}</span>
       ${dayTrades.length ? `<span class="j-cal-count">${dayTrades.length}筆</span>` : ''}
@@ -2040,7 +2041,7 @@ function renderEquityCurve(pls) {
   let cum = 0;
   const points = [{ x: 0, y: 0 }];
   sorted.forEach((t, i) => { cum += t.pl.net; points.push({ x: i + 1, y: cum }); });
-  const W = 600, H = 200, pad = 30;
+  const W = 600, H = 64, pad = 4;
   const maxX = points.length - 1, minY = Math.min(0, ...points.map(p => p.y)), maxY = Math.max(0, ...points.map(p => p.y));
   const rangeY = maxY - minY || 1;
   const sx = x => pad + (x / maxX) * (W - pad * 2);
@@ -2049,16 +2050,17 @@ function renderEquityCurve(pls) {
   const zeroY = sy(0).toFixed(1);
   const finalColor = cum >= 0 ? 'var(--green)' : 'var(--red)';
   const areaD = pathD + ` L${sx(maxX).toFixed(1)},${zeroY} L${sx(0).toFixed(1)},${zeroY} Z`;
-  return `<div class="j-stats-section"><h4>淨值曲線</h4>
-    <svg viewBox="0 0 ${W} ${H}" class="j-equity-svg">
-      <line x1="${pad}" y1="${zeroY}" x2="${W - pad}" y2="${zeroY}" stroke="var(--bdr2)" stroke-dasharray="4"/>
-      <path d="${areaD}" fill="${finalColor}" opacity=".1"/>
-      <path d="${pathD}" fill="none" stroke="${finalColor}" stroke-width="2" stroke-linejoin="round"/>
-      <text x="${pad}" y="${H - 8}" fill="var(--t3)" font-size="10">${sorted[0].date?.slice(0, 10) || ''}</text>
-      <text x="${W - pad}" y="${H - 8}" fill="var(--t3)" font-size="10" text-anchor="end">${sorted[sorted.length - 1].date?.slice(0, 10) || ''}</text>
-      <text x="${pad - 4}" y="${sy(maxY).toFixed(1)}" fill="var(--t3)" font-size="9" text-anchor="end">${fmtNum(maxY, 0)}</text>
-      <text x="${pad - 4}" y="${sy(minY).toFixed(1)}" fill="var(--t3)" font-size="9" text-anchor="end">${fmtNum(minY, 0)}</text>
-    </svg></div>`;
+  const dateFrom = sorted[0].date?.slice(0, 10) || '';
+  const dateTo = sorted[sorted.length - 1].date?.slice(0, 10) || '';
+  return `<div class="j-sparkline-wrap">
+    <div class="j-sparkline-meta"><span class="j-sparkline-label">淨值曲線</span><span class="j-kpi-lbl">${dateFrom} ~ ${dateTo}</span></div>
+    <svg viewBox="0 0 ${W} ${H}" class="j-sparkline-svg" preserveAspectRatio="none">
+      <line x1="0" y1="${zeroY}" x2="${W}" y2="${zeroY}" stroke="var(--bdr2)" stroke-width="0.5" stroke-dasharray="4"/>
+      <path d="${areaD}" fill="${finalColor}" opacity=".08"/>
+      <path d="${pathD}" fill="none" stroke="${finalColor}" stroke-width="1.5" stroke-linejoin="round"/>
+    </svg>
+    <div class="j-sparkline-range"><span>${fmtNum(minY, 0)}</span><span>${fmtNum(maxY, 0)}</span></div>
+  </div>`;
 }
 
 // ================================================================
@@ -2084,11 +2086,10 @@ function renderMonthlyBarChart(byM) {
     bars += `<text x="${x + barW / 2}" y="${H - 4}" text-anchor="middle" fill="var(--t3)" font-size="8">${m.slice(5)}</text>`;
   });
 
-  return `<div class="j-stats-section"><h4>月度損益柱狀圖</h4>
-    <svg viewBox="0 0 ${W} ${H}" class="j-equity-svg">
+  return `<svg viewBox="0 0 ${W} ${H}" class="j-equity-svg">
       <line x1="${pad}" y1="${zeroY}" x2="${W - pad}" y2="${zeroY}" stroke="var(--bdr2)" stroke-dasharray="4"/>
       ${bars}
-    </svg></div>`;
+    </svg>`;
 }
 
 // ================================================================
@@ -2120,12 +2121,11 @@ function renderPLDistribution(pls) {
     const color = midVal >= 0 ? 'var(--green)' : 'var(--red)';
     bars += `<rect x="${x}" y="${y}" width="${barW}" height="${h}" fill="${color}" opacity=".6" rx="1"><title>${fmtNum(min + i * step, 0)} ~ ${fmtNum(min + (i + 1) * step, 0)}: ${cnt}筆</title></rect>`;
   });
-  return `<div class="j-stats-section"><h4>損益分布</h4>
-    <svg viewBox="0 0 ${W} ${H}" class="j-equity-svg">
+  return `<svg viewBox="0 0 ${W} ${H}" class="j-equity-svg">
       ${bars}
       <text x="${pad}" y="${H - 6}" fill="var(--t3)" font-size="9">${fmtNum(min, 0)}</text>
       <text x="${W - pad}" y="${H - 6}" fill="var(--t3)" font-size="9" text-anchor="end">${fmtNum(max, 0)}</text>
-    </svg></div>`;
+    </svg>`;
 }
 
 function renderRollingChart(data) {
@@ -2597,124 +2597,195 @@ function computeStats(pls) {
   return {tn,tf,tt,count:pls.length,w,l,wr,aw,al,pf,mw,ml,mcw,mcl,expectancy,maxDD,maxDDPct,avgHold,wHold,lHold,rMultiples,avgR,byT,byM,byTg,byDow,byTime,byAcct,byRating,bySymbol,rollingData,revengeTrades,revengeNet,afterLossCount,afterLossNet,afterLossList,revengeList,reviewed,avgDisc,avgTim,avgSiz,highDisc,lowDisc,highDiscPL,lowDiscPL,pls,sorted};
 }
 
-// Render stats HTML for a specific market (fm = fmtMoney bound to market)
-function renderStatsHTML(st, market) {
-  const fm = (n, d) => fmtMoney(n, market, d);
-  const TL = TYPE_LABELS;
-  const dowNames = ['日','一','二','三','四','五','六'];
-  const {tn,tf,tt,count,w,l,wr,aw,al,pf,mw,ml,mcw,mcl,expectancy,maxDD,maxDDPct,avgHold,wHold,lHold,rMultiples,avgR,byT,byM,byTg,byDow,byTime,byAcct,byRating,bySymbol,rollingData,revengeTrades,revengeNet,afterLossCount,afterLossNet,afterLossList,revengeList,reviewed,avgDisc,avgTim,avgSiz,highDisc,lowDisc,highDiscPL,lowDiscPL,pls,sorted} = st;
-  return `<div class="j-stats-grid">
-    <div class="j-stat-card j-stat-main"><div class="j-stat-label">淨損益</div><div class="j-stat-value ${tn>=0?'tg':'tr'}">${fm(tn)}</div></div>
-    <div class="j-stat-card"><div class="j-stat-label">交易次數</div><div class="j-stat-value">${count}</div></div>
-    <div class="j-stat-card"><div class="j-stat-label">勝率</div><div class="j-stat-value ${parseFloat(wr)>=50?'tg':'tr'}">${wr}%</div><div class="j-stat-sub">${w.length}勝/${l.length}負</div></div>
-    <div class="j-stat-card"><div class="j-stat-label">獲利因子</div><div class="j-stat-value">${pf===Infinity?'∞':pf.toFixed(2)}</div></div>
-    <div class="j-stat-card"><div class="j-stat-label">期望值</div><div class="j-stat-value ${expectancy>=0?'tg':'tr'}">${fm(expectancy)}</div><div class="j-stat-sub">每筆期望報酬</div></div>
-    <div class="j-stat-card"><div class="j-stat-label">最大回撤</div><div class="j-stat-value tr">${fm(maxDD)}</div><div class="j-stat-sub">${maxDDPct}%</div></div>
-    <div class="j-stat-card"><div class="j-stat-label">平均獲利</div><div class="j-stat-value tg">${fm(aw)}</div></div>
-    <div class="j-stat-card"><div class="j-stat-label">平均虧損</div><div class="j-stat-value tr">${fm(al)}</div></div>
-    <div class="j-stat-card"><div class="j-stat-label">最大單筆獲利</div><div class="j-stat-value tg">${fm(mw)}</div></div>
-    <div class="j-stat-card"><div class="j-stat-label">最大單筆虧損</div><div class="j-stat-value tr">${fm(ml)}</div></div>
-    <div class="j-stat-card"><div class="j-stat-label">最大連勝</div><div class="j-stat-value">${mcw}</div></div>
-    <div class="j-stat-card"><div class="j-stat-label">最大連敗</div><div class="j-stat-value">${mcl}</div></div>
-    <div class="j-stat-card"><div class="j-stat-label">平均持倉天數</div><div class="j-stat-value">${avgHold}</div><div class="j-stat-sub">獲利 ${wHold} / 虧損 ${lHold}</div></div>
-    ${rMultiples.length?`<div class="j-stat-card"><div class="j-stat-label">平均 R 倍數</div><div class="j-stat-value ${parseFloat(avgR)>=0?'tg':'tr'}">${avgR}R</div><div class="j-stat-sub">${rMultiples.length}筆有停損</div></div>`:''}
-    <div class="j-stat-card"><div class="j-stat-label">總手續費</div><div class="j-stat-value ty">${fm(tf)}</div></div>
-    <div class="j-stat-card"><div class="j-stat-label">總交易稅</div><div class="j-stat-value ty">${fm(tt)}</div></div>
-  </div>
-  ${renderEquityCurve(pls)}
-  ${Object.keys(byT).length>1?`<div class="j-stats-section"><h4>依商品類型</h4><table class="j-stats-table"><thead><tr><th>類型</th><th>筆數</th><th>淨損益</th><th>勝率</th></tr></thead><tbody>${Object.entries(byT).map(([k,v])=>`<tr><td>${TL[k]||k}</td><td>${v.c}</td><td class="${v.n>=0?'tg':'tr'}">${fm(v.n)}</td><td>${(v.w/v.c*100).toFixed(1)}%</td></tr>`).join('')}</tbody></table></div>`:''}
-  ${Object.keys(byM).length?`<div class="j-stats-section"><h4>月度績效</h4><table class="j-stats-table"><thead><tr><th>月份</th><th>筆數</th><th>淨損益</th><th>勝率</th></tr></thead><tbody>${Object.entries(byM).sort((a,b)=>b[0].localeCompare(a[0])).map(([m,v])=>`<tr><td>${m}</td><td>${v.c}</td><td class="${v.n>=0?'tg':'tr'}">${fm(v.n)}</td><td>${(v.w/v.c*100).toFixed(1)}%</td></tr>`).join('')}</tbody></table></div>`:''}
-  ${Object.keys(byTg).length?`<div class="j-stats-section"><h4>依標籤</h4><table class="j-stats-table"><thead><tr><th>標籤</th><th>筆數</th><th>淨損益</th><th>勝率</th></tr></thead><tbody>${Object.entries(byTg).sort((a,b)=>b[1].n-a[1].n).map(([tag,v])=>`<tr><td><span class="j-tag">${esc(tag)}</span></td><td>${v.c}</td><td class="${v.n>=0?'tg':'tr'}">${fm(v.n)}</td><td>${(v.w/v.c*100).toFixed(1)}%</td></tr>`).join('')}</tbody></table></div>`:''}
-  ${Object.keys(byAcct).length>1?`<div class="j-stats-section"><h4>依帳戶</h4><table class="j-stats-table"><thead><tr><th>帳戶</th><th>筆數</th><th>淨損益</th><th>勝率</th></tr></thead><tbody>${Object.entries(byAcct).sort((a,b)=>b[1].n-a[1].n).map(([a,v])=>`<tr><td>${esc(a)}</td><td>${v.c}</td><td class="${v.n>=0?'tg':'tr'}">${fm(v.n)}</td><td>${(v.w/v.c*100).toFixed(1)}%</td></tr>`).join('')}</tbody></table></div>`:''}
-  ${Object.keys(byRating).length?`<div class="j-stats-section"><h4>依評分</h4><table class="j-stats-table"><thead><tr><th>評分</th><th>筆數</th><th>淨損益</th><th>勝率</th></tr></thead><tbody>${Object.entries(byRating).sort((a,b)=>b[0]-a[0]).map(([r,v])=>`<tr><td>${'★'.repeat(parseInt(r))}${'☆'.repeat(5-parseInt(r))}</td><td>${v.c}</td><td class="${v.n>=0?'tg':'tr'}">${fm(v.n)}</td><td>${(v.w/v.c*100).toFixed(1)}%</td></tr>`).join('')}</tbody></table></div>`:''}
-  <div class="j-stats-section"><h4>依星期</h4><table class="j-stats-table"><thead><tr><th>星期</th><th>筆數</th><th>淨損益</th><th>勝率</th></tr></thead><tbody>${[1,2,3,4,5,6,0].filter(d=>byDow[d]).map(d=>{const v=byDow[d];return `<tr><td>週${dowNames[d]}</td><td>${v.c}</td><td class="${v.n>=0?'tg':'tr'}">${fm(v.n)}</td><td>${(v.w/v.c*100).toFixed(1)}%</td></tr>`;}).join('')}</tbody></table></div>
-  ${byTime.morning.c&&byTime.afternoon.c?`<div class="j-stats-section"><h4>依時段</h4><table class="j-stats-table"><thead><tr><th>時段</th><th>筆數</th><th>淨損益</th><th>勝率</th></tr></thead><tbody><tr><td>上午 (0-12)</td><td>${byTime.morning.c}</td><td class="${byTime.morning.n>=0?'tg':'tr'}">${fm(byTime.morning.n)}</td><td>${(byTime.morning.w/byTime.morning.c*100).toFixed(1)}%</td></tr><tr><td>下午 (12-24)</td><td>${byTime.afternoon.c}</td><td class="${byTime.afternoon.n>=0?'tg':'tr'}">${fm(byTime.afternoon.n)}</td><td>${(byTime.afternoon.w/byTime.afternoon.c*100).toFixed(1)}%</td></tr></tbody></table></div>`:''}
-  ${Object.keys(bySymbol).length>1?`<div class="j-stats-section"><h4>依標的績效</h4><table class="j-stats-table"><thead><tr><th>標的</th><th>筆數</th><th>淨損益</th><th>勝率</th><th>均損益</th></tr></thead><tbody>${Object.entries(bySymbol).sort((a,b)=>b[1].n-a[1].n).map(([s,v])=>`<tr><td title="${esc(v.name)}">${esc(s)}</td><td>${v.c}</td><td class="${v.n>=0?'tg':'tr'}">${fm(v.n)}</td><td>${(v.w/v.c*100).toFixed(1)}%</td><td class="${v.n/v.c>=0?'tg':'tr'}">${fm(v.n/v.c)}</td></tr>`).join('')}</tbody></table></div>`:''}
-  ${reviewed.length?`<div class="j-stats-section"><h4>覆盤評分分析</h4><div class="j-rv-analysis"><div class="j-rv-avg"><span>平均紀律 <strong>${avgDisc.toFixed(1)}</strong>/5</span><span>平均時機 <strong>${avgTim.toFixed(1)}</strong>/5</span><span>平均倉位 <strong>${avgSiz.toFixed(1)}</strong>/5</span></div>${highDisc.length&&lowDisc.length?`<div class="j-rv-compare"><div class="j-rv-cmp-item"><span class="j-rv-cmp-label">高紀律 (4-5分) 平均損益</span><span class="${highDiscPL>=0?'tg':'tr'}">${fm(highDiscPL)}</span><span class="j-stat-sub">${highDisc.length}筆</span></div><div class="j-rv-cmp-item"><span class="j-rv-cmp-label">低紀律 (1-2分) 平均損益</span><span class="${lowDiscPL>=0?'tg':'tr'}">${fm(lowDiscPL)}</span><span class="j-stat-sub">${lowDisc.length}筆</span></div></div>`:''}</div></div>`:''}
-  ${afterLossCount>0?`<div class="j-stats-section"><h4>虧損後行為分析</h4><div class="j-revenge-analysis"><div class="j-revenge-row"><span class="j-dl">虧損後交易</span><span class="j-dv">${afterLossCount} 筆</span><span class="j-dv ${afterLossNet>=0?'tg':'tr'}">${fm(afterLossNet)}</span></div><div class="j-revenge-row"><span class="j-dl">疑似報復性交易</span><span class="j-dv ${revengeTrades>0?'tr':''}">${revengeTrades} 筆</span><span class="j-dv ${revengeNet>=0?'tg':'tr'}">${fm(revengeNet)}</span></div>${revengeTrades>0?`<div class="j-revenge-warn">⚠ 偵測到 ${revengeTrades} 筆在虧損後 2 小時內的交易，平均損益 ${fm(revengeTrades?revengeNet/revengeTrades:0)}</div>`:`<div class="j-revenge-ok">✓ 未偵測到明顯的報復性交易行為</div>`}</div><table class="j-stats-table j-loss-follow-table"><thead><tr><th>虧損交易</th><th>損益</th><th>→ 後續交易</th><th>損益</th><th>間隔</th></tr></thead><tbody>${afterLossList.map(({trade:t,prevTrade:p})=>{const diffH=(new Date(t.date)-new Date(p.date))/(1000*60*60);const isRevenge=diffH<2;return `<tr${isRevenge?' class="j-revenge-highlight"':''}>
-<td class="j-loss-follow-link" data-id="${p.id}">${esc(p.symbol)} ${fmtDate(p.date)}</td>
-<td class="tr">${fm(p.pl.net)}</td>
-<td class="j-loss-follow-link" data-id="${t.id}">${esc(t.symbol)} ${fmtDate(t.date)}</td>
-<td class="${t.pl.net>=0?'tg':'tr'}">${fm(t.pl.net)}</td>
-<td>${diffH<1?(diffH*60).toFixed(0)+'分':diffH<24?diffH.toFixed(1)+'時':(diffH/24).toFixed(1)+'天'}${isRevenge?' ⚡':''}</td>
-</tr>`;}).join('')}</tbody></table></div>`:''}
-  ${rollingData.length>=5?`<div class="j-stats-section"><h4>滾動績效趨勢 (近30筆)</h4>${renderRollingChart(rollingData)}</div>`:''}
-  ${renderMonthlyBarChart(st.byM)}
-  ${renderPLDistribution(pls)}`;
+// ── Dimension table data source ──
+const DIM_DEFS = {
+  month:   { label: '月份',  key: 'byM',   sort: (a,b) => b[0].localeCompare(a[0]), fmt: k => k },
+  symbol:  { label: '標的',  key: 'bySymbol', sort: (a,b) => b[1].n - a[1].n, fmt: (k,v) => `<span title="${esc(v.name||k)}">${esc(k)}</span>` },
+  type:    { label: '類型',  key: 'byT',   sort: (a,b) => b[1].n - a[1].n, fmt: k => TYPE_LABELS[k] || k },
+  weekday: { label: '星期',  key: 'byDow', sort: null, order: [1,2,3,4,5,6,0], fmt: k => '週' + ['日','一','二','三','四','五','六'][k] },
+  tag:     { label: '標籤',  key: 'byTg',  sort: (a,b) => b[1].n - a[1].n, fmt: k => `<span class="j-tag">${esc(k)}</span>` },
+  account: { label: '帳戶',  key: 'byAcct',sort: (a,b) => b[1].n - a[1].n, fmt: k => esc(k) },
+  rating:  { label: '評分',  key: 'byRating', sort: (a,b) => b[0] - a[0], fmt: k => '★'.repeat(parseInt(k)) + '☆'.repeat(5 - parseInt(k)) },
+};
+
+function _renderDimTable(st, dim, fm) {
+  const def = DIM_DEFS[dim];
+  if (!def) return '';
+  const data = st[def.key];
+  if (!data || !Object.keys(data).length) return '<div class="j-empty" style="padding:16px;text-align:center;color:var(--t3)">無資料</div>';
+  let entries;
+  if (def.order) entries = def.order.filter(k => data[k]).map(k => [k, data[k]]);
+  else entries = Object.entries(data);
+  if (def.sort) entries.sort(def.sort);
+  const maxAbs = Math.max(1, ...entries.map(([,v]) => Math.abs(v.n)));
+  const showAvg = dim === 'symbol';
+  return `<table class="j-stats-table j-dim-table"><thead><tr><th>${def.label}</th><th>筆數</th><th>淨損益</th><th>勝率</th>${showAvg?'<th>均損益</th>':''}</tr></thead><tbody>${entries.map(([k,v]) => {
+    const pct = Math.abs(v.n) / maxAbs * 100;
+    const color = v.n >= 0 ? 'var(--green)' : 'var(--red)';
+    return `<tr><td>${def.fmt(k,v)}</td><td>${v.c}</td><td class="${v.n>=0?'tg':'tr'}">${fm(v.n)}<span class="j-pl-bar" style="width:${pct.toFixed(0)}%;background:${color}"></span></td><td>${(v.w/v.c*100).toFixed(1)}%</td>${showAvg?`<td class="${v.n/v.c>=0?'tg':'tr'}">${fm(v.n/v.c)}</td>`:''}</tr>`;
+  }).join('')}</tbody></table>`;
 }
+
+// Render integrated stats page for a specific market
+function renderStatsPage(st, market, fm) {
+  const {tn,tf,tt,count,w,l,wr,aw,al,pf,mw,ml,mcw,mcl,expectancy,maxDD,maxDDPct,avgHold,wHold,lHold,rMultiples,avgR,byTime,rollingData,revengeTrades,revengeNet,afterLossCount,afterLossNet,reviewed,avgDisc,avgTim,avgSiz,highDisc,lowDisc,highDiscPL,lowDiscPL,pls} = st;
+
+  // ── Hero KPIs ──
+  const kpi = (label, val, cls, tip) => `<div class="j-kpi"${tip?` title="${tip}"`:''}><span class="j-kpi-lbl">${label}</span><span class="j-kpi-val ${cls||''}">${val}</span></div>`;
+  const totalGross = w.reduce((s,t)=>s+t.pl.net,0), totalLoss = l.reduce((s,t)=>s+t.pl.net,0);
+  // Win rate ring SVG
+  const wrNum = parseFloat(wr) || 0;
+  const wrR = 18, wrC = 2 * Math.PI * wrR, wrDash = wrC * wrNum / 100;
+  const wrColor = wrNum >= 50 ? 'var(--green)' : 'var(--red)';
+  const wrRing = `<div class="j-kpi" title="${w.length} ÷ ${count} × 100% = ${wr}%\n${w.length}勝 / ${l.length}負">
+    <span class="j-kpi-lbl">勝率</span>
+    <div class="j-wr-ring"><svg width="44" height="44" viewBox="0 0 44 44"><circle cx="22" cy="22" r="${wrR}" fill="none" stroke="var(--bdr)" stroke-width="3"/><circle cx="22" cy="22" r="${wrR}" fill="none" stroke="${wrColor}" stroke-width="3" stroke-dasharray="${wrDash.toFixed(1)} ${wrC.toFixed(1)}" stroke-linecap="round"><animate attributeName="stroke-dasharray" from="0 ${wrC.toFixed(1)}" to="${wrDash.toFixed(1)} ${wrC.toFixed(1)}" dur="0.8s" fill="freeze"/></circle></svg><span class="j-wr-text ${wrNum>=50?'tg':'tr'}">${wr}%</span></div>
+  </div>`;
+
+  const hero = `<div class="j-hero-strip">
+    <div class="j-kpi j-kpi-hero" title="淨損益 = 總獲利 ${fm(totalGross)} + 總虧損 ${fm(totalLoss)}\n已扣手續費 ${fm(tf)} + 稅 ${fm(tt)}"><span class="j-kpi-lbl">淨損益</span><span class="j-kpi-val j-num-tick ${tn>=0?'tg':'tr'}">${fm(tn)}</span></div>
+    ${wrRing}
+    ${kpi('獲利因子', pf===Infinity?'∞':pf.toFixed(2), '', `|均獲利| ÷ |均虧損| = |${fm(aw)}| ÷ |${fm(al)}|\n> 1 表示整體獲利`)}
+    ${kpi('期望值', fm(expectancy), expectancy>=0?'tg':'tr', `勝率 × 均獲利 + 敗率 × 均虧損\n= ${wr}% × ${fm(aw)} + ${(100-parseFloat(wr)).toFixed(1)}% × ${fm(al)}`)}
+    ${kpi('回撤', `${fm(maxDD)}`, 'tr', `最大回撤 = 淨值高點到低點最大跌幅\n= ${fm(maxDD)} (${maxDDPct}%)`)}
+  </div>`;
+
+  // ── More KPIs (compact secondary strip) ──
+  const more = `<div class="j-kpi-more">
+    ${kpi('筆數', `${count}`, '', `${w.length}勝 / ${l.length}負`)}
+    ${kpi('均獲利', fm(aw), 'tg', `${fm(totalGross)} ÷ ${w.length}`)}
+    ${kpi('均虧損', fm(al), 'tr', `${fm(totalLoss)} ÷ ${l.length}`)}
+    ${kpi('最大獲利', fm(mw), 'tg')}${kpi('最大虧損', fm(ml), 'tr')}
+    ${kpi('連勝/敗', `${mcw}/${mcl}`, '', '依日期排序計算')}
+    ${kpi('持倉天數', avgHold, '', `獲利 ${wHold} / 虧損 ${lHold}`)}
+    ${rMultiples.length?kpi('平均R', `${avgR}R`, parseFloat(avgR)>=0?'tg':'tr', `${rMultiples.length}筆有停損`):''}
+    ${kpi('費用', fm(tf+tt), 'ty', `手續費 ${fm(tf)} + 稅 ${fm(tt)}`)}
+  </div>`;
+
+  // ── Equity Curve ──
+  const equity = renderEquityCurve(pls);
+
+  // ── Dimension switcher + table ──
+  const availDims = Object.entries(DIM_DEFS).filter(([,def]) => {
+    const d = st[def.key]; return d && Object.keys(d).length > 0;
+  });
+  const dimPills = `<div class="j-dim-pills">${availDims.map(([k,def]) =>
+    `<button class="j-dim-pill${statsDimension===k?' active':''}" data-dim="${k}">${def.label}</button>`
+  ).join('')}</div>`;
+  const dimTable = `<div class="j-dim-body" id="j-dim-body">${_renderDimTable(st, statsDimension, fm)}</div>`;
+
+  // ── Charts row ──
+  const monthlyChart = renderMonthlyBarChart(st.byM);
+  const plDist = renderPLDistribution(pls);
+  const chartsRow = (monthlyChart || plDist) ? `<div class="j-charts-row">${monthlyChart?`<div class="j-chart-cell"><div class="j-chart-title">月度損益</div>${monthlyChart}</div>`:''}${plDist?`<div class="j-chart-cell"><div class="j-chart-title">損益分布</div>${plDist}</div>`:''}</div>` : '';
+
+  // ── Insights panel ──
+  let insights = [];
+  // Time of day
+  if (byTime.morning.c && byTime.afternoon.c) {
+    const better = byTime.morning.n / byTime.morning.c > byTime.afternoon.n / byTime.afternoon.c ? '上午' : '下午';
+    insights.push(`<span class="j-insight" title="上午 ${byTime.morning.c}筆 均${fm(byTime.morning.n/byTime.morning.c)} / 下午 ${byTime.afternoon.c}筆 均${fm(byTime.afternoon.n/byTime.afternoon.c)}">📊 ${better}交易績效較佳</span>`);
+  }
+  // Review scores
+  if (reviewed.length) {
+    const rc = v => v >= 4 ? 'tg' : v <= 2 ? 'tr' : '';
+    insights.push(`<span class="j-insight" title="平均紀律 ${avgDisc.toFixed(1)}/5\n平均時機 ${avgTim.toFixed(1)}/5\n平均倉位 ${avgSiz.toFixed(1)}/5\n${reviewed.length}筆已評分">📝 紀律 <strong class="${rc(avgDisc)}">${avgDisc.toFixed(1)}</strong> 時機 <strong class="${rc(avgTim)}">${avgTim.toFixed(1)}</strong> 倉位 <strong class="${rc(avgSiz)}">${avgSiz.toFixed(1)}</strong></span>`);
+    if (highDisc.length && lowDisc.length) {
+      insights.push(`<span class="j-insight" title="高紀律(4-5) ${highDisc.length}筆 均${fm(highDiscPL)}\n低紀律(1-2) ${lowDisc.length}筆 均${fm(lowDiscPL)}">🎯 高紀律均損益 <strong class="${highDiscPL>=0?'tg':'tr'}">${fm(highDiscPL)}</strong> vs 低紀律 <strong class="${lowDiscPL>=0?'tg':'tr'}">${fm(lowDiscPL)}</strong></span>`);
+    }
+  }
+  // Revenge
+  if (afterLossCount > 0) {
+    if (revengeTrades > 0) {
+      insights.push(`<span class="j-insight tr" title="虧損後2小時內交易 ${revengeTrades}筆\n均損益 ${fm(revengeNet/revengeTrades)}">⚠ ${revengeTrades}筆疑似報復性交易</span>`);
+    } else {
+      insights.push(`<span class="j-insight tg">✓ 無報復性交易</span>`);
+    }
+  }
+  const insightsPanel = insights.length ? `<div class="j-insights-panel">${insights.join('')}</div>` : '';
+
+  return hero + more + equity + dimPills + dimTable + chartsRow + insightsPanel;
+}
+
+// Cache computed stats for dimension switching without re-render
+let _cachedStats = null;
+let _cachedMarket = null;
 
 function renderStats() {
   const body=$('#j-body');if(!body)return;
   const allPls=getFilteredTrades().filter(t=>t.status==='closed').map(t=>({...t,pl:calcPL(t)})).filter(t=>t.pl);
   if(!allPls.length){body.innerHTML='<div class="j-empty"><p>尚無已平倉交易可供統計</p></div>';return;}
 
-  // Determine active markets
   const markets=[...new Set(allPls.map(t=>t.market))].filter(m=>MKT_CURRENCY[m]);
-  const ML_FULL={tw:'台股 (NT$)',us:'美股 (US$)',crypto:'加密貨幣 (USDT)'};
+  const ML_SHORT={tw:'台股',us:'美股',crypto:'加密'};
 
-  // Tab bar
-  const showTabs = markets.length > 1;
-  let tabBar = '';
-  if (showTabs) {
-    tabBar = `<div class="j-stats-tabs">
-      <button class="j-stats-tab ${statsMarketTab==='overview'?'active':''}" data-stab="overview">全部概覽</button>
-      ${markets.map(m=>`<button class="j-stats-tab ${statsMarketTab===m?'active':''}" data-stab="${m}">${ML_FULL[m]||m}</button>`).join('')}
-    </div>`;
-  } else if (markets.length === 1) {
-    // Only one market — force that market's stats
-    statsMarketTab = markets[0];
-  }
+  // Market filter pills
+  const filterPills = markets.length > 1 ? `<div class="j-stats-filter-pills">
+    <button class="j-mf-pill${statsMarketFilter==='all'?' active':''}" data-mf="all">全部</button>
+    ${markets.map(m=>`<button class="j-mf-pill${statsMarketFilter===m?' active':''}" data-mf="${m}">${ML_SHORT[m]}</button>`).join('')}
+  </div>` : '';
 
-  let content = '';
-  if (statsMarketTab === 'overview' && showTabs) {
-    // Overview: per-market summary cards side by side
-    content = `<div class="j-stats-overview">
-      ${markets.map(m => {
-        const mPls = allPls.filter(t => t.market === m);
-        if (!mPls.length) return '';
-        const st = computeStats(mPls);
-        const fm = (n) => fmtMoney(n, m);
-        return `<div class="j-stats-mkt-card">
-          <h4><span class="j-badge j-badge-${m}">${ML_FULL[m]}</span></h4>
-          <div class="j-stats-mini-grid">
-            <div class="j-stat-card j-stat-main"><div class="j-stat-label">淨損益</div><div class="j-stat-value ${st.tn>=0?'tg':'tr'}">${fm(st.tn)}</div></div>
-            <div class="j-stat-card"><div class="j-stat-label">交易次數</div><div class="j-stat-value">${st.count}</div></div>
-            <div class="j-stat-card"><div class="j-stat-label">勝率</div><div class="j-stat-value ${parseFloat(st.wr)>=50?'tg':'tr'}">${st.wr}%</div><div class="j-stat-sub">${st.w.length}勝/${st.l.length}負</div></div>
-            <div class="j-stat-card"><div class="j-stat-label">獲利因子</div><div class="j-stat-value">${st.pf===Infinity?'∞':st.pf.toFixed(2)}</div></div>
-            <div class="j-stat-card"><div class="j-stat-label">期望值</div><div class="j-stat-value ${st.expectancy>=0?'tg':'tr'}">${fm(st.expectancy)}</div></div>
-            <div class="j-stat-card"><div class="j-stat-label">最大回撤</div><div class="j-stat-value tr">${fm(st.maxDD)}</div></div>
-            <div class="j-stat-card"><div class="j-stat-label">平均獲利</div><div class="j-stat-value tg">${fm(st.aw)}</div></div>
-            <div class="j-stat-card"><div class="j-stat-label">平均虧損</div><div class="j-stat-value tr">${fm(st.al)}</div></div>
-            <div class="j-stat-card"><div class="j-stat-label">手續費+稅</div><div class="j-stat-value ty">${fm(st.tf+st.tt)}</div></div>
-          </div>
-        </div>`;
-      }).join('')}
-    </div>
-    <div class="j-stats-section"><p class="j-stat-sub" style="text-align:center;margin:12px 0">切換上方分頁查看各市場完整統計</p></div>`;
-  } else {
-    // Single market view
-    const mkt = statsMarketTab;
-    const mPls = showTabs ? allPls.filter(t => t.market === mkt) : allPls;
-    if (!mPls.length) {
-      content = '<div class="j-empty"><p>此市場無已平倉交易</p></div>';
-    } else {
-      const st = computeStats(mPls);
-      content = renderStatsHTML(st, mkt);
-    }
-  }
+  // Filter trades by market
+  const mkt = statsMarketFilter === 'all' ? null : statsMarketFilter;
+  const mPls = mkt ? allPls.filter(t => t.market === mkt) : allPls;
+  if (!mPls.length) { body.innerHTML = filterPills + '<div class="j-empty"><p>此市場無已平倉交易</p></div>'; return; }
 
-  body.innerHTML = `<div class="j-stats">${tabBar}${content}</div>`;
+  // Determine display market (for currency formatting)
+  const displayMarket = mkt || (markets.length === 1 ? markets[0] : 'tw');
+  const fm = (n, d) => fmtMoney(n, displayMarket, d);
 
-  // Bind tab clicks
-  $$('.j-stats-tab', body).forEach(btn => btn.addEventListener('click', () => {
-    statsMarketTab = btn.dataset.stab;
+  const st = computeStats(mPls);
+  _cachedStats = st;
+  _cachedMarket = displayMarket;
+
+  const content = renderStatsPage(st, displayMarket, fm);
+  body.innerHTML = `<div class="j-stats">${filterPills}${content}</div>`;
+
+  // Bind market filter pills
+  $$('.j-mf-pill', body).forEach(btn => btn.addEventListener('click', () => {
+    statsMarketFilter = btn.dataset.mf;
     renderStats();
+  }));
+  // Bind dimension pills (swap table only)
+  $$('.j-dim-pill', body).forEach(btn => btn.addEventListener('click', () => {
+    statsDimension = btn.dataset.dim;
+    $$('.j-dim-pill', body).forEach(b => b.classList.toggle('active', b.dataset.dim === statsDimension));
+    const dimBody = $('#j-dim-body', body);
+    if (dimBody && _cachedStats) {
+      const cfm = (n, d) => fmtMoney(n, _cachedMarket, d);
+      dimBody.innerHTML = _renderDimTable(_cachedStats, statsDimension, cfm);
+    }
   }));
   // Bind loss-follow trade links
   $$('.j-loss-follow-link', body).forEach(el => el.addEventListener('click', () => {
     const id = el.dataset.id;
     if (id) openTradeForm(id);
   }));
+  // Number Ticker animation (Magic UI style — spring-damped counting)
+  $$('.j-num-tick', body).forEach(el => {
+    const text = el.textContent || '';
+    const match = text.match(/([-]?)([A-Z$\s]+)?([\d,]+\.?\d*)/);
+    if (!match) return;
+    const sign = match[1], prefix = match[2] || '', target = parseFloat(match[3].replace(/,/g, ''));
+    if (isNaN(target) || target === 0) return;
+    const suffix = text.slice(text.indexOf(match[3]) + match[3].length);
+    const decimals = match[3].includes('.') ? match[3].split('.')[1].length : 0;
+    let current = 0;
+    const fmt = v => (v < 0 ? '-' : '') + prefix + Math.abs(v).toLocaleString('zh-TW', { minimumFractionDigits: decimals, maximumFractionDigits: decimals }) + suffix;
+    el.textContent = sign + fmt(0);
+    const startTime = performance.now();
+    const duration = 800;
+    const ease = t => 1 - Math.pow(1 - t, 3); // ease-out cubic
+    function tick(now) {
+      const elapsed = now - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      current = target * ease(progress);
+      el.textContent = sign + fmt(current);
+      if (progress < 1) requestAnimationFrame(tick);
+      else el.textContent = text; // restore exact original
+    }
+    requestAnimationFrame(tick);
+  });
 }
 
 // ================================================================
@@ -3347,9 +3418,13 @@ async function initJournal() {
   // Render header auth immediately
   renderHeaderAuth();
 
-  // Not logged in: don't auto-popup, show login when user navigates to journal or clicks record
+  // Render journal content if tab is already active on page load
+  if ($('#tab-journal')?.classList.contains('active')) {
+    if (authToken && currentUser) renderJournal();
+    else renderLogin();
+  }
 
-  // Journal tab activation
+  // Journal tab activation on click
   document.addEventListener('click', async (e) => {
     const tab = e.target.closest('.main-tab');
     if (tab && tab.dataset.tab === 'journal') {
