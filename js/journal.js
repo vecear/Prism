@@ -574,7 +574,7 @@ async function offsetClose(symbol, market, direction) {
     <div class="j-modal-header"><h3>沖銷平倉 — ${esc(symbol)} ${DL[direction]}</h3><button class="j-modal-close" id="j-offset-cancel">✕</button></div>
     <div class="j-modal-body">
       <p style="font-size:.85rem;color:var(--t2);margin-bottom:12px">系統將依 FIFO（先進先出）順序自動沖銷持倉</p>
-      <div class="j-offset-holdings">
+      <div class="j-offset-holdings" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
         <table class="j-stats-table" style="margin-bottom:12px"><thead><tr><th>進場日</th><th>進場價</th><th>數量</th></tr></thead><tbody>
         ${openList.map(t => `<tr><td>${fmtDate(t.date)}</td><td>${fmtPrice(parseFloat(t.entryPrice), market, t.type)}</td><td>${t.quantity}</td></tr>`).join('')}
         </tbody></table>
@@ -621,9 +621,9 @@ async function offsetClose(symbol, market, direction) {
     const totalGross = plan.reduce((s, p) => s + p.gross, 0);
     preview.innerHTML = `
       <div style="font-size:.82rem;color:var(--t2);margin-bottom:6px"><strong>沖銷預覽</strong></div>
-      <table class="j-stats-table"><thead><tr><th>進場日</th><th>進場價</th><th>沖銷量</th><th>剩餘</th><th>原損益</th></tr></thead><tbody>
+      <div style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table class="j-stats-table"><thead><tr><th>進場日</th><th>進場價</th><th>沖銷量</th><th>剩餘</th><th>原損益</th></tr></thead><tbody>
       ${plan.map(p => `<tr><td>${fmtDate(p.trade.date)}</td><td>${fmtPrice(parseFloat(p.trade.entryPrice), market, p.trade.type)}</td><td>${p.used}</td><td>${p.leftover > 0 ? p.leftover : '—'}</td><td class="${p.gross >= 0 ? 'tg' : 'tr'}">${fmtMoney(p.gross, market)}</td></tr>`).join('')}
-      </tbody></table>
+      </tbody></table></div>
       <div style="margin-top:6px;font-size:.85rem">預估原損益合計：<strong class="${totalGross >= 0 ? 'tg' : 'tr'}">${fmtMoney(totalGross, market)}</strong></div>`;
   }
   $('#j-offset-price')?.addEventListener('input', buildPreview);
@@ -1907,7 +1907,7 @@ function renderHoldings() {
       const tAvgEntry = tQ * tMul > 0 ? tCost / (tQ * tMul) : 0;
       const tMktVal = g.hasQuote ? g.currentPrice * tQ * tMul : null;
       h += `<tr class="j-holding-detail" data-parent="${esc(g.symbol)}|${g.market}|${g.direction}" style="display:none">
-        <td class="j-td-date" style="padding-left:28px">${fmtDate(t.date)}</td>
+        <td class="j-td-date" style="padding-left:16px">${fmtDate(t.date)}</td>
         <td></td>
         <td class="j-td-num">${t.quantity || '—'}</td>
         <td class="j-td-num"><div>${g.currentPrice != null ? fmtPrice(g.currentPrice, g.market, g.type) : '—'}</div><div style="font-size:.72rem;color:var(--t3)">${fmtPrice(tAvgEntry, t.market, t.type)}</div></td>
@@ -2245,7 +2245,7 @@ function _renderMoodTrend() {
     }
   }
 
-  return `<div class="j-mood-trend"><svg viewBox="0 0 ${W} ${H}" class="j-equity-svg" style="height:140px">
+  return `<div class="j-mood-trend"><svg viewBox="0 0 ${W} ${H}" class="j-equity-svg" style="height:auto;max-height:140px">
     <line x1="${pad}" y1="${barMid}" x2="${W-pad}" y2="${barMid}" stroke="var(--bdr)" stroke-width="0.5" stroke-dasharray="3,3"/>
     ${bars}
     <path d="${pathD}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>

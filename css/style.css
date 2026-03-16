@@ -519,7 +519,7 @@ input[type="number"]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0
 input[type="number"]{-moz-appearance:textfield}
 
 /* ========== Custom +/- Buttons ========== */
-.num-wrap{display:flex;align-items:stretch;gap:3px;width:fit-content}
+.num-wrap{display:flex;align-items:stretch;gap:3px;width:fit-content;max-width:100%}
 .num-wrap>input[type="number"]{flex:1;min-width:0;max-width:14ch}
 .num-wrap>.isuf{flex:1;min-width:0;max-width:16ch}
 .num-btn{width:32px;flex-shrink:0;background:var(--bg1);border:1px solid var(--bdr);border-radius:6px;color:var(--t1);font-size:1.1rem;font-weight:700;cursor:pointer;transition:color var(--dur),border-color var(--dur),background-color var(--dur),transform .1s;display:flex;align-items:center;justify-content:center;user-select:none;line-height:1;padding:0}
@@ -608,7 +608,7 @@ input[type="number"]{-moz-appearance:textfield}
   .logo h1{font-size:1.05rem}
   .logo-icon{width:24px;height:24px}
   .header-right{gap:4px}
-  .header-icon-btn{width:28px;height:28px}
+  .header-icon-btn{width:34px;height:34px}
   .header-icon-btn svg{width:16px;height:16px}
   .ha-user{padding:4px 8px;font-size:.72rem;gap:4px}
   .ha-user svg{width:12px;height:12px}
@@ -660,7 +660,7 @@ input[type="number"]{-moz-appearance:textfield}
   /* Form: compact spacing */
   .fg{margin-bottom:3px}
   .fg label{margin-bottom:2px;font-size:.78rem}
-  .fg input,.fg select,.j-fg input,.j-fg select,.j-fg textarea{padding:6px 8px;min-height:36px;font-size:16px}
+  .fg input,.fg select,.j-fg input,.j-fg select,.j-fg textarea,.j-diary input,.j-diary textarea,.j-diary select,.j-dt-display,.stock-search-row input{padding:6px 8px;min-height:36px;font-size:16px}
   .stg-input,.stg-select,.j-filter-search,.j-filter-select,.j-filter-date{font-size:16px!important}
   .fg select{padding-right:28px}
 
@@ -854,7 +854,7 @@ input[type="number"]{-moz-appearance:textfield}
 /* ── Trade Table ── */
 /* Card list — hidden on desktop, shown on mobile */
 .j-card-list{display:none}
-.j-table-wrap{overflow-x:auto;border-top:1px solid var(--bdr);border-bottom:1px solid var(--bdr);box-shadow:var(--shadow-sm);margin-bottom:80px}
+.j-table-wrap{overflow-x:auto;border-top:1px solid var(--bdr);border-bottom:1px solid var(--bdr);margin-bottom:20px}
 .j-table{width:100%;border-collapse:collapse;font-size:.84rem}
 .j-table thead th{padding:8px 10px;background:var(--bg1);color:var(--t2);font-weight:600;text-align:center;border-bottom:1px solid var(--bdr);white-space:nowrap;position:sticky;top:0;z-index:1;font-size:.78rem;text-transform:uppercase;letter-spacing:.3px}
 .j-table tbody td{padding:7px 10px;vertical-align:middle;text-align:center}
@@ -931,7 +931,7 @@ input[type="number"]{-moz-appearance:textfield}
 @keyframes j-dt-in{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
 .j-dt-cal-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
 .j-dt-cal-header span{font-size:.9rem;font-weight:600;color:var(--t1)}
-.j-dt-nav{background:none;border:1px solid var(--bdr);border-radius:5px;color:var(--t2);width:28px;height:28px;font-size:1.1rem;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background var(--dur),color var(--dur)}
+.j-dt-nav{background:none;border:1px solid var(--bdr);border-radius:5px;color:var(--t2);width:32px;height:32px;font-size:1.1rem;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background var(--dur),color var(--dur)}
 .j-dt-nav:hover{background:var(--bg2);color:var(--t1)}
 .j-dt-weekdays{display:grid;grid-template-columns:repeat(7,1fr);text-align:center;margin-bottom:4px}
 .j-dt-weekdays span{font-size:.7rem;color:var(--t3);font-weight:600;padding:4px 0}
@@ -1098,7 +1098,7 @@ input[type="number"]{-moz-appearance:textfield}
 .j-record-btn svg{flex-shrink:0}
 
 /* ── Toast Notification ── */
-.j-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(calc(100% + 24px));display:flex;align-items:center;gap:12px;padding:12px 20px;background:var(--bg1);border:1px solid var(--accent);border-radius:12px;box-shadow:var(--shadow-lg);z-index:var(--z-toast);font-size:.85rem;color:var(--t1);transition:transform .3s var(--ease-out);white-space:nowrap;max-width:calc(100vw - 24px);will-change:transform}
+.j-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(calc(100% + 24px));display:flex;align-items:center;gap:10px;padding:10px 18px;background:var(--bg1);border:1px solid var(--accent);border-radius:10px;box-shadow:var(--shadow-lg);z-index:var(--z-toast);font-size:.82rem;color:var(--t1);transition:transform .3s var(--ease-out);white-space:nowrap;max-width:calc(100vw - 24px);will-change:transform}
 .j-toast.show{transform:translateX(-50%) translateY(0)}
 .j-toast-btn{background:var(--accent);border:none;border-radius:5px;padding:6px 14px;color:#fff;font-size:.8rem;font-weight:600;cursor:pointer;transition:box-shadow var(--dur)}
 .j-toast-btn:hover{box-shadow:0 2px 8px rgba(0,180,216,.35)}
@@ -1138,8 +1138,6 @@ input[type="number"]{-moz-appearance:textfield}
 .j-badge-crypto{background:rgba(255,193,7,.12);color:var(--yellow)}
 
 /* ── Stats Market Tabs ── */
-/* (old stats tabs removed — replaced by market filter pills) */
-/* (overview cards removed — replaced by filter pills) */
 
 /* ── Journal Responsive ── */
 @media(max-width:768px){
@@ -1150,6 +1148,10 @@ input[type="number"]{-moz-appearance:textfield}
   .j-vt-btn svg{width:12px;height:12px}
   .j-add-btn{padding:6px 10px;font-size:.76rem;gap:3px}
   .j-add-btn svg{width:12px;height:12px}
+
+  /* Toast — above bottom nav */
+  .j-toast{bottom:calc(64px + env(safe-area-inset-bottom,0px));font-size:.78rem;padding:8px 14px;gap:8px}
+  .j-toast-btn{padding:5px 10px;font-size:.74rem}
 
   /* Filters — two-row compact layout */
   .j-filters{padding:4px 0}
@@ -1220,9 +1222,8 @@ input[type="number"]{-moz-appearance:textfield}
   .j-stat-val{font-size:.74rem}
   .j-stat-lbl{font-size:.6rem}
   .j-stat-mkt .j-stat-val{font-size:.7rem}
-  .j-stats-strip .j-refresh-quotes-btn{width:22px;height:22px}
+  .j-stats-strip .j-refresh-quotes-btn{width:28px;height:28px}
   .j-stats-overview{grid-template-columns:1fr}
-  /* (old stats tab removed) */
   .j-csv-btns{display:none}
   .j-quick-filters{gap:4px;padding:6px 0}
   .j-qf-chip{padding:4px 10px;font-size:.72rem}
@@ -1299,7 +1300,7 @@ input[type="number"]{-moz-appearance:textfield}
 .j-holding-sub-row{display:flex;align-items:center;gap:10px;padding:4px 0;font-size:.75rem;color:var(--t2);border-bottom:1px dashed var(--bdr)}
 .j-holding-sub-row:last-child{border-bottom:none}
 .j-holding-sub-actions{margin-left:auto;display:flex;gap:3px}
-.j-holding-sub-actions .j-act-btn{width:24px;height:24px;min-height:24px}
+.j-holding-sub-actions .j-act-btn{width:32px;height:32px;min-height:32px}
 .j-holding-sub-card{background:var(--bg1);border:1px solid var(--bdr);border-radius:6px;margin-bottom:6px;overflow:hidden}
 .j-holding-sub-card:last-child{margin-bottom:0}
 .j-sub-card-header{display:flex;align-items:center;justify-content:space-between;padding:6px 10px;border-bottom:1px solid var(--bdr);background:var(--bg2)}
@@ -1460,7 +1461,6 @@ input[type="number"]{-moz-appearance:textfield}
 .j-detail-rv-scores strong{color:var(--accent);margin-right:1px}
 
 /* ── Stats: Review Analysis ── */
-/* (rv-strip removed — replaced by insights panel) */
 
 /* ── Stats: Revenge Trading ── */
 .j-revenge-analysis{padding:4px 0}
@@ -1487,7 +1487,6 @@ input[type="number"]{-moz-appearance:textfield}
 /* ── Mobile adjustments for new features ── */
 @media(max-width:768px){
   .j-review-scores{flex-direction:column;gap:8px}
-  /* (rv-strip removed) */
   .j-revenge-row{flex-wrap:wrap;gap:6px}
 }
 
