@@ -1659,12 +1659,7 @@ function renderTradeList() {
       <button class="j-batch-action" id="jb-cancel">取消</button></div>`;
   }
   let h = batchBar;
-  // Avg cost display for open positions
-  const openSymbols = [...new Set(filtered.filter(t => t.status === 'open' && t.symbol).map(t => `${t.symbol}|${t.market}`))];
-  const avgCostInfos = openSymbols.map(k => { const [sym, mkt] = k.split('|'); const r = calcAvgCost(sym, mkt); if (r) { r.market = mkt; const ft = trades.find(t => t.status === 'open' && t.symbol === sym && t.market === mkt); r.type = ft?.type || 'stock'; } return r; }).filter(Boolean);
-  if (avgCostInfos.length) {
-    h += `<div class="j-avg-cost-bar">${avgCostInfos.map(a => `<span>${a.count}筆持倉 均價 <strong class="ta">${fmtPrice(a.avgPrice, a.market, a.type)}</strong> 共 ${a.totalQty}</span>`).join(' ')}</div>`;
-  }
+  // (avg cost bar removed — info available in holdings view)
   // Per-market closed P&L
   const cpByMkt={};
   filtered.filter(t=>t.status==='closed').forEach(t=>{const pl=calcPL(t);if(pl){if(!cpByMkt[t.market])cpByMkt[t.market]={n:0,c:0,w:0};cpByMkt[t.market].n+=pl.net;cpByMkt[t.market].c++;if(pl.net>0)cpByMkt[t.market].w++;}});

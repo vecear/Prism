@@ -1657,10 +1657,9 @@ function _renderSentimentStrip() {
   const showTreasury = tnxQ?.price && CFG.showTreasury !== false;
 
   if (!showVix && !showFg && !showVixTerm && !showVixRatio && !showCredit && !showTreasury) {
-    strip.style.display = 'none';
+    strip.innerHTML = '';
     return;
   }
-  strip.style.display = '';
 
   const tFmt = { hour: '2-digit', minute: '2-digit', second: '2-digit' };
 

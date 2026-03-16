@@ -271,7 +271,7 @@ body{font-family:var(--sans);background:var(--bg0);color:var(--t1);line-height:1
 .stg-db-btn:hover{color:var(--accent);border-color:var(--accent);background:var(--accent-d)}
 
 /* ========== Ticker Strip ========== */
-.ticker-bar{display:flex;align-items:flex-start;gap:0;padding:6px 0;border-bottom:1px solid var(--bdr);min-height:28px}
+.ticker-bar{display:flex;align-items:flex-start;gap:0;padding:6px 0;border-bottom:1px solid var(--bdr);min-height:30px}
 .ticker-strip{display:flex;align-items:baseline;gap:0;flex:1;min-width:0;flex-wrap:wrap;overflow:hidden}
 .ticker-chip{display:flex;align-items:baseline;gap:4px;white-space:nowrap;padding:2px 0;text-decoration:none;color:inherit;border-radius:4px;transition:background-color var(--dur)}
 .ticker-chip:hover{background:var(--bg2)}
@@ -329,7 +329,8 @@ body{font-family:var(--sans);background:var(--bg0);color:var(--t1);line-height:1
 .ticker-fill-btn:hover{color:var(--accent);border-color:var(--accent);background:var(--accent-d)}
 
 /* ========== Sentiment Strip ========== */
-.sentiment-strip{display:flex;align-items:center;gap:4px;padding:4px 8px;border-bottom:1px solid var(--bdr);overflow-x:auto;overflow-y:hidden;white-space:nowrap;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.sentiment-strip{display:flex;align-items:center;gap:4px;padding:4px 8px;border-bottom:1px solid var(--bdr);overflow-x:auto;overflow-y:hidden;white-space:nowrap;scrollbar-width:none;-webkit-overflow-scrolling:touch;min-height:28px}
+.sentiment-strip:empty{border-bottom:none;min-height:0;padding:0}
 .sentiment-strip::-webkit-scrollbar{display:none}
 .sent-gauge{display:inline-flex;align-items:baseline;gap:4px;padding:3px 8px;background:var(--bg1);border:1px solid var(--bdr);border-radius:6px;text-decoration:none;color:inherit;cursor:pointer;transition:border-color var(--dur);flex-shrink:0;white-space:nowrap}
 .sent-gauge:hover{border-color:var(--accent)}
@@ -1298,7 +1299,6 @@ input[type="number"]{-moz-appearance:textfield}
 .j-batch-cb{accent-color:var(--accent);width:16px;height:16px;cursor:pointer}
 
 /* ── Average Cost Bar ── */
-.j-avg-cost-bar{display:flex;gap:16px;padding:6px 12px;background:var(--bg2);border:1px solid var(--bdr);border-radius:6px;margin-bottom:6px;font-size:.8rem;color:var(--t2);flex-wrap:wrap}
 
 /* ── Holdings (庫存) ── */
 .j-holding-row{cursor:pointer}

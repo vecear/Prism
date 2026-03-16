@@ -73,7 +73,7 @@
     </div>
 
     <!-- Sentiment Strip -->
-    <div class="sentiment-strip" id="sentiment-strip" style="display:none"></div>
+    <div class="sentiment-strip" id="sentiment-strip"></div>
 
     <!-- Main Tabs -->
     <nav class="main-tabs">
@@ -269,24 +269,13 @@
         regs.forEach(function(r) { r.unregister(); });
       });
     } else {
-      navigator.serviceWorker.register('/sw.js').then(function(reg) {
-        reg.addEventListener('updatefound', function() {
-          var nw = reg.installing;
-          if (!nw) return;
-          nw.addEventListener('statechange', function() {
-            if (nw.state === 'activated' && navigator.serviceWorker.controller) {
-              // Prevent showing after reload
-              if (sessionStorage.getItem('sw-updated')) return;
-              sessionStorage.setItem('sw-updated', '1');
-              var bar = document.createElement('div');
-              bar.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:var(--accent,#00b4d8);color:#fff;text-align:center;padding:10px 16px;font-size:14px;cursor:pointer;font-family:sans-serif';
-              bar.textContent = '已更新至新版本，點擊重新載入';
-              bar.onclick = function() { location.reload(); };
-              document.body.appendChild(bar);
-            }
-          });
-        });
-      }).catch(function(){});
+      var refreshing = false;
+      navigator.serviceWorker.addEventListener('controllerchange', function() {
+        if (refreshing) return;
+        refreshing = true;
+        location.reload();
+      });
+      navigator.serviceWorker.register('/sw.js').catch(function(){});
     }
   }
   </script>
