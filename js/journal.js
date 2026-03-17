@@ -249,6 +249,13 @@ function calcSmartFees(market, type, entryPrice, qty, contractMul, direction, sy
   } catch { return { fee: '', tax: '' }; }
 }
 
+// Calculate exit-side fees for closing a trade (opposite direction at exit price)
+function calcExitFees(market, type, exitPrice, qty, contractMul, direction, symbol) {
+  if (!exitPrice) return { fee: '', tax: '' };
+  const exitDir = direction === 'long' ? 'short' : 'long';
+  return calcSmartFees(market, type, exitPrice, qty, contractMul, exitDir, symbol);
+}
+
 function newTrade() {
   const df = getDefaultFees();
   return {
@@ -455,19 +462,112 @@ function deleteTemplate(name) {
 }
 
 // ── Quick Close Trade ──
-async function quickCloseTrade(id) {
+function quickCloseTrade(id) {
   const t = trades.find(x => x.id === id);
   if (!t || t.status !== 'open') return;
+  const totalQty = parseFloat(t.quantity) || 0;
   const lq = liveQuotes[getLiveQuoteKey(t)];
-  if (!lq || !lq.price) { alert('無法取得即時報價，請手動平倉'); return; }
-  if (!confirm(`以現價 ${fmtPrice(lq.price, t.market, t.type)} 平倉 ${t.symbol}？`)) return;
-  const data = { ...t, exitPrice: lq.price, status: 'closed' };
-  try {
-    await api(`/trades/${id}`, { method: 'PUT', body: JSON.stringify(data) });
-    const idx = trades.findIndex(x => x.id === id);
-    if (idx >= 0) trades[idx] = data;
-    renderJournal();
-  } catch (e) { alert('平倉失敗：' + e.message); }
+  const defaultPrice = lq?.price ?? '';
+  const DL = { long: '做多', short: '做空' };
+  const mul = getContractMul(t);
+
+  let overlay = $('#j-close-overlay');
+  if (!overlay) { overlay = document.createElement('div'); overlay.id = 'j-close-overlay'; overlay.className = 'j-modal-overlay'; document.body.appendChild(overlay); }
+  let modal = $('#j-close-modal');
+  if (!modal) { modal = document.createElement('div'); modal.id = 'j-close-modal'; modal.className = 'j-modal'; modal.style.maxWidth = '400px'; document.body.appendChild(modal); }
+
+  modal.innerHTML = `
+    <div class="j-modal-header"><h3>平倉 — ${esc(t.symbol)} ${DL[t.direction]}</h3><button class="j-modal-close" id="j-close-cancel">✕</button></div>
+    <div class="j-modal-body">
+      <div style="font-size:.82rem;color:var(--t3);margin-bottom:10px">進場 ${fmtPrice(parseFloat(t.entryPrice), t.market, t.type)} × ${totalQty}</div>
+      <div class="j-form-row"><label>出場價格</label><input type="number" id="j-close-price" value="${defaultPrice}" step="any" class="j-input" placeholder="輸入平倉價格"></div>
+      <div class="j-form-row"><label>平倉數量</label><input type="number" id="j-close-qty" value="${totalQty}" step="any" min="0" max="${totalQty}" class="j-input"><span style="font-size:.78rem;color:var(--t3);margin-top:2px">持倉 ${totalQty}，留空=全部平倉</span></div>
+      <div id="j-close-preview" style="margin-top:10px"></div>
+      <div class="j-form-actions" style="margin-top:14px">
+        <button class="j-btn j-btn-primary" id="j-close-exec">確認平倉</button>
+        <button class="j-btn" id="j-close-cancel2">取消</button>
+      </div>
+    </div>`;
+
+  overlay.classList.add('open'); modal.classList.add('open');
+  const close = () => { overlay.classList.remove('open'); modal.classList.remove('open'); };
+  $('#j-close-cancel').onclick = close;
+  $('#j-close-cancel2').onclick = close;
+  overlay.onclick = e => { if (e.target === overlay) close(); };
+
+  // Live preview
+  const updatePreview = () => {
+    const pv = $('#j-close-preview'); if (!pv) return;
+    const ep = parseFloat($('#j-close-price')?.value);
+    const cq = parseFloat($('#j-close-qty')?.value) || totalQty;
+    if (isNaN(ep) || ep <= 0 || cq <= 0) { pv.innerHTML = ''; return; }
+    const dir = t.direction === 'long' ? 1 : -1;
+    const gross = Math.round(dir * (ep - parseFloat(t.entryPrice)) * cq * mul * 100) / 100;
+    const feeRatio = cq / totalQty;
+    const entryFee = Math.round((parseFloat(t.fee) || 0) * feeRatio);
+    const entryTax = Math.round((parseFloat(t.tax) || 0) * feeRatio);
+    const ef = calcExitFees(t.market, t.type, ep, cq, parseFloat(t.contractMul) || 1, t.direction, t.symbol);
+    const exitFee = parseFloat(ef.fee) || 0, exitTax = parseFloat(ef.tax) || 0;
+    const totalCost = entryFee + entryTax + exitFee + exitTax;
+    const net = gross - totalCost;
+    pv.innerHTML = `<div class="j-pl-box ${net >= 0 ? 'j-pl-profit' : 'j-pl-loss'}" style="padding:8px 12px;font-size:.85rem">
+      <div style="display:flex;justify-content:space-between"><span>毛損益</span><strong>${fmtNum(gross, 0)}</strong></div>
+      <div style="display:flex;justify-content:space-between;font-size:.78rem;color:var(--t3)"><span>進場成本</span><span>-${fmtNum(entryFee + entryTax, 0)}</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:.78rem;color:var(--t3)"><span>出場成本</span><span>-${fmtNum(exitFee + exitTax, 0)}</span></div>
+      <div style="display:flex;justify-content:space-between;border-top:1px solid var(--b1);margin-top:4px;padding-top:4px"><span>淨損益</span><strong>${fmtNum(net, 0)}</strong></div>
+    </div>`;
+  };
+  $('#j-close-price')?.addEventListener('input', updatePreview);
+  $('#j-close-qty')?.addEventListener('input', updatePreview);
+  updatePreview();
+
+  // Focus price input
+  setTimeout(() => $('#j-close-price')?.focus(), 50);
+
+  // Execute close
+  $('#j-close-exec').onclick = async () => {
+    const exitPrice = parseFloat($('#j-close-price')?.value);
+    const closeQty = parseFloat($('#j-close-qty')?.value) || totalQty;
+    if (isNaN(exitPrice) || exitPrice <= 0) { alert('請輸入有效的出場價格'); return; }
+    if (closeQty <= 0 || closeQty > totalQty) { alert('數量無效'); return; }
+
+    const btn = $('#j-close-exec');
+    btn.disabled = true; btn.textContent = '處理中…';
+
+    try {
+      if (closeQty >= totalQty) {
+        // Full close
+        const ef = calcExitFees(t.market, t.type, exitPrice, totalQty, parseFloat(t.contractMul) || 1, t.direction, t.symbol);
+        const data = { ...t, exitPrice, status: 'closed',
+          fee: String((parseFloat(t.fee) || 0) + (parseFloat(ef.fee) || 0)),
+          tax: String((parseFloat(t.tax) || 0) + (parseFloat(ef.tax) || 0)) };
+        await api(`/trades/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+        const idx = trades.findIndex(x => x.id === id);
+        if (idx >= 0) trades[idx] = data;
+      } else {
+        // Partial close
+        const origFee = parseFloat(t.fee) || 0, origTax = parseFloat(t.tax) || 0;
+        const feeRatio = closeQty / totalQty;
+        const closedFee = Math.floor(origFee * feeRatio), closedTax = Math.floor(origTax * feeRatio);
+        const ef = calcExitFees(t.market, t.type, exitPrice, closeQty, parseFloat(t.contractMul) || 1, t.direction, t.symbol);
+        const closedData = { ...t, id: undefined, quantity: closeQty, exitPrice, status: 'closed',
+          fee: String(closedFee + (parseFloat(ef.fee) || 0)),
+          tax: String(closedTax + (parseFloat(ef.tax) || 0)),
+          date: localISOString() };
+        const remainData = { ...t, quantity: totalQty - closeQty,
+          fee: origFee - closedFee, tax: origTax - closedTax };
+        await api('/trades', { method: 'POST', body: JSON.stringify(closedData) });
+        await api(`/trades/${id}`, { method: 'PUT', body: JSON.stringify(remainData) });
+      }
+      await loadTrades();
+      close();
+      renderJournal();
+      if (window._showToast) window._showToast(`已平倉 ${closeQty} 單位 ${t.symbol}`);
+    } catch (e) {
+      alert('平倉失敗：' + e.message);
+      btn.disabled = false; btn.textContent = '確認平倉';
+    }
+  };
 }
 
 // ── SL/TP Alert Check ──
@@ -498,7 +598,7 @@ function showSLTPAlert(msg, tradeId) {
   // In-app toast
   const toast = document.createElement('div');
   toast.className = 'j-toast j-toast-alert';
-  toast.innerHTML = `<span>${esc(msg)}</span><button class="j-toast-btn" data-action="close-trade">快速平倉</button>`;
+  toast.innerHTML = `<span>${esc(msg)}</span><button class="j-toast-btn" data-action="close-trade">平倉</button>`;
   document.body.appendChild(toast);
   requestAnimationFrame(() => toast.classList.add('show'));
   toast.querySelector('[data-action="close-trade"]')?.addEventListener('click', () => {
@@ -541,7 +641,8 @@ async function partialCloseTrade(id) {
 
   // Create closed trade for the closed portion (floor for closed, remainder gets rest to keep total exact)
   const closedFee = Math.floor(origFee * feeRatio), closedTax = Math.floor(origTax * feeRatio);
-  const closedData = { ...t, id: undefined, quantity: closeQty, exitPrice, status: 'closed', fee: closedFee, tax: closedTax, date: localISOString() };
+  const ef = calcExitFees(t.market, t.type, exitPrice, closeQty, parseFloat(t.contractMul) || 1, t.direction, t.symbol);
+  const closedData = { ...t, id: undefined, quantity: closeQty, exitPrice, status: 'closed', fee: String(closedFee + (parseFloat(ef.fee) || 0)), tax: String(closedTax + (parseFloat(ef.tax) || 0)), date: localISOString() };
   // Update original trade with remaining qty
   const remainData = { ...t, quantity: remainQty, fee: origFee - closedFee, tax: origTax - closedTax };
 
@@ -663,15 +764,19 @@ async function offsetClose(symbol, market, direction) {
         const tQty = parseFloat(t.quantity) || 0;
 
         if (op.type === 'close') {
-          // Fully close this trade
-          const data = { ...t, exitPrice, status: 'closed' };
+          // Fully close this trade — add exit-side fees
+          const ef = calcExitFees(t.market, t.type, exitPrice, tQty, parseFloat(t.contractMul) || 1, t.direction, t.symbol);
+          const data = { ...t, exitPrice, status: 'closed',
+            fee: String(origFee + (parseFloat(ef.fee) || 0)),
+            tax: String(origTax + (parseFloat(ef.tax) || 0)) };
           await api(`/trades/${t.id}`, { method: 'PUT', body: JSON.stringify(data) });
         } else {
           // Split: create closed portion + update remaining
           const ratio = op.used / tQty;
           const closedFee = Math.round(origFee * ratio);
           const closedTax = Math.round(origTax * ratio);
-          const closedData = { ...t, id: undefined, quantity: op.used, exitPrice, status: 'closed', fee: closedFee, tax: closedTax };
+          const ef = calcExitFees(t.market, t.type, exitPrice, op.used, parseFloat(t.contractMul) || 1, t.direction, t.symbol);
+          const closedData = { ...t, id: undefined, quantity: op.used, exitPrice, status: 'closed', fee: String(closedFee + (parseFloat(ef.fee) || 0)), tax: String(closedTax + (parseFloat(ef.tax) || 0)) };
           const remainData = { ...t, quantity: op.leftover, fee: origFee - closedFee, tax: origTax - closedTax };
           await api('/trades', { method: 'POST', body: JSON.stringify(closedData) });
           await api(`/trades/${t.id}`, { method: 'PUT', body: JSON.stringify(remainData) });
@@ -743,7 +848,10 @@ async function batchClose() {
     if (!t) continue;
     const lq = liveQuotes[getLiveQuoteKey(t)];
     if (!lq?.price) continue;
-    closeJobs.push({ id, data: { ...t, exitPrice: lq.price, status: 'closed' } });
+    const ef = calcExitFees(t.market, t.type, lq.price, parseFloat(t.quantity), parseFloat(t.contractMul) || 1, t.direction, t.symbol);
+    closeJobs.push({ id, data: { ...t, exitPrice: lq.price, status: 'closed',
+      fee: String((parseFloat(t.fee) || 0) + (parseFloat(ef.fee) || 0)),
+      tax: String((parseFloat(t.tax) || 0) + (parseFloat(ef.tax) || 0)) } });
   }
   if (!closeJobs.length) { alert('無法取得即時報價'); return; }
   if (!confirm(`以即時報價平倉 ${closeJobs.length} 筆持倉？`)) return;
@@ -1683,7 +1791,7 @@ function renderTradeList() {
       else{plStr='<span class="j-pl-loading" data-key="'+qk+'">查詢中…</span>';}
     }else{const pl=calcPL(t);if(pl){plStr=fmtMoney(pl.net,t.market);plC=pl.net>0?'tg':pl.net<0?'tr':'';}}
     const tagHtml=(t.tags||[]).length?`<div class="j-td-tags-inline">${t.tags.map(tag=>`<span class="j-tag">${esc(tag)}</span>`).join('')}</div>`:'';
-  h+=`<tr class="j-row" data-id="${t.id}">${batchMode?`<td><input type="checkbox" class="j-batch-cb" data-id="${t.id}" ${batchSelected.has(t.id)?'checked':''}></td>`:''}<td class="j-td-date">${fmtDate(t.date)}</td><td class="j-td-sym"><div class="j-sym-row"><strong>${esc(t.symbol)}</strong><span class="j-badge j-badge-${t.market}">${ML[t.market]||t.market}</span><span class="j-badge j-badge-type">${TL[t.type]||t.type}</span><span class="${DC[t.direction]}">${DL[t.direction]}</span></div>${t.name?`<span class="j-sym-name">${esc(t.name)}</span>`:''}</td><td class="j-td-price"><span class="j-td-num">${fmtPrice(parseFloat(t.entryPrice), t.market, t.type)}</span><span class="j-price-arrow">→</span><span class="j-td-num">${t.exitPrice?fmtPrice(parseFloat(t.exitPrice), t.market, t.type):'—'}</span></td><td class="j-td-num">${t.quantity||'—'}</td><td class="j-td-num ${plC}">${plStr}${plExtra}</td><td><span class="j-status j-status-${t.status}">${SL[t.status]}</span>${tagHtml}</td><td class="j-td-actions"><div class="j-actions-wrap">${t.status==='open'?`<button class="j-act-btn j-act-close" data-id="${t.id}" title="快速平倉"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></button>`:''}<button class="j-act-btn j-act-dup" data-id="${t.id}" title="複製交易"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button>${t.status==='open'&&parseFloat(t.quantity)>1?`<button class="j-act-btn j-act-partial" data-id="${t.id}" title="部分平倉"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 3h5v5"/><path d="M8 21H3v-5"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg></button>`:''}<button class="j-act-btn j-act-view" data-id="${t.id}" title="檢視"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button><button class="j-act-btn j-act-edit" data-id="${t.id}" title="編輯"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button><button class="j-act-btn j-act-del" data-id="${t.id}" title="刪除"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button></div></td></tr>`;}
+  h+=`<tr class="j-row" data-id="${t.id}">${batchMode?`<td><input type="checkbox" class="j-batch-cb" data-id="${t.id}" ${batchSelected.has(t.id)?'checked':''}></td>`:''}<td class="j-td-date">${fmtDate(t.date)}</td><td class="j-td-sym"><div class="j-sym-row"><strong>${esc(t.symbol)}</strong><span class="j-badge j-badge-${t.market}">${ML[t.market]||t.market}</span><span class="j-badge j-badge-type">${TL[t.type]||t.type}</span><span class="${DC[t.direction]}">${DL[t.direction]}</span></div>${t.name?`<span class="j-sym-name">${esc(t.name)}</span>`:''}</td><td class="j-td-price"><span class="j-td-num">${fmtPrice(parseFloat(t.entryPrice), t.market, t.type)}</span><span class="j-price-arrow">→</span><span class="j-td-num">${t.exitPrice?fmtPrice(parseFloat(t.exitPrice), t.market, t.type):'—'}</span></td><td class="j-td-num">${t.quantity||'—'}</td><td class="j-td-num ${plC}">${plStr}${plExtra}</td><td><span class="j-status j-status-${t.status}">${SL[t.status]}</span>${tagHtml}</td><td class="j-td-actions"><div class="j-actions-wrap">${t.status==='open'?`<button class="j-act-btn j-act-close" data-id="${t.id}" title="平倉"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></button>`:''}<button class="j-act-btn j-act-dup" data-id="${t.id}" title="複製交易"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><button class="j-act-btn j-act-view" data-id="${t.id}" title="檢視"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button><button class="j-act-btn j-act-edit" data-id="${t.id}" title="編輯"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button><button class="j-act-btn j-act-del" data-id="${t.id}" title="刪除"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button></div></td></tr>`;}
   h+='</tbody></table></div>';
 
   // Mobile: card view
@@ -1730,7 +1838,7 @@ function renderTradeList() {
         ${(t.tags||[]).length?`<div class="j-card-tags">${t.tags.map(tag=>`<span class="j-tag">${esc(tag)}</span>`).join('')}</div>`:''}
         ${t.notes?`<div class="j-card-notes">${esc(t.notes)}</div>`:''}
         <div class="j-card-actions">
-          ${t.status==='open'?`<button class="j-act-btn j-act-close" data-id="${t.id}" title="快速平倉"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></button>`:''}
+          ${t.status==='open'?`<button class="j-act-btn j-act-close" data-id="${t.id}" title="平倉"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></button>`:''}
           <button class="j-act-btn j-act-view" data-id="${t.id}" title="檢視"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
           <button class="j-act-btn j-act-edit" data-id="${t.id}" title="編輯"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
           <button class="j-act-btn j-act-del" data-id="${t.id}" title="刪除"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button>
@@ -1747,7 +1855,6 @@ function renderTradeList() {
   $$('.j-act-del').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();deleteTrade(b.dataset.id);}));
   $$('.j-act-close').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();quickCloseTrade(b.dataset.id);}));
   $$('.j-act-dup').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();duplicateTrade(b.dataset.id);}));
-  $$('.j-act-partial').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();partialCloseTrade(b.dataset.id);}));
   // Batch mode handlers
   if (batchMode) {
     $$('.j-batch-cb').forEach(cb => cb.addEventListener('change', e => {
@@ -2032,33 +2139,49 @@ function renderHoldings() {
 }
 
 // ================================================================
-//  Equity Curve (SVG)
+//  Equity Curve + Drawdown (SVG)
 // ================================================================
 function renderEquityCurve(pls) {
   if (!pls || pls.length < 2) return '';
   const sorted = [...pls].sort((a, b) => a.date > b.date ? 1 : -1);
-  let cum = 0;
-  const points = [{ x: 0, y: 0 }];
-  sorted.forEach((t, i) => { cum += t.pl.net; points.push({ x: i + 1, y: cum }); });
-  const W = 600, H = 64, pad = 4;
-  const maxX = points.length - 1, minY = Math.min(0, ...points.map(p => p.y)), maxY = Math.max(0, ...points.map(p => p.y));
+  let cum = 0, peak = 0;
+  const points = [{ x: 0, y: 0, dd: 0 }];
+  sorted.forEach((t, i) => {
+    cum += t.pl.net;
+    if (cum > peak) peak = cum;
+    points.push({ x: i + 1, y: cum, dd: peak - cum });
+  });
+  const W = 600, H = 88, eH = 60, ddH = 20, pad = 4, gap = 4;
+  const maxX = points.length - 1;
+  const minY = Math.min(0, ...points.map(p => p.y)), maxY = Math.max(0, ...points.map(p => p.y));
   const rangeY = maxY - minY || 1;
+  const maxDD = Math.max(1, ...points.map(p => p.dd));
   const sx = x => pad + (x / maxX) * (W - pad * 2);
-  const sy = y => H - pad - ((y - minY) / rangeY) * (H - pad * 2);
-  const pathD = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${sx(p.x).toFixed(1)},${sy(p.y).toFixed(1)}`).join(' ');
+  const sy = y => pad + ((maxY - y) / rangeY) * (eH - pad * 2);
+  const sdd = dd => eH + gap + (dd / maxDD) * (ddH - 2);
+  // Equity line
+  const eqPath = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${sx(p.x).toFixed(1)},${sy(p.y).toFixed(1)}`).join(' ');
   const zeroY = sy(0).toFixed(1);
   const finalColor = cum >= 0 ? 'var(--green)' : 'var(--red)';
-  const areaD = pathD + ` L${sx(maxX).toFixed(1)},${zeroY} L${sx(0).toFixed(1)},${zeroY} Z`;
+  const eqArea = eqPath + ` L${sx(maxX).toFixed(1)},${zeroY} L${sx(0).toFixed(1)},${zeroY} Z`;
+  // Drawdown area
+  const ddBase = eH + gap;
+  const ddPath = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${sx(p.x).toFixed(1)},${sdd(p.dd).toFixed(1)}`).join(' ');
+  const ddArea = `M${sx(0).toFixed(1)},${ddBase} ` + points.map(p => `L${sx(p.x).toFixed(1)},${sdd(p.dd).toFixed(1)}`).join(' ') + ` L${sx(maxX).toFixed(1)},${ddBase} Z`;
+
   const dateFrom = sorted[0].date?.slice(0, 10) || '';
   const dateTo = sorted[sorted.length - 1].date?.slice(0, 10) || '';
   return `<div class="j-sparkline-wrap">
-    <div class="j-sparkline-meta"><span class="j-sparkline-label">淨值曲線</span><span class="j-kpi-lbl">${dateFrom} ~ ${dateTo}</span></div>
-    <svg viewBox="0 0 ${W} ${H}" class="j-sparkline-svg" preserveAspectRatio="none">
+    <div class="j-sparkline-meta"><span class="j-sparkline-label">淨值曲線 + 回撤</span><span class="j-chart-tip" title="累計淨損益走勢，下方紅色區塊為回撤幅度（從高點回落的程度）">?</span><span class="j-kpi-lbl" style="margin-left:auto">${dateFrom} ~ ${dateTo}</span></div>
+    <svg viewBox="0 0 ${W} ${H}" class="j-sparkline-svg" style="height:72px" preserveAspectRatio="none">
       <line x1="0" y1="${zeroY}" x2="${W}" y2="${zeroY}" stroke="var(--bdr2)" stroke-width="0.5" stroke-dasharray="4"/>
-      <path d="${areaD}" fill="${finalColor}" opacity=".08"/>
-      <path d="${pathD}" fill="none" stroke="${finalColor}" stroke-width="1.5" stroke-linejoin="round"/>
+      <path d="${eqArea}" fill="${finalColor}" opacity=".08"/>
+      <path d="${eqPath}" fill="none" stroke="${finalColor}" stroke-width="1.5" stroke-linejoin="round"/>
+      <path d="${ddArea}" fill="var(--red)" opacity=".12"/>
+      <path d="${ddPath}" fill="none" stroke="var(--red)" stroke-width="1" opacity=".5" stroke-linejoin="round"/>
+      <line x1="0" y1="${ddBase}" x2="${W}" y2="${ddBase}" stroke="var(--bdr)" stroke-width="0.3"/>
     </svg>
-    <div class="j-sparkline-range"><span>${fmtNum(minY, 0)}</span><span>${fmtNum(maxY, 0)}</span></div>
+    <div class="j-sparkline-range"><span>${fmtNum(minY, 0)}</span><span>DD -${fmtNum(maxDD, 0)}</span><span>${fmtNum(maxY, 0)}</span></div>
   </div>`;
 }
 
@@ -2070,10 +2193,10 @@ function renderMonthlyBarChart(byM) {
   if (months.length < 2) return '';
   const vals = months.map(([, v]) => v.n);
   const maxAbs = Math.max(1, ...vals.map(v => Math.abs(v)));
-  const W = 600, H = 180, pad = 40, barGap = 4;
-  const barW = Math.min(40, (W - pad * 2) / months.length - barGap);
+  const W = 600, H = 130, pad = 32, barGap = 3;
+  const barW = Math.min(36, (W - pad * 2) / months.length - barGap);
   const zeroY = H / 2;
-  const scale = (H / 2 - 20) / maxAbs;
+  const scale = (H / 2 - 14) / maxAbs;
 
   let bars = '';
   months.forEach(([m, v], i) => {
@@ -2092,58 +2215,324 @@ function renderMonthlyBarChart(byM) {
 }
 
 // ================================================================
-//  P&L Distribution (Histogram)
+//  Trade-by-Trade P/L Bar Chart (逐筆損益圖)
 // ================================================================
-function renderPLDistribution(pls) {
-  if (pls.length < 5) return '';
-  const nets = pls.map(t => t.pl.net).sort((a, b) => a - b);
-  const min = nets[0], max = nets[nets.length - 1];
-  const range = max - min;
-  if (range === 0) return '';
-  const buckets = 12;
-  const step = range / buckets;
-  const bins = Array(buckets).fill(0);
-  nets.forEach(n => {
-    let idx = Math.floor((n - min) / step);
-    if (idx >= buckets) idx = buckets - 1;
-    bins[idx]++;
-  });
-  const maxBin = Math.max(1, ...bins);
-  const W = 600, H = 140, pad = 30;
-  const barW = (W - pad * 2) / buckets - 2;
+function renderTradePLBars(pls) {
+  if (!pls || pls.length < 3) return '';
+  const sorted = [...pls].sort((a, b) => a.date > b.date ? 1 : -1);
+  const nets = sorted.map(t => t.pl.net);
+  const maxAbs = Math.max(1, ...nets.map(v => Math.abs(v)));
+  const W = 600, H = 120, pad = 30, barGap = 1;
+  const usable = W - pad * 2;
+  const barW = Math.max(1, Math.min(12, (usable / nets.length) - barGap));
+  const totalW = nets.length * (barW + barGap);
+  const svgW = Math.max(W, totalW + pad * 2);
+  const zeroY = H / 2;
+  const scale = (H / 2 - 16) / maxAbs;
+
   let bars = '';
-  bins.forEach((cnt, i) => {
-    const x = pad + i * ((W - pad * 2) / buckets) + 1;
-    const h = (cnt / maxBin) * (H - pad - 10);
-    const y = H - pad - h;
-    const midVal = min + (i + 0.5) * step;
-    const color = midVal >= 0 ? 'var(--green)' : 'var(--red)';
-    bars += `<rect x="${x}" y="${y}" width="${barW}" height="${h}" fill="${color}" opacity=".6" rx="1"><title>${fmtNum(min + i * step, 0)} ~ ${fmtNum(min + (i + 1) * step, 0)}: ${cnt}筆</title></rect>`;
+  sorted.forEach((t, i) => {
+    const n = t.pl.net;
+    const x = pad + i * (barW + barGap);
+    const h = Math.max(1, Math.abs(n) * scale);
+    const y = n >= 0 ? zeroY - h : zeroY;
+    const color = n >= 0 ? 'var(--green)' : 'var(--red)';
+    bars += `<rect x="${x}" y="${y}" width="${barW}" height="${h}" fill="${color}" opacity=".7" rx="${barW > 3 ? 1 : 0}"><title>#${i + 1} ${esc(t.symbol)} ${fmtNum(n, 0)} (${t.date?.slice(0, 10) || ''})</title></rect>`;
   });
-  return `<svg viewBox="0 0 ${W} ${H}" class="j-equity-svg">
-      ${bars}
-      <text x="${pad}" y="${H - 6}" fill="var(--t3)" font-size="9">${fmtNum(min, 0)}</text>
-      <text x="${W - pad}" y="${H - 6}" fill="var(--t3)" font-size="9" text-anchor="end">${fmtNum(max, 0)}</text>
-    </svg>`;
+
+  // Average win / loss lines
+  const wins = nets.filter(n => n > 0), losses = nets.filter(n => n < 0);
+  let guides = '';
+  if (wins.length) {
+    const avgW = wins.reduce((s, n) => s + n, 0) / wins.length;
+    const yW = zeroY - avgW * scale;
+    guides += `<line x1="${pad}" y1="${yW.toFixed(1)}" x2="${svgW - pad}" y2="${yW.toFixed(1)}" stroke="var(--green)" stroke-width="0.7" stroke-dasharray="4,3" opacity=".6"/>`;
+    guides += `<text x="${pad - 3}" y="${yW.toFixed(1)}" fill="var(--green)" font-size="8" text-anchor="end" dy="3" opacity=".7">均+</text>`;
+  }
+  if (losses.length) {
+    const avgL = losses.reduce((s, n) => s + n, 0) / losses.length;
+    const yL = zeroY - avgL * scale;
+    guides += `<line x1="${pad}" y1="${yL.toFixed(1)}" x2="${svgW - pad}" y2="${yL.toFixed(1)}" stroke="var(--red)" stroke-width="0.7" stroke-dasharray="4,3" opacity=".6"/>`;
+    guides += `<text x="${pad - 3}" y="${yL.toFixed(1)}" fill="var(--red)" font-size="8" text-anchor="end" dy="3" opacity=".7">均−</text>`;
+  }
+
+  return `<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none"><svg viewBox="0 0 ${svgW} ${H}" class="j-equity-svg" style="min-width:${svgW}px">
+      <line x1="${pad}" y1="${zeroY}" x2="${svgW - pad}" y2="${zeroY}" stroke="var(--bdr2)" stroke-width="0.5"/>
+      ${guides}${bars}
+      <text x="${pad}" y="${H - 3}" fill="var(--t3)" font-size="8">${sorted[0].date?.slice(5, 10) || ''}</text>
+      <text x="${pad + totalW}" y="${H - 3}" fill="var(--t3)" font-size="8" text-anchor="end">${sorted[sorted.length - 1].date?.slice(5, 10) || ''}</text>
+    </svg></div>`;
 }
 
-function renderRollingChart(data) {
-  const W=500,H=140,pad=40;
-  if(data.length<2) return '';
-  const maxWr=100,minWr=0;
-  const xStep=(W-pad*2)/(data.length-1);
-  const pts=data.map((d,i)=>{const x=pad+i*xStep;const y=H-pad-(d.wr-minWr)/(maxWr-minWr)*(H-pad*2);return `${x},${y}`;});
-  const line50y=H-pad-(50-minWr)/(maxWr-minWr)*(H-pad*2);
-  return `<div class="j-stats-chart"><svg viewBox="0 0 ${W} ${H}" class="j-equity-svg">
-    <line x1="${pad}" y1="${line50y}" x2="${W-pad}" y2="${line50y}" stroke="var(--t3)" stroke-width="0.5" stroke-dasharray="4,3"/>
-    <text x="${pad-4}" y="${line50y+3}" fill="var(--t3)" font-size="9" text-anchor="end">50%</text>
-    <polyline points="${pts.join(' ')}" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linejoin="round"/>
-    <text x="${pad}" y="${H-6}" fill="var(--t3)" font-size="9">#1</text>
-    <text x="${W-pad}" y="${H-6}" fill="var(--t3)" font-size="9" text-anchor="end">#${data.length}</text>
-    <text x="${pad-4}" y="${pad}" fill="var(--t3)" font-size="9" text-anchor="end">100%</text>
-    <text x="${pad-4}" y="${H-pad+3}" fill="var(--t3)" font-size="9" text-anchor="end">0%</text>
-    <text x="${W-pad}" y="${pts[pts.length-1].split(',')[1]}" fill="var(--accent)" font-size="10" text-anchor="start" dx="4" dy="3">${data[data.length-1].wr.toFixed(1)}%</text>
-  </svg></div>`;
+// ================================================================
+//  Holding Days vs P/L Scatter (盈虧散布圖)
+// ================================================================
+function renderHoldScatter(pls) {
+  if (!pls || pls.length < 3) return '';
+  const holdFn = t => {
+    if (!t.exitPrice || !t.date) return null;
+    return Math.max(0, Math.round((new Date(t.updatedAt || t.date) - new Date(t.date)) / (1000 * 60 * 60 * 24)));
+  };
+  const data = pls.map(t => ({ d: holdFn(t), n: t.pl.net, sym: t.symbol })).filter(p => p.d != null);
+  if (data.length < 3) return '';
+
+  const W = 600, H = 120, pad = 34;
+  const maxD = Math.max(1, ...data.map(p => p.d));
+  const maxAbs = Math.max(1, ...data.map(p => Math.abs(p.n)));
+  const sx = d => pad + (d / maxD) * (W - pad * 2);
+  const sy = n => H / 2 - (n / maxAbs) * (H / 2 - 16);
+  const zeroY = H / 2;
+
+  let dots = '';
+  data.forEach(p => {
+    const x = sx(p.d).toFixed(1), y = sy(p.n).toFixed(1);
+    const color = p.n >= 0 ? 'var(--green)' : 'var(--red)';
+    dots += `<circle cx="${x}" cy="${y}" r="3.5" fill="${color}" opacity=".55"><title>${esc(p.sym)} ${p.d}天 ${fmtNum(p.n, 0)}</title></circle>`;
+  });
+
+  // Axis
+  const axis = `
+    <line x1="${pad}" y1="${zeroY}" x2="${W - pad}" y2="${zeroY}" stroke="var(--bdr2)" stroke-width="0.5" stroke-dasharray="4"/>
+    <line x1="${pad}" y1="10" x2="${pad}" y2="${H - 10}" stroke="var(--bdr2)" stroke-width="0.5" stroke-dasharray="4"/>
+    <text x="${pad - 3}" y="${zeroY}" fill="var(--t3)" font-size="8" text-anchor="end" dy="3">0</text>
+    <text x="${pad}" y="${H - 2}" fill="var(--t3)" font-size="8" text-anchor="middle">0</text>
+    <text x="${W - pad}" y="${H - 2}" fill="var(--t3)" font-size="8" text-anchor="end">${maxD}天</text>
+    <text x="${pad - 3}" y="14" fill="var(--green)" font-size="7" text-anchor="end">+${fmtNum(maxAbs, 0)}</text>
+    <text x="${pad - 3}" y="${H - 8}" fill="var(--red)" font-size="7" text-anchor="end">-${fmtNum(maxAbs, 0)}</text>`;
+
+  return `<svg viewBox="0 0 ${W} ${H}" class="j-equity-svg">${axis}${dots}</svg>`;
+}
+
+// ================================================================
+//  Rolling Win Rate + Expectancy (滾動勝率/期望值)
+// ================================================================
+function renderRollingChart(data, pls, fm) {
+  if (!data || data.length < 5) return '';
+  const W = 600, H = 120, pad = 36;
+  const n = data.length;
+  const xStep = (W - pad * 2) / (n - 1);
+
+  // Rolling expectancy (30-trade window)
+  const sorted = [...pls].sort((a, b) => a.date > b.date ? 1 : -1);
+  const expData = [];
+  for (let i = 0; i < sorted.length; i++) {
+    const win = sorted.slice(Math.max(0, i - 29), i + 1);
+    const ww = win.filter(t => t.pl.net > 0);
+    const wrPct = ww.length / win.length;
+    const avgW = ww.length ? ww.reduce((s, t) => s + t.pl.net, 0) / ww.length : 0;
+    const ll = win.filter(t => t.pl.net <= 0);
+    const avgL = ll.length ? ll.reduce((s, t) => s + t.pl.net, 0) / ll.length : 0;
+    expData.push(wrPct * avgW + (1 - wrPct) * avgL);
+  }
+  const maxExp = Math.max(1, ...expData.map(v => Math.abs(v)));
+
+  // Win rate line
+  const line50y = H / 2 - ((50) / 100) * (H / 2 - 20) + 0;
+  const wrPts = data.map((d, i) => {
+    const x = pad + i * xStep;
+    const y = 16 + (100 - d.wr) / 100 * (H - 40);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+
+  // Expectancy bars (below 0 line at center)
+  const expH = H - 32;
+  const zeroY = 16 + 50 / 100 * expH;
+  let expBars = '';
+  expData.forEach((v, i) => {
+    const x = pad + i * xStep - 2;
+    const h = Math.abs(v) / maxExp * (expH / 2 - 4);
+    const y = v >= 0 ? zeroY - h : zeroY;
+    const color = v >= 0 ? 'var(--green)' : 'var(--red)';
+    expBars += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="4" height="${h.toFixed(1)}" fill="${color}" opacity=".2" rx="1"><title>#${i + 1} 期望值 ${fm ? fm(v) : v.toFixed(0)}</title></rect>`;
+  });
+
+  const lastWr = data[n - 1].wr;
+  const lastExp = expData[n - 1];
+  return `<svg viewBox="0 0 ${W} ${H}" class="j-equity-svg">
+    ${expBars}
+    <line x1="${pad}" y1="${zeroY}" x2="${W - pad}" y2="${zeroY}" stroke="var(--bdr2)" stroke-width="0.5" stroke-dasharray="4"/>
+    <line x1="${pad}" y1="${line50y.toFixed(1)}" x2="${W - pad}" y2="${line50y.toFixed(1)}" stroke="var(--t3)" stroke-width="0.5" stroke-dasharray="3,4"/>
+    <text x="${pad - 3}" y="${line50y.toFixed(1)}" fill="var(--t3)" font-size="8" text-anchor="end" dy="3">50%</text>
+    <polyline points="${wrPts.join(' ')}" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linejoin="round"/>
+    <circle cx="${(pad + (n - 1) * xStep).toFixed(1)}" cy="${wrPts[n - 1].split(',')[1]}" r="3" fill="var(--accent)"/>
+    <text x="${W - pad + 4}" y="${wrPts[n - 1].split(',')[1]}" fill="var(--accent)" font-size="9" dy="3">${lastWr.toFixed(1)}%</text>
+    <text x="${pad}" y="${H - 2}" fill="var(--t3)" font-size="8">#1</text>
+    <text x="${W - pad}" y="${H - 2}" fill="var(--t3)" font-size="8" text-anchor="end">#${n}</text>
+    <text x="${pad - 3}" y="18" fill="var(--t3)" font-size="7" text-anchor="end">100%</text>
+    <text x="${pad - 3}" y="${H - 10}" fill="var(--t3)" font-size="7" text-anchor="end">0%</text>
+  </svg>`;
+}
+
+// ================================================================
+//  R-Multiple Distribution (R倍數分布)
+// ================================================================
+function renderRMultipleChart(rMultiples) {
+  if (!rMultiples || rMultiples.length < 3) return '';
+  const sorted = [...rMultiples].sort((a, b) => a - b);
+  const W = 600, H = 110, pad = 30, barGap = 2;
+  const barW = Math.max(3, Math.min(16, (W - pad * 2) / sorted.length - barGap));
+  const maxAbs = Math.max(1, ...sorted.map(v => Math.abs(v)));
+  const zeroY = H / 2;
+  const scale = (H / 2 - 14) / maxAbs;
+
+  let bars = '';
+  sorted.forEach((r, i) => {
+    const x = pad + i * (barW + barGap);
+    const h = Math.max(1, Math.abs(r) * scale);
+    const y = r >= 0 ? zeroY - h : zeroY;
+    const color = r >= 0 ? 'var(--green)' : 'var(--red)';
+    bars += `<rect x="${x}" y="${y.toFixed(1)}" width="${barW}" height="${h.toFixed(1)}" fill="${color}" opacity=".65" rx="1"><title>${r.toFixed(2)}R</title></rect>`;
+  });
+
+  // Reference lines
+  const y1R = zeroY - 1 * scale, yN1R = zeroY + 1 * scale;
+  const guides = `
+    <line x1="${pad}" y1="${zeroY}" x2="${W - pad}" y2="${zeroY}" stroke="var(--bdr2)" stroke-width="0.5"/>
+    <line x1="${pad}" y1="${y1R.toFixed(1)}" x2="${W - pad}" y2="${y1R.toFixed(1)}" stroke="var(--green)" stroke-width="0.5" stroke-dasharray="4,3" opacity=".5"/>
+    <text x="${pad - 3}" y="${y1R.toFixed(1)}" fill="var(--green)" font-size="7" text-anchor="end" dy="3">+1R</text>
+    <line x1="${pad}" y1="${yN1R.toFixed(1)}" x2="${W - pad}" y2="${yN1R.toFixed(1)}" stroke="var(--red)" stroke-width="0.5" stroke-dasharray="4,3" opacity=".5"/>
+    <text x="${pad - 3}" y="${yN1R.toFixed(1)}" fill="var(--red)" font-size="7" text-anchor="end" dy="3">-1R</text>`;
+
+  const pos = rMultiples.filter(r => r > 0).length;
+  const avgR = (rMultiples.reduce((s, r) => s + r, 0) / rMultiples.length);
+  return `<svg viewBox="0 0 ${W} ${H}" class="j-equity-svg">${guides}${bars}
+    <text x="${W - pad}" y="12" fill="var(--t2)" font-size="8" text-anchor="end">${pos}/${rMultiples.length} 正R · 均 ${avgR.toFixed(2)}R</text>
+  </svg>`;
+}
+
+// ================================================================
+//  After-Loss Behavior Analysis (虧損後行為)
+// ================================================================
+function renderAfterLossChart(afterLossList, fm) {
+  if (!afterLossList || afterLossList.length < 3) return '';
+  const W = 600, H = 110, pad = 34, barGap = 2;
+  const barW = Math.max(3, Math.min(14, (W - pad * 2) / afterLossList.length - barGap));
+  const nets = afterLossList.map(a => a.trade.pl.net);
+  const maxAbs = Math.max(1, ...nets.map(v => Math.abs(v)));
+  const zeroY = H / 2;
+  const scale = (H / 2 - 14) / maxAbs;
+
+  let bars = '';
+  afterLossList.forEach((a, i) => {
+    const n = a.trade.pl.net;
+    const x = pad + i * (barW + barGap);
+    const h = Math.max(1, Math.abs(n) * scale);
+    const y = n >= 0 ? zeroY - h : zeroY;
+    const color = n >= 0 ? 'var(--green)' : 'var(--red)';
+    const sym = a.trade.symbol || '';
+    const prevSym = a.prevTrade?.symbol || '';
+    bars += `<rect x="${x}" y="${y.toFixed(1)}" width="${barW}" height="${h.toFixed(1)}" fill="${color}" opacity=".65" rx="1"><title>虧損 ${esc(prevSym)} 後 → ${esc(sym)} ${fm(n)}</title></rect>`;
+  });
+
+  const wCount = nets.filter(n => n > 0).length;
+  const totalNet = nets.reduce((s, n) => s + n, 0);
+  const wr = (wCount / nets.length * 100).toFixed(1);
+  return `<svg viewBox="0 0 ${W} ${H}" class="j-equity-svg">
+    <line x1="${pad}" y1="${zeroY}" x2="${W - pad}" y2="${zeroY}" stroke="var(--bdr2)" stroke-width="0.5"/>
+    ${bars}
+    <text x="${W - pad}" y="12" fill="var(--t2)" font-size="8" text-anchor="end">勝率 ${wr}% · 淨損益 ${fm(totalNet)}</text>
+    <text x="${pad}" y="${H - 2}" fill="var(--t3)" font-size="7">舊→新</text>
+  </svg>`;
+}
+
+// ================================================================
+//  Position Size vs P/L (部位大小 vs 損益)
+// ================================================================
+function renderSizeVsPL(pls, fm) {
+  if (!pls || pls.length < 3) return '';
+  const data = pls.map(t => {
+    const qty = parseFloat(t.quantity) || 0;
+    const entry = parseFloat(t.entryPrice) || 0;
+    const mul = (isFuturesType(t.type) || t.type === 'options') ? (parseFloat(t.contractMul) || 1) : 1;
+    const notional = qty * entry * mul;
+    return { notional, net: t.pl.net, sym: t.symbol };
+  }).filter(d => d.notional > 0);
+  if (data.length < 3) return '';
+
+  const W = 600, H = 120, pad = 36;
+  const maxN = Math.max(1, ...data.map(d => d.notional));
+  const maxPL = Math.max(1, ...data.map(d => Math.abs(d.net)));
+  const sx = n => pad + (n / maxN) * (W - pad * 2);
+  const sy = n => H / 2 - (n / maxPL) * (H / 2 - 16);
+  const zeroY = H / 2;
+
+  let dots = '';
+  data.forEach(d => {
+    const x = sx(d.notional).toFixed(1), y = sy(d.net).toFixed(1);
+    const color = d.net >= 0 ? 'var(--green)' : 'var(--red)';
+    dots += `<circle cx="${x}" cy="${y}" r="3.5" fill="${color}" opacity=".5"><title>${esc(d.sym)} 部位 ${fmtNum(d.notional, 0)} 損益 ${fm(d.net)}</title></circle>`;
+  });
+
+  return `<svg viewBox="0 0 ${W} ${H}" class="j-equity-svg">
+    <line x1="${pad}" y1="${zeroY}" x2="${W - pad}" y2="${zeroY}" stroke="var(--bdr2)" stroke-width="0.5" stroke-dasharray="4"/>
+    <line x1="${pad}" y1="10" x2="${pad}" y2="${H - 10}" stroke="var(--bdr2)" stroke-width="0.5" stroke-dasharray="4"/>
+    <text x="${pad - 3}" y="${zeroY}" fill="var(--t3)" font-size="7" text-anchor="end" dy="3">0</text>
+    <text x="${W - pad}" y="${H - 2}" fill="var(--t3)" font-size="7" text-anchor="end">部位大</text>
+    <text x="${pad}" y="${H - 2}" fill="var(--t3)" font-size="7">部位小</text>
+    <text x="${pad - 3}" y="14" fill="var(--green)" font-size="7" text-anchor="end">+</text>
+    <text x="${pad - 3}" y="${H - 8}" fill="var(--red)" font-size="7" text-anchor="end">-</text>
+    ${dots}
+  </svg>`;
+}
+
+// ================================================================
+//  Weekday × Time Heatmap (星期/時段熱力圖)
+// ================================================================
+function renderWeekdayHeatmap(byDow, byTime, pls) {
+  if (!pls || pls.length < 5) return '';
+  // Build 2D grid: rows = weekday (Mon-Sun), cols = time slots (morning, afternoon)
+  const slots = ['morning', 'afternoon'];
+  const slotLabels = ['上午', '下午'];
+  const dayLabels = ['一', '二', '三', '四', '五', '六', '日'];
+  const dayOrder = [1, 2, 3, 4, 5, 6, 0]; // Mon=1 ... Sun=0
+
+  // Compute per-cell data
+  const grid = {};
+  pls.forEach(t => {
+    const d = new Date(t.date);
+    const dow = d.getDay();
+    const h = d.getHours();
+    const slot = h < 12 ? 'morning' : 'afternoon';
+    const key = `${dow}-${slot}`;
+    if (!grid[key]) grid[key] = { c: 0, n: 0, w: 0 };
+    grid[key].c++;
+    grid[key].n += t.pl.net;
+    if (t.pl.net > 0) grid[key].w++;
+  });
+
+  const allAvg = Object.values(grid).filter(g => g.c > 0).map(g => g.n / g.c);
+  const maxAvg = Math.max(1, ...allAvg.map(v => Math.abs(v)));
+
+  const cellW = 64, cellH = 22, padL = 24, padT = 16, gap = 2;
+  const W = padL + slots.length * (cellW + gap), H = padT + dayOrder.length * (cellH + gap);
+
+  let cells = '';
+  // Column headers
+  slots.forEach((s, ci) => {
+    cells += `<text x="${padL + ci * (cellW + gap) + cellW / 2}" y="12" fill="var(--t3)" font-size="9" text-anchor="middle">${slotLabels[ci]}</text>`;
+  });
+  // Rows
+  dayOrder.forEach((dow, ri) => {
+    const y = padT + ri * (cellH + gap);
+    cells += `<text x="${padL - 4}" y="${y + cellH / 2 + 3}" fill="var(--t3)" font-size="9" text-anchor="end">${dayLabels[ri]}</text>`;
+    slots.forEach((slot, ci) => {
+      const x = padL + ci * (cellW + gap);
+      const g = grid[`${dow}-${slot}`];
+      if (!g || g.c === 0) {
+        cells += `<rect x="${x}" y="${y}" width="${cellW}" height="${cellH}" fill="var(--bg3)" opacity=".3" rx="4"/>`;
+        cells += `<text x="${x + cellW / 2}" y="${y + cellH / 2 + 3}" fill="var(--t3)" font-size="8" text-anchor="middle">—</text>`;
+      } else {
+        const avg = g.n / g.c;
+        const intensity = Math.min(1, Math.abs(avg) / maxAvg);
+        const alpha = 0.15 + intensity * 0.55;
+        const color = avg >= 0 ? 'var(--green)' : 'var(--red)';
+        cells += `<rect x="${x}" y="${y}" width="${cellW}" height="${cellH}" fill="${color}" opacity="${alpha.toFixed(2)}" rx="4"><title>週${dayLabels[ri]}${slotLabels[ci === 0 ? 0 : 1]}\n${g.c}筆 · 淨 ${fmtNum(g.n, 0)} · 均 ${fmtNum(avg, 0)}\n勝率 ${(g.w / g.c * 100).toFixed(0)}%</title></rect>`;
+        cells += `<text x="${x + cellW / 2}" y="${y + cellH / 2 + 3}" fill="var(--t1)" font-size="9" font-weight="600" text-anchor="middle">${fmtNum(avg, 0)}</text>`;
+      }
+    });
+  });
+
+  return `<svg viewBox="0 0 ${W} ${H}" class="j-equity-svg" style="max-width:${W}px">${cells}</svg>`;
 }
 
 // ================================================================
@@ -2627,7 +3016,7 @@ function _renderDimTable(st, dim, fm) {
 
 // Render integrated stats page for a specific market
 function renderStatsPage(st, market, fm) {
-  const {tn,tf,tt,count,w,l,wr,aw,al,pf,mw,ml,mcw,mcl,expectancy,maxDD,maxDDPct,avgHold,wHold,lHold,rMultiples,avgR,byTime,rollingData,revengeTrades,revengeNet,afterLossCount,afterLossNet,reviewed,avgDisc,avgTim,avgSiz,highDisc,lowDisc,highDiscPL,lowDiscPL,pls} = st;
+  const {tn,tf,tt,count,w,l,wr,aw,al,pf,mw,ml,mcw,mcl,expectancy,maxDD,maxDDPct,avgHold,wHold,lHold,rMultiples,avgR,byDow,byTime,rollingData,revengeTrades,revengeNet,afterLossCount,afterLossNet,afterLossList,revengeList,reviewed,avgDisc,avgTim,avgSiz,highDisc,lowDisc,highDiscPL,lowDiscPL,pls,sorted} = st;
 
   // ── Hero KPIs ──
   const kpi = (label, val, cls, tip) => `<div class="j-kpi"${tip?` title="${tip}"`:''}><span class="j-kpi-lbl">${label}</span><span class="j-kpi-val ${cls||''}">${val}</span></div>`;
@@ -2641,6 +3030,9 @@ function renderStatsPage(st, market, fm) {
     <div class="j-wr-ring"><svg width="44" height="44" viewBox="0 0 44 44"><circle cx="22" cy="22" r="${wrR}" fill="none" stroke="var(--bdr)" stroke-width="3"/><circle cx="22" cy="22" r="${wrR}" fill="none" stroke="${wrColor}" stroke-width="3" stroke-dasharray="${wrDash.toFixed(1)} ${wrC.toFixed(1)}" stroke-linecap="round"><animate attributeName="stroke-dasharray" from="0 ${wrC.toFixed(1)}" to="${wrDash.toFixed(1)} ${wrC.toFixed(1)}" dur="0.8s" fill="freeze"/></circle></svg><span class="j-wr-text ${wrNum>=50?'tg':'tr'}">${wr}%</span></div>
   </div>`;
 
+  // ================================================================
+  //  Section 1: Performance Overview
+  // ================================================================
   const hero = `<div class="j-hero-strip">
     <div class="j-kpi j-kpi-hero" title="淨損益 = 總獲利 ${fm(totalGross)} + 總虧損 ${fm(totalLoss)}\n已扣手續費 ${fm(tf)} + 稅 ${fm(tt)}"><span class="j-kpi-lbl">淨損益</span><span class="j-kpi-val j-num-tick ${tn>=0?'tg':'tr'}">${fm(tn)}</span></div>
     ${wrRing}
@@ -2649,8 +3041,7 @@ function renderStatsPage(st, market, fm) {
     ${kpi('回撤', `${fm(maxDD)}`, 'tr', `最大回撤 = 淨值高點到低點最大跌幅\n= ${fm(maxDD)} (${maxDDPct}%)`)}
   </div>`;
 
-  // ── More KPIs (compact secondary strip) ──
-  const more = `<div class="j-kpi-more">
+  const moreKpis = `<div class="j-kpi-more" id="j-kpi-more">
     ${kpi('筆數', `${count}`, '', `${w.length}勝 / ${l.length}負`)}
     ${kpi('均獲利', fm(aw), 'tg', `${fm(totalGross)} ÷ ${w.length}`)}
     ${kpi('均虧損', fm(al), 'tr', `${fm(totalLoss)} ÷ ${l.length}`)}
@@ -2660,11 +3051,86 @@ function renderStatsPage(st, market, fm) {
     ${rMultiples.length?kpi('平均R', `${avgR}R`, parseFloat(avgR)>=0?'tg':'tr', `${rMultiples.length}筆有停損`):''}
     ${kpi('費用', fm(tf+tt), 'ty', `手續費 ${fm(tf)} + 稅 ${fm(tt)}`)}
   </div>`;
+  const moreToggle = `<button class="j-kpi-more-toggle" id="j-kpi-toggle"><svg viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 4l4 4 4-4"/></svg> 更多指標</button>`;
 
-  // ── Equity Curve ──
+  const sec1 = `<div class="j-stats-section">${hero}${moreToggle}${moreKpis}</div>`;
+
+  // ================================================================
+  //  Build insight badges (inline with related charts)
+  // ================================================================
+  const _badge = (icon, text, val, cls, tip) => `<div class="j-insight-badge"${tip?` title="${tip}"`:''}>` +
+    `<span class="j-insight-badge-icon">${icon}</span>` +
+    `<span class="j-insight-badge-text">${text}</span>` +
+    `${val?`<span class="j-insight-badge-val ${cls||''}">${val}</span>`:''}` +
+    `</div>`;
+  let timeBadge = '', revengeBadge = '', discBadges = '';
+  if (byTime.morning.c && byTime.afternoon.c) {
+    const mAvg = byTime.morning.n / byTime.morning.c, aAvg = byTime.afternoon.n / byTime.afternoon.c;
+    const better = mAvg > aAvg ? '上午' : '下午';
+    const betterAvg = mAvg > aAvg ? mAvg : aAvg;
+    timeBadge = _badge('\u{1f4ca}', `${better}較佳`, fm(betterAvg), betterAvg >= 0 ? 'tg' : 'tr', `上午 ${byTime.morning.c}筆 均${fm(mAvg)}\n下午 ${byTime.afternoon.c}筆 均${fm(aAvg)}`);
+  }
+  if (afterLossCount > 0) {
+    revengeBadge = revengeTrades > 0
+      ? _badge('\u{26a0}\u{fe0f}', '疑似報復交易', `${revengeTrades}筆`, 'tr', `虧損後2hr內 ${revengeTrades}筆\n均損益 ${fm(revengeNet/revengeTrades)}`)
+      : _badge('\u{2705}', '無報復交易', '', 'tg', '');
+  }
+  if (reviewed.length) {
+    const rc = v => v >= 4 ? 'tg' : v <= 2 ? 'tr' : '';
+    discBadges = _badge('\u{1f4dd}', '覆盤', `紀律${avgDisc.toFixed(1)} 時機${avgTim.toFixed(1)} 倉位${avgSiz.toFixed(1)}`, '', `${reviewed.length}筆已評分`);
+    if (highDisc.length && lowDisc.length) {
+      discBadges += _badge('\u{1f3af}', '高vs低紀律', `<span class="${highDiscPL>=0?'tg':'tr'}">${fm(highDiscPL)}</span> / <span class="${lowDiscPL>=0?'tg':'tr'}">${fm(lowDiscPL)}</span>`, '', `高(4-5)${highDisc.length}筆 低(1-2)${lowDisc.length}筆`);
+    }
+  }
+  const allBadges = discBadges + timeBadge + revengeBadge;
+  const badgesRow = allBadges ? `<div class="j-insight-badges">${allBadges}</div>` : '';
+
+  // ================================================================
+  //  Section 2: All Charts (merged)
+  // ================================================================
+  const _hd = (title, tip) => `<div class="j-chart-hd"><span class="j-chart-title">${title}</span><span class="j-chart-tip" title="${tip}">?</span></div>`;
+
   const equity = renderEquityCurve(pls);
+  const monthlyChart = renderMonthlyBarChart(st.byM);
+  const tradePLBars = renderTradePLBars(pls);
+  const rollingChart = renderRollingChart(rollingData, pls, fm);
+  const rMultipleChart = renderRMultipleChart(rMultiples);
+  const afterLossChart = renderAfterLossChart(afterLossList, fm);
+  const sizeVsPLChart = renderSizeVsPL(pls, fm);
+  const holdScatter = renderHoldScatter(pls);
+  const weekdayHeat = renderWeekdayHeatmap(byDow, byTime, pls);
 
-  // ── Dimension switcher + table ──
+  let sec2Inner = '';
+  // Equity curve (full width sparkline)
+  if (equity) sec2Inner += equity;
+  // Row 1: monthly + trade PL
+  const r1Cells = [];
+  if (monthlyChart) r1Cells.push(`<div class="j-chart-cell">${_hd('月度損益','各月份已平倉淨損益加總，觀察月度穩定性與季節模式')}${monthlyChart}</div>`);
+  if (tradePLBars) r1Cells.push(`<div class="j-chart-cell">${_hd('逐筆損益','每筆交易按時間排序。虛線為平均獲利/虧損水準，找出異常大的虧損')}${tradePLBars}</div>`);
+  if (r1Cells.length) sec2Inner += `<div class="j-charts-row">${r1Cells.join('')}</div>`;
+  // Row 2: rolling + R-multiple
+  const r2Cells = [];
+  if (rollingChart) r2Cells.push(`<div class="j-chart-cell">${_hd('滾動勝率','藍線=30筆滾動勝率，柱狀=滾動期望值。持續下滑代表策略可能失效')}${rollingChart}</div>`);
+  if (rMultipleChart) r2Cells.push(`<div class="j-chart-cell">${_hd('R 倍數分布','以停損為1R換算損益倍數。看是否有>2R的大獲利來覆蓋小虧損')}${rMultipleChart}</div>`);
+  if (r2Cells.length) sec2Inner += `<div class="j-charts-row">${r2Cells.join('')}</div>`;
+  // Row 3: after-loss + size vs PL
+  const r3Cells = [];
+  if (afterLossChart) r3Cells.push(`<div class="j-chart-cell">${_hd('虧損後行為','每根柱子是虧損後的下一筆交易。大量紅色=報復性交易或心態傾斜')}${afterLossChart}</div>`);
+  if (sizeVsPLChart) r3Cells.push(`<div class="j-chart-cell">${_hd('部位 vs 損益','散點越右=部位越大。大部位聚集在下方表示加碼風控有問題')}${sizeVsPLChart}</div>`);
+  if (r3Cells.length) sec2Inner += `<div class="j-charts-row">${r3Cells.join('')}</div>`;
+  // Row 4: hold scatter + weekday heatmap
+  const r4Cells = [];
+  if (holdScatter) r4Cells.push(`<div class="j-chart-cell">${_hd('持倉天數 vs 損益','X=持倉天數，Y=淨損益。找出最適持倉週期')}${holdScatter}</div>`);
+  if (weekdayHeat) r4Cells.push(`<div class="j-chart-cell">${_hd('時段熱力圖','顏色深淺=平均損益高低。集中在績效好的時段交易')}${weekdayHeat}</div>`);
+  if (r4Cells.length) sec2Inner += `<div class="j-charts-row">${r4Cells.join('')}</div>`;
+  // Insight badges at bottom of chart section
+  if (badgesRow) sec2Inner += badgesRow;
+
+  const sec2 = sec2Inner ? `<div class="j-stats-section"><div class="j-section-title">圖表總覽</div>${sec2Inner}</div>` : '';
+
+  // ================================================================
+  //  Section 3: Dimension Analysis (compact)
+  // ================================================================
   const availDims = Object.entries(DIM_DEFS).filter(([,def]) => {
     const d = st[def.key]; return d && Object.keys(d).length > 0;
   });
@@ -2672,38 +3138,31 @@ function renderStatsPage(st, market, fm) {
     `<button class="j-dim-pill${statsDimension===k?' active':''}" data-dim="${k}">${def.label}</button>`
   ).join('')}</div>`;
   const dimTable = `<div class="j-dim-body" id="j-dim-body">${_renderDimTable(st, statsDimension, fm)}</div>`;
+  const sec3 = `<div class="j-stats-section"><div class="j-section-title">維度分析</div>${dimPills}${dimTable}</div>`;
 
-  // ── Charts row ──
-  const monthlyChart = renderMonthlyBarChart(st.byM);
-  const plDist = renderPLDistribution(pls);
-  const chartsRow = (monthlyChart || plDist) ? `<div class="j-charts-row">${monthlyChart?`<div class="j-chart-cell"><div class="j-chart-title">月度損益</div>${monthlyChart}</div>`:''}${plDist?`<div class="j-chart-cell"><div class="j-chart-title">損益分布</div>${plDist}</div>`:''}</div>` : '';
+  // ================================================================
+  //  Section 4: Tutorial (collapsed by default)
+  // ================================================================
+  const tutorialToggle = `<button class="j-tutorial-toggle" id="j-tutorial-toggle"><svg viewBox="0 0 12 12" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 4l4 4 4-4"/></svg>如何用圖表檢討交易 — 10 步驟指南</button>`;
+  const sec4 = `<div class="j-stats-section" style="padding:4px 6px">
+    ${tutorialToggle}
+    <div class="j-tutorial-wrap collapsed" id="j-tutorial-wrap">
+      <div class="j-tutorial">
+        <div class="j-tutorial-step"><div class="j-tutorial-num">1</div><div class="j-tutorial-body"><div class="j-tutorial-heading">先看整體績效</div><p>確認<strong>淨損益</strong>、<strong>勝率</strong>和<strong>期望值</strong>。期望值為正代表策略長期可獲利。為負則檢查虧損是否太大或獲利截短太快。</p></div></div>
+        <div class="j-tutorial-step"><div class="j-tutorial-num">2</div><div class="j-tutorial-body"><div class="j-tutorial-heading">觀察資金曲線</div><p>曲線應穩定上升。<strong>回撤帶</strong>過大代表風控需改善，理想在 10-20% 以內。曲線長期走平則策略需調整。</p></div></div>
+        <div class="j-tutorial-step"><div class="j-tutorial-num">3</div><div class="j-tutorial-body"><div class="j-tutorial-heading">檢查月度穩定性</div><p>連續多月虧損是暫停檢討的警訊。注意是否有季節性虧損模式。</p></div></div>
+        <div class="j-tutorial-step"><div class="j-tutorial-num">4</div><div class="j-tutorial-body"><div class="j-tutorial-heading">逐筆損益找異常</div><p>找出<strong>異常大的虧損</strong>（未遵守停損）。獲利全是矮柱 = 截短利潤，嘗試延長持倉。</p></div></div>
+        <div class="j-tutorial-step"><div class="j-tutorial-num">5</div><div class="j-tutorial-body"><div class="j-tutorial-heading">滾動勝率追蹤策略</div><p>勝率和期望值同步下降時，<strong>減少部位</strong>或暫停交易，等待確認策略是否需要調整。</p></div></div>
+        <div class="j-tutorial-step"><div class="j-tutorial-num">6</div><div class="j-tutorial-body"><div class="j-tutorial-heading">R 倍數評估風報比</div><p>好的系統平均 R 為正，且有少數 > 2R 大贏家。多數在 ±1R 之間代表停利設太近。</p></div></div>
+        <div class="j-tutorial-step"><div class="j-tutorial-num">7</div><div class="j-tutorial-body"><div class="j-tutorial-heading">虧損後行為模式</div><p>虧損後常接虧損 = <strong>報復性交易</strong>。建議連虧 N 筆後強制休息再交易。</p></div></div>
+        <div class="j-tutorial-step"><div class="j-tutorial-num">8</div><div class="j-tutorial-body"><div class="j-tutorial-heading">部位大小與損益</div><p>大部位大虧損密集 = 加碼缺乏紀律。小部位試單，確認後才加碼；虧損時<strong>絕不攤平</strong>。</p></div></div>
+        <div class="j-tutorial-step"><div class="j-tutorial-num">9</div><div class="j-tutorial-body"><div class="j-tutorial-heading">找最佳交易時段</div><p>集中在績效好的時段交易，減少劣勢時段下單。</p></div></div>
+        <div class="j-tutorial-step"><div class="j-tutorial-num">10</div><div class="j-tutorial-body"><div class="j-tutorial-heading">維度分析深入挖掘</div><p>比較不同市場、類型、方向績效，找到<strong>優勢領域</strong>並專注。</p></div></div>
+      </div>
+    </div>
+  </div>`;
 
-  // ── Insights panel ──
-  let insights = [];
-  // Time of day
-  if (byTime.morning.c && byTime.afternoon.c) {
-    const better = byTime.morning.n / byTime.morning.c > byTime.afternoon.n / byTime.afternoon.c ? '上午' : '下午';
-    insights.push(`<span class="j-insight" title="上午 ${byTime.morning.c}筆 均${fm(byTime.morning.n/byTime.morning.c)} / 下午 ${byTime.afternoon.c}筆 均${fm(byTime.afternoon.n/byTime.afternoon.c)}">📊 ${better}交易績效較佳</span>`);
-  }
-  // Review scores
-  if (reviewed.length) {
-    const rc = v => v >= 4 ? 'tg' : v <= 2 ? 'tr' : '';
-    insights.push(`<span class="j-insight" title="平均紀律 ${avgDisc.toFixed(1)}/5\n平均時機 ${avgTim.toFixed(1)}/5\n平均倉位 ${avgSiz.toFixed(1)}/5\n${reviewed.length}筆已評分">📝 紀律 <strong class="${rc(avgDisc)}">${avgDisc.toFixed(1)}</strong> 時機 <strong class="${rc(avgTim)}">${avgTim.toFixed(1)}</strong> 倉位 <strong class="${rc(avgSiz)}">${avgSiz.toFixed(1)}</strong></span>`);
-    if (highDisc.length && lowDisc.length) {
-      insights.push(`<span class="j-insight" title="高紀律(4-5) ${highDisc.length}筆 均${fm(highDiscPL)}\n低紀律(1-2) ${lowDisc.length}筆 均${fm(lowDiscPL)}">🎯 高紀律均損益 <strong class="${highDiscPL>=0?'tg':'tr'}">${fm(highDiscPL)}</strong> vs 低紀律 <strong class="${lowDiscPL>=0?'tg':'tr'}">${fm(lowDiscPL)}</strong></span>`);
-    }
-  }
-  // Revenge
-  if (afterLossCount > 0) {
-    if (revengeTrades > 0) {
-      insights.push(`<span class="j-insight tr" title="虧損後2小時內交易 ${revengeTrades}筆\n均損益 ${fm(revengeNet/revengeTrades)}">⚠ ${revengeTrades}筆疑似報復性交易</span>`);
-    } else {
-      insights.push(`<span class="j-insight tg">✓ 無報復性交易</span>`);
-    }
-  }
-  const insightsPanel = insights.length ? `<div class="j-insights-panel">${insights.join('')}</div>` : '';
-
-  return hero + more + equity + dimPills + dimTable + chartsRow + insightsPanel;
+  return sec1 + sec2 + sec3 + sec4;
 }
 
 // Cache computed stats for dimension switching without re-render
@@ -2740,6 +3199,17 @@ function renderStats() {
   const content = renderStatsPage(st, displayMarket, fm);
   body.innerHTML = `<div class="j-stats">${filterPills}${content}</div>`;
 
+  // Bind KPI more toggle
+  const kpiToggle = $('#j-kpi-toggle', body);
+  const kpiMore = $('#j-kpi-more', body);
+  if (kpiToggle && kpiMore) {
+    // Default: collapsed on mobile, expanded on desktop
+    if (window.innerWidth <= 768) { kpiMore.classList.add('collapsed'); } else { kpiToggle.classList.add('open'); }
+    kpiToggle.addEventListener('click', () => {
+      kpiMore.classList.toggle('collapsed');
+      kpiToggle.classList.toggle('open');
+    });
+  }
   // Bind market filter pills
   $$('.j-mf-pill', body).forEach(btn => btn.addEventListener('click', () => {
     statsMarketFilter = btn.dataset.mf;
@@ -2755,6 +3225,15 @@ function renderStats() {
       dimBody.innerHTML = _renderDimTable(_cachedStats, statsDimension, cfm);
     }
   }));
+  // Bind tutorial toggle
+  const tutToggle = $('#j-tutorial-toggle', body);
+  const tutWrap = $('#j-tutorial-wrap', body);
+  if (tutToggle && tutWrap) {
+    tutToggle.addEventListener('click', () => {
+      tutWrap.classList.toggle('collapsed');
+      tutToggle.classList.toggle('open');
+    });
+  }
   // Bind loss-follow trade links
   $$('.j-loss-follow-link', body).forEach(el => el.addEventListener('click', () => {
     const id = el.dataset.id;
@@ -2960,6 +3439,13 @@ function openTradeForm(id, prefill) {
     const dir = $('#jf-dir')?.value || 'long';
     const sym = $('#jf-symbol')?.value?.trim() || '';
     const fees = calcSmartFees(market, type, entry, qty, mul, dir, sym);
+    // If exit price is present, add exit-side costs (round-trip)
+    const exitVal = $('#jf-exit')?.value || '';
+    if (exitVal) {
+      const ef = calcExitFees(market, type, exitVal, qty, mul, dir, sym);
+      if (ef.fee) fees.fee = String((parseFloat(fees.fee) || 0) + (parseFloat(ef.fee) || 0));
+      if (ef.tax) fees.tax = String((parseFloat(fees.tax) || 0) + (parseFloat(ef.tax) || 0));
+    }
     // Smart fill always produces fixed amounts, reset mode to fixed
     if (fees.fee && $('#jf-fee') && !feeManuallyEdited) { $('#jf-fee').value = fees.fee; const b = $('#jf-fee-mode'); if (b) { b.dataset.mode = 'fixed'; b.textContent = '元'; } }
     if (fees.tax && $('#jf-tax') && !taxManuallyEdited) { $('#jf-tax').value = fees.tax; const b = $('#jf-tax-mode'); if (b) { b.dataset.mode = 'fixed'; b.textContent = '元'; } }
@@ -3113,6 +3599,7 @@ function openTradeForm(id, prefill) {
 
   // Recalculate fees when price/qty/direction changes (only auto-fills non-manually-edited fields)
   $('#jf-entry')?.addEventListener('change', () => updateSmartFees());
+  $('#jf-exit')?.addEventListener('change', () => updateSmartFees());
   $('#jf-qty')?.addEventListener('change', () => updateSmartFees());
   $('#jf-dir')?.addEventListener('change', () => { feeManuallyEdited = false; taxManuallyEdited = false; updateSmartFees(); });
 
@@ -3121,7 +3608,9 @@ function openTradeForm(id, prefill) {
   $('#jf-type2')?.addEventListener('change', () => { feeManuallyEdited = false; taxManuallyEdited = false; });
 
   // Auto-fill fees on initial load for new trades (not editing)
-  if (!id) { setTimeout(updateSmartFees, 50); }
+  // Skip if template already has fee/tax pre-filled (e.g. from calculator which includes both sides)
+  if (!id && !t.fee && !t.tax) { setTimeout(updateSmartFees, 50); }
+  else if (!id && (t.fee || t.tax)) { feeManuallyEdited = true; taxManuallyEdited = true; }
 
   $$('.j-tag-btn:not(.j-tpl-btn)',modal).forEach(b=>b.addEventListener('click',()=>b.classList.toggle('active')));
   $('#jf-custom-tag').addEventListener('keydown',e=>{if(e.key!=='Enter')return;e.preventDefault();const v=e.target.value.trim();if(!v)return;const c=$('#jf-tags');const ex=$$('.j-tag-btn',c).find(b=>b.dataset.tag===v);if(ex){ex.classList.add('active');}else{const btn=document.createElement('button');btn.type='button';btn.className='j-tag-btn active';btn.dataset.tag=v;btn.textContent=v;btn.addEventListener('click',()=>btn.classList.toggle('active'));c.appendChild(btn);}e.target.value='';});
@@ -3288,8 +3777,12 @@ async function saveTrade() {
         const leftover = oppQty - used;
 
         if (leftover <= 0) {
-          // Fully close this opposing trade
-          const closedData = { ...opp, exitPrice, status: 'closed' };
+          // Fully close this opposing trade — add exit-side fees
+          const origFee = parseFloat(opp.fee) || 0, origTax = parseFloat(opp.tax) || 0;
+          const ef = calcExitFees(opp.market, opp.type, exitPrice, oppQty, parseFloat(opp.contractMul) || 1, opp.direction, opp.symbol);
+          const closedData = { ...opp, exitPrice, status: 'closed',
+            fee: String(origFee + (parseFloat(ef.fee) || 0)),
+            tax: String(origTax + (parseFloat(ef.tax) || 0)) };
           await api(`/trades/${opp.id}`, { method: 'PUT', body: JSON.stringify(closedData) });
           const idx = trades.findIndex(t => t.id === opp.id);
           if (idx >= 0) trades[idx] = closedData;
@@ -3298,7 +3791,8 @@ async function saveTrade() {
           const origFee = parseFloat(opp.fee) || 0, origTax = parseFloat(opp.tax) || 0;
           const ratio = used / oppQty;
           const closedFee = Math.round(origFee * ratio), closedTax = Math.round(origTax * ratio);
-          const closedData = { ...opp, id: undefined, quantity: used, exitPrice, status: 'closed', fee: closedFee, tax: closedTax };
+          const ef = calcExitFees(opp.market, opp.type, exitPrice, used, parseFloat(opp.contractMul) || 1, opp.direction, opp.symbol);
+          const closedData = { ...opp, id: undefined, quantity: used, exitPrice, status: 'closed', fee: String(closedFee + (parseFloat(ef.fee) || 0)), tax: String(closedTax + (parseFloat(ef.tax) || 0)) };
           const remainData = { ...opp, quantity: leftover, fee: origFee - closedFee, tax: origTax - closedTax };
           await api('/trades', { method: 'POST', body: JSON.stringify(closedData) });
           await api(`/trades/${opp.id}`, { method: 'PUT', body: JSON.stringify(remainData) });
@@ -3368,7 +3862,7 @@ function openTradeDetail(id) {
   ${(t.reviewDiscipline||t.reviewTiming||t.reviewSizing)?`<div class="j-detail-review" style="grid-column:1/-1"><span class="j-dl">覆盤評分</span><div class="j-detail-rv-scores"><span>紀律 <strong>${t.reviewDiscipline||0}</strong>/5</span><span>時機 <strong>${t.reviewTiming||0}</strong>/5</span><span>倉位 <strong>${t.reviewSizing||0}</strong>/5</span></div></div>`:''}
   ${t.notes?`<div class="j-detail-notes"><h4>策略筆記</h4><div class="j-notes-content" style="white-space:pre-wrap">${esc(t.notes)}</div></div>`:''}
   ${t.imageUrl && /^https?:\/\//.test(t.imageUrl)?`<div class="j-detail-notes"><h4>交易截圖</h4><img src="${esc(t.imageUrl)}" class="j-detail-img" alt="交易截圖" loading="lazy" onerror="this.style.display='none'"></div>`:''}
-  </div><div class="j-modal-footer">${t.status==='open'?`<button class="j-btn-cancel j-detail-close-btn" id="jd-quick-close" style="color:var(--red);border-color:var(--red)">快速平倉</button>`:''}<button class="j-btn-cancel" id="jd-calc" title="在計算器中開啟">計算器</button><button class="j-btn-cancel" id="jd-dup" title="複製為新交易">複製</button><span style="flex:1"></span><button class="j-btn-cancel" id="jd-back">關閉</button><button class="j-btn-save" id="jd-edit">編輯</button></div>`;
+  </div><div class="j-modal-footer">${t.status==='open'?`<button class="j-btn-cancel j-detail-close-btn" id="jd-quick-close" style="color:var(--red);border-color:var(--red)">平倉</button>`:''}<button class="j-btn-cancel" id="jd-calc" title="在計算器中開啟">計算器</button><button class="j-btn-cancel" id="jd-dup" title="複製為新交易">複製</button><span style="flex:1"></span><button class="j-btn-cancel" id="jd-back">關閉</button><button class="j-btn-save" id="jd-edit">編輯</button></div>`;
   overlay.classList.add('open');modal.classList.add('open');
   const cl=()=>{overlay.classList.remove('open');modal.classList.remove('open');};
   $('#jd-close').addEventListener('click',cl);overlay.addEventListener('click',(e)=>{if(e.target===overlay)cl();});$('#jd-back').addEventListener('click',cl);
