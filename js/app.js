@@ -23,6 +23,7 @@ const riskLvl = (v, s, c, d) => v >= s ? 'safe' : v >= c ? 'caution' : v >= d ? 
 const WARN_SVG = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L1 21h22L12 2zm0 3.5L19.5 19h-15L12 5.5zM11 10v4h2v-4h-2zm0 6v2h2v-2h-2z"/></svg>';
 const OK_SVG = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>';
 const PLACEHOLDER = '<div class="results-placeholder"><p>輸入參數即可即時計算</p></div>';
+function _scrollToResults(el) { if(el && window.innerWidth < 768) setTimeout(()=>el.scrollIntoView({block:'start',behavior:'smooth'}),50); }
 
 // ── Section helper for input panel UI ──
 const _secIcon = {
@@ -965,6 +966,7 @@ const S = _savedS || {
 };
 if (!S.activeTab) S.activeTab = 'journal';
 if (!S.crypto) S.crypto = { mode: 'spot', direction: 'long' };
+if (!S.guide) S.guide = { completed: [], active: 'mindset' };
 function _saveState() {
   localStorage.setItem('prism_state', JSON.stringify(S));
   // Sync state to server (debounced fire-and-forget)
@@ -1371,18 +1373,30 @@ function buildTickerBar() {
     keys.forEach(k => { if (!ordered.includes(k)) ordered.push(k); });
     keys = ordered;
   }
-  container.innerHTML = keys.map(key => {
+  // Group keys by region (preserve user order within each group)
+  const regionOrder = ['台灣', '美國', '亞洲', '加密貨幣'];
+  const regionLabel = { '台灣': 'TW', '美國': 'US', '亞洲': 'ASIA', '加密貨幣': 'CRYPTO' };
+  const groups = {};
+  for (const r of regionOrder) groups[r] = [];
+  for (const key of keys) {
+    const r = INDEX_DEFS[key].region;
+    if (groups[r]) groups[r].push(key);
+  }
+  const chipHTML = key => {
     const def = INDEX_DEFS[key];
     const show = CFG.indices[key] !== false;
-    const tvUrl = `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(def.chart)}`;
-    return `<a class="ticker-chip" data-idx="${key}" style="${show ? '' : 'display:none'}" href="${tvUrl}" target="_blank" rel="noopener" title="在 TradingView 開啟 ${def.name}" draggable="true">
+    return `<a class="ticker-chip" data-idx="${key}" style="${show ? '' : 'display:none'}" href="https://www.tradingview.com/chart/?symbol=${encodeURIComponent(def.chart)}" target="_blank" rel="noopener" title="在 TradingView 開啟 ${def.name}" draggable="true">
       <span class="tc-name">${def.name}</span>
       <span class="tc-price stale" id="disp-${key}">—</span>
       <span class="tc-chg" id="chg-${key}"></span>
       ${key === 'txf' ? '<span class="ticker-basis" id="ticker-basis"></span>' : ''}
       <input type="hidden" id="idx-${key}">
     </a>`;
-  }).join('');
+  };
+  container.innerHTML = regionOrder
+    .filter(r => groups[r].some(k => CFG.indices[k] !== false))
+    .map(r => `<div class="ticker-group" data-region="${r}"><span class="ticker-region">${regionLabel[r]}</span>${groups[r].map(chipHTML).join('')}</div>`)
+    .join('');
   _initTickerDrag(container);
   _applyMobileTickerCount();
 }
@@ -1409,10 +1423,12 @@ function _initTickerDrag(container) {
     e.dataTransfer.dropEffect = 'move';
     const target = e.target.closest('.ticker-chip');
     if (!target || target === dragEl) return;
+    const group = target.closest('.ticker-group');
+    if (!group || group !== dragEl.closest('.ticker-group')) return;
     const rect = target.getBoundingClientRect();
     const mid = rect.left + rect.width / 2;
-    if (e.clientX < mid) container.insertBefore(dragEl, target);
-    else container.insertBefore(dragEl, target.nextSibling);
+    if (e.clientX < mid) group.insertBefore(dragEl, target);
+    else group.insertBefore(dragEl, target.nextSibling);
   }, sig);
   container.addEventListener('dragend', () => {
     if (dragEl) { dragEl.classList.remove('ticker-dragging'); dragEl = null; }
@@ -1444,10 +1460,12 @@ function _initTickerDrag(container) {
       e.preventDefault();
       const el = document.elementFromPoint(t.clientX, t.clientY)?.closest('.ticker-chip');
       if (el && el !== dragEl) {
+        const group = el.closest('.ticker-group');
+        if (!group || group !== dragEl.closest('.ticker-group')) return;
         const rect = el.getBoundingClientRect();
         const mid = rect.left + rect.width / 2;
-        if (t.clientX < mid) container.insertBefore(dragEl, el);
-        else container.insertBefore(dragEl, el.nextSibling);
+        if (t.clientX < mid) group.insertBefore(dragEl, el);
+        else group.insertBefore(dragEl, el.nextSibling);
       }
     }
   }, { passive: false, ...sig });
@@ -2671,9 +2689,222 @@ function renderGuide() {
 </div>`;
   const riskCombined = risk + riskExtra;
 
-  el.innerHTML = `<div class="guide-wrap">${subTabs('guide', [
-    '投資入門', '市場指標', '台灣股票', '美國股票', '台灣期貨', '美國期貨', '選擇權', '加密貨幣', '技術分析', '風險管理'
-  ], [intro, indicators, twStock, usStock, twFuturesCombined, usFuturesCombined, optionsCombined, cryptoCombined, ta, riskCombined])}</div>`;
+  // ── 投資心法 ──
+  const mindset = `<div class="guide-card">
+<h4>決策順序：先懂企業，再看價格</h4>
+<p>多數散戶的流程是：看盤 → 學 K 線 → 看新聞 → 買進。每一步的依據都來自「市場」，本質上是<strong>用市場的想法，去跟市場對賭</strong>。</p>
+<p>專業投資人的順序剛好相反：</p>
+<table class="guide-table">
+<tr><th>步驟</th><th>散戶</th><th>專業投資人</th></tr>
+<tr><td>1</td><td>看股價 / K線</td><td>理解企業收入怎麼產生</td></tr>
+<tr><td>2</td><td>看新聞 / KOL</td><td>判斷收入能否持續、競爭者能否搶走</td></tr>
+<tr><td>3</td><td>「感覺不錯」→ 買</td><td>心中形成「價值區間」</td></tr>
+<tr><td>4</td><td>—</td><td>最後才打開股價，判斷市場是否低估</td></tr>
+</table>
+<div class="guide-tip">當股價下跌，散戶感受到的是「風險增加」；專業投資人感受到的是「報酬率上升」。差別在於：前者依賴價格判斷公司，後者用公司判斷價格。</div>
+</div>
+<div class="guide-card">
+<h4>你真正該先學的三件事</h4>
+<p>不是股票，不是技術分析，而是：</p>
+<ol>
+<li><strong>會計 / 財報</strong> — 看懂公司在賺什麼</li>
+<li><strong>產業分析</strong> — 理解為什麼能賺、能賺多久</li>
+<li><strong>交易心理</strong> — 理解自己為什麼會做錯決定</li>
+</ol>
+<div class="guide-warn">工具（看盤軟體、K 線、指標）是用來驗證你的想法，不是用來找標的。如果你沒有自己的「第一手判斷來源」，市場的波動就會成為你決策的全部依據。</div>
+</div>
+<div class="guide-card">
+<h4>市場定價三階段</h4>
+<p>市場對一家公司的定價，通常會經歷三個階段。<strong>了解你的持股正在哪一階段，是避免追高殺低的關鍵。</strong></p>
+<table class="guide-table">
+<tr><th>階段</th><th>名稱</th><th>特徵</th><th>散戶常犯的錯</th></tr>
+<tr><td>1</td><td><strong>估值擴張</strong><br>(Multiple Expansion)</td><td>市場開始重新定義公司，P/E 從 20x → 40x → 60x，股價幾乎天天創新高</td><td>覺得「太貴了」不敢買</td></tr>
+<tr><td>2</td><td><strong>基本面追趕</strong><br>(Earnings Catch-up)</td><td>財報很好、EPS 成長，但股價橫盤不動。市場在等獲利追上估值</td><td>以為「沒動能了」→ 換股</td></tr>
+<tr><td>3</td><td><strong>估值收縮</strong><br>(Multiple Compression)</td><td>EPS 還在成長，但成長率下降，P/E 從 40x → 25x → 18x，股價持續下跌</td><td>以為「公司沒變差啊」→ 死抱</td></tr>
+</table>
+<div class="guide-warn">很多大牛股（MSFT、AMZN、NFLX）都曾在第二階段橫盤數年，最後卻漲了 10 倍。散戶通常在這個階段放棄。</div>
+</div>
+<div class="guide-card">
+<h4>判斷定價階段的三個訊號</h4>
+<p>用這三個訊號，可以判斷一家公司目前處於哪個定價階段：</p>
+<table class="guide-table">
+<tr><th>訊號</th><th>第一階段（擴張）</th><th>第二階段（追趕）</th><th>第三階段（收縮）</th></tr>
+<tr><td><strong>分析師長期預期</strong></td><td>持續上修 TAM、5 年營收</td><td>不再上修</td><td>開始下修</td></tr>
+<tr><td><strong>財報 Beat 幅度</strong></td><td>Beat 幅度持續擴大</td><td>Beat 幅度縮小或僅符合預期</td><td>開始 Miss</td></tr>
+<tr><td><strong>好消息的股價反應</strong></td><td>好消息 → 大漲</td><td>好消息 → 不動</td><td>好消息 → 下跌</td></tr>
+</table>
+<div class="guide-tip"><strong>Price action is information</strong> — 股價對消息的反應，本身就是市場共識的訊號。很多基金經理最重視的就是這個指標。</div>
+</div>
+<div class="guide-card">
+<h4>確定性提升的三個來源</h4>
+<p>股價不是在公司「變好」時上漲，而是在市場對公司的<strong>確定性提高</strong>時加速。確定性來自三種來源：</p>
+<table class="guide-table">
+<tr><th>來源</th><th>說明</th><th>例子</th></tr>
+<tr><td><strong>公司自證</strong><br>(Company confirmation)</td><td>連續可驗證的改善，不是單一好財報</td><td>毛利率連續改善、指引上修且達成、現金流連續轉正</td></tr>
+<tr><td><strong>產業驗證</strong><br>(Industry confirmation)</td><td>同業數據開始一致，多個獨立來源同方向</td><td>上游訂單同步改善、競爭對手給出相似指引</td></tr>
+<tr><td><strong>市場環境</strong><br>(Market regime)</td><td>市場願意接受的風險改變了</td><td>利率方向明確、流動性改善、風險偏好上升</td></tr>
+</table>
+<div class="guide-warn">市場最怕的不是壞消息，是「一次性的好消息」。一次好財報，市場解讀為運氣；連續可驗證的改善，市場才開始信任。機構通常在第二或第三季好財報後才加碼，他們在等的是「可重複性」。</div>
+</div>
+<div class="guide-card">
+<h4>為什麼你總是賣掉就大漲？</h4>
+<p>你抱了一年沒漲，賣掉後三個月大漲。不是因為你看錯，而是因為你<strong>撐不到「定價開始的那一刻」</strong>。</p>
+<p>多數投資人把「等待驗證」誤認為「沒有發生」。當確定性慢慢累積，跨過心理門檻時，價格才會像突然移動。</p>
+<p><strong>該問的問題不是：「這是不是好公司？」</strong></p>
+<p><strong>而是：「市場現在對它的確定性在哪個階段？」</strong></p>
+<ul>
+<li>市場已經非常確定 → 價格裡已包含樂觀</li>
+<li>市場仍然懷疑 → 盤整其實是一種等待</li>
+</ul>
+<div class="guide-tip">投資人在市場最懷疑時離開，在市場最確定時追高。研究企業很重要，但如果不理解市場如何提高確定性，你會一直覺得「我看對了，卻沒有賺到」。</div>
+</div>
+<div class="guide-card">
+<h4>散戶追高的根本原因</h4>
+<p>你買進的時候，公司通常已經「很確定」了 — 財報連續好、分析師全部轉多、媒體大量報導。但這時第一階段行情通常已經走完。</p>
+<p><strong>資訊擴散的四個階段：</strong></p>
+<table class="guide-table">
+<tr><th>階段</th><th>誰在買</th><th>市場共識</th></tr>
+<tr><td>1. 機構研究</td><td>部分基金經理</td><td>市場還在懷疑</td></tr>
+<tr><td>2. 分析師上修</td><td>更多機構</td><td>敘事開始形成</td></tr>
+<tr><td>3. 媒體與社群</td><td>散戶大量進場</td><td>共識已經很高</td></tr>
+<tr><td>4. ETF 被動資金</td><td>指數被動買入</td><td>早期資金開始減碼</td></tr>
+</table>
+<div class="guide-warn">報酬通常來自「確定性提升的那一段」，而非確定性最高的時候。等到事情完全被證明，大部分的報酬已經發生了。</div>
+</div>
+<div class="guide-card">
+<h4>不確定時期的投資紀律</h4>
+<p>當市場沒有答案時（戰爭、政策不確定、利率方向不明），機構的做法是：</p>
+<ol>
+<li><strong>降低交易頻率</strong> — 避免在資訊不完整時倉促行動</li>
+<li><strong>等待新信息</strong> — 耐心等到市場對局勢有更清晰認知</li>
+<li><strong>保留現金</strong> — 維持「乾粉」以應對真正的機會</li>
+</ol>
+<p>機構不問「現在是否底部」，而問「<strong>市場再跌 10~30%，我們還能應對嗎？</strong>」</p>
+<div class="guide-tip">長期投資成功的人通常都有一個共同特點：即使有幾次判斷錯誤，他們依然還在市場裡。關鍵不在每次都對，而在於保留足夠資源參與下一個機會。</div>
+</div>
+<div class="guide-card">
+<h4>避免相對報酬焦慮</h4>
+<p>「別人漲，我的卻沒漲」— 這叫<strong>相對報酬焦慮</strong>，是散戶換股、追高的主要原因。</p>
+<p><strong>三個實用原則：</strong></p>
+<ol>
+<li><strong>每週只檢查一次市場</strong> — 專注檢視自家公司基本面，不要每天看排行榜</li>
+<li><strong>寫「持有理由清單」</strong> — 記錄為何買入、何時該賣、目前在哪個定價階段</li>
+<li><strong>刪除排行榜</strong> — 不要用別人的股價來評價自己的持股</li>
+</ol>
+<p>成熟投資者問的不是「哪個族群在漲」，而是<strong>「我手上的股票定價邏輯有沒有被破壞」</strong>。</p>
+</div>
+<div class="guide-card">
+<h4>市場不反應基本面，而是反應變化方向</h4>
+<p>這是最重要的認知轉變：</p>
+<ul>
+<li>市場<strong>不是</strong>：公司好 → 上漲；公司壞 → 下跌</li>
+<li>市場<strong>是</strong>：預期變好 → 上漲；預期變差 → 下跌</li>
+</ul>
+<p>所以會出現：</p>
+<ul>
+<li>財報創歷史新高，股價下跌 — 因為低於市場「更高的預期」</li>
+<li>壞消息公布，股價上漲 — 因為「沒有預期那麼壞」</li>
+</ul>
+<p>盤整對散戶很痛苦（沒消息、沒漲、開始懷疑），但對機構來說，盤整是最重要的時期 — 用來確認「共識正在形成還是正在崩解」。</p>
+<div class="guide-warn">投資困難的地方從來不是分析，而是在不確定中，仍然願意讓判斷慢慢形成。</div>
+</div>
+<div class="guide-card">
+<h4>在 Prism 中實踐這些概念</h4>
+<p>本工具的交易紀錄和日記功能是為了幫助你建立系統化的投資檢討流程：</p>
+<table class="guide-table">
+<tr><th>功能</th><th>對應心法</th><th>怎麼用</th></tr>
+<tr><td><strong>定價階段標記</strong></td><td>定價三階段</td><td>每筆交易標記進場時的定價階段，覆盤時檢視是否在對的階段進出</td></tr>
+<tr><td><strong>交易前檢查清單</strong></td><td>決策順序</td><td>在設定中加入：「我有獨立的判斷依據嗎？」「市場確定性在哪個階段？」</td></tr>
+<tr><td><strong>策略筆記</strong></td><td>持有理由清單</td><td>記錄進場原因、預期催化劑、定價邏輯被破壞的條件</td></tr>
+<tr><td><strong>覆盤評分</strong></td><td>紀律/時機/倉位</td><td>檢討紀律執行、進場時機（定價階段）、部位大小</td></tr>
+<tr><td><strong>日記 — 盤前</strong></td><td>交易計畫</td><td>寫下今天的計畫，避免被盤中波動帶著走</td></tr>
+<tr><td><strong>日記 — 盤後</strong></td><td>持續檢討</td><td>檢討執行力、情緒控管、持股的確定性是否有變化</td></tr>
+<tr><td><strong>日記紀律評分</strong></td><td>紀律 vs 損益</td><td>追蹤高紀律日和低紀律日的損益差異</td></tr>
+</table>
+<div class="guide-tip">建議的檢查清單項目：① 我有獨立於價格的判斷依據嗎？ ② 這筆交易在定價第幾階段？ ③ 市場在等什麼訊號提高確定性？ ④ 如果判斷錯誤，我的停損在哪？ ⑤ 這筆部位大小符合我的風險管理規則嗎？</div>
+</div>`;
+
+  // ── Course structure ──
+  const COURSE = [
+    { phase:'I', title:'建立基礎', sub:'Foundation', chapters:[
+      {id:'mindset',num:1,title:'投資心法',desc:'建立正確的投資思維框架',content:mindset},
+      {id:'intro',num:2,title:'投資入門',desc:'認識投資商品與基本分析',content:intro},
+      {id:'risk',num:3,title:'風險管理',desc:'保護資本的核心原則',content:riskCombined},
+    ]},
+    { phase:'II', title:'認識市場', sub:'Markets', chapters:[
+      {id:'tw-stock',num:4,title:'台灣股票',desc:'交易規則、費用與融資融券',content:twStock},
+      {id:'us-stock',num:5,title:'美國股票',desc:'交易時段、保證金與稅務',content:usStock},
+      {id:'indicators',num:6,title:'市場指標',desc:'VIX、信用利差與市場情緒',content:indicators},
+    ]},
+    { phase:'III', title:'進階商品', sub:'Instruments', chapters:[
+      {id:'tw-futures',num:7,title:'台灣期貨',desc:'合約規格與保證金制度',content:twFuturesCombined},
+      {id:'us-futures',num:8,title:'美國期貨',desc:'CME 合約與國際期貨',content:usFuturesCombined},
+      {id:'options',num:9,title:'選擇權',desc:'希臘字母與常見策略',content:optionsCombined},
+      {id:'crypto',num:10,title:'加密貨幣',desc:'現貨、合約與清算機制',content:cryptoCombined},
+    ]},
+    { phase:'IV', title:'建立系統', sub:'Your System', chapters:[
+      {id:'ta',num:11,title:'技術分析',desc:'K線、指標與型態辨識',content:ta},
+    ]},
+  ];
+  const allCh = COURSE.flatMap(p=>p.chapters);
+  const g = S.guide;
+  const done = id => g.completed.includes(id);
+  const statusIcon = id => done(id) ? '<svg viewBox="0 0 24 24" width="14" height="14" fill="var(--green)" stroke="none"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>' : '<span class="ch-dot"></span>';
+
+  el.innerHTML = `<div class="guide-wrap">
+  <div class="course-header">
+    <div class="course-header-left"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg><span class="course-title">投資者養成課程</span></div>
+    <div class="course-progress"><div class="course-pbar"><div class="course-pfill" id="gp-fill" style="width:${g.completed.length/11*100}%"></div></div><span class="course-ptext" id="gp-text">${g.completed.length} / 11</span></div>
+  </div>
+  <div class="course-layout">
+    <nav class="course-nav" id="course-nav">${COURSE.map(p=>`<div class="course-phase${p.chapters.some(c=>c.id===g.active)?' expanded':''}">
+      <button class="phase-hdr" data-phase="${p.phase}"><span class="phase-badge">${p.phase}</span><span class="phase-title">${p.title}</span><span class="phase-sub">${p.sub}</span><svg class="phase-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg></button>
+      <ul class="phase-chs">${p.chapters.map(c=>`<li class="ch-item${c.id===g.active?' active':''}" data-ch="${c.id}"><span class="ch-status">${statusIcon(c.id)}</span><span class="ch-num">${c.num}</span><span class="ch-label">${c.title}</span></li>`).join('')}</ul>
+    </div>`).join('')}</nav>
+    <div class="course-body" id="course-body">${allCh.map(c=>`<div class="course-ch" id="ch-${c.id}"${c.id!==g.active?' style="display:none"':''}>
+      <div class="ch-head"><span class="ch-badge">Ch.${c.num}</span><div class="ch-head-text"><h3>${c.title}</h3><p class="ch-desc">${c.desc}</p></div><button class="ch-done-btn${done(c.id)?' completed':''}" data-ch="${c.id}">${done(c.id)?'已完成 ✓':'標記完成'}</button></div>
+      ${c.content}
+      <div class="ch-footer"><div class="ch-footer-left">${c.num>1?`<button class="ch-nav-btn ch-prev" data-target="${allCh[c.num-2].id}"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>上一章：${allCh[c.num-2].title}</button>`:''}</div><div class="ch-footer-right">${c.num<11?`<button class="ch-nav-btn ch-next" data-target="${allCh[c.num].id}">下一章：${allCh[c.num].title}<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></button>`:`<span class="ch-complete-msg">完成所有課程！</span>`}</div></div>
+    </div>`).join('')}</div>
+  </div></div>`;
+
+  // ── Course event handlers ──
+  function showChapter(id) {
+    allCh.forEach(c => { const e = $(`#ch-${c.id}`); if (e) e.style.display = c.id === id ? '' : 'none'; });
+    $$('.ch-item', el).forEach(li => li.classList.toggle('active', li.dataset.ch === id));
+    // Expand parent phase
+    $$('.course-phase', el).forEach(p => {
+      const hasActive = !!$(`.ch-item[data-ch="${id}"]`, p);
+      p.classList.toggle('expanded', hasActive);
+    });
+    g.active = id; _saveState();
+    $('#course-body')?.scrollIntoView({block:'start',behavior:'smooth'});
+  }
+  function updateProgress() {
+    const fill = $('#gp-fill'), txt = $('#gp-text');
+    if (fill) fill.style.width = `${g.completed.length/11*100}%`;
+    if (txt) txt.textContent = `${g.completed.length} / 11`;
+    $$('.ch-status', el).forEach(s => {
+      const li = s.closest('.ch-item');
+      if (li) s.innerHTML = done(li.dataset.ch) ? statusIcon(li.dataset.ch) : '<span class="ch-dot"></span>';
+    });
+  }
+  // Chapter nav
+  el.addEventListener('click', e => {
+    const li = e.target.closest('.ch-item');
+    if (li) { showChapter(li.dataset.ch); return; }
+    const nav = e.target.closest('.ch-nav-btn');
+    if (nav) { showChapter(nav.dataset.target); return; }
+    const doneBtn = e.target.closest('.ch-done-btn');
+    if (doneBtn) {
+      const id = doneBtn.dataset.ch;
+      if (done(id)) { g.completed = g.completed.filter(x=>x!==id); doneBtn.classList.remove('completed'); doneBtn.textContent = '標記完成'; }
+      else { g.completed.push(id); doneBtn.classList.add('completed'); doneBtn.textContent = '已完成 ✓'; }
+      _saveState(); updateProgress(); return;
+    }
+    const phdr = e.target.closest('.phase-hdr');
+    if (phdr) { phdr.closest('.course-phase')?.classList.toggle('expanded'); return; }
+  });
 }
 
 // 從 localStorage 快取恢復 ticker 顯示（頁面載入時）
@@ -2707,19 +2938,31 @@ function init() {
 
   // Main tabs
   const _tabScrollPos = {};
+  let _prevContentTab = S.activeTab === 'guide' || S.activeTab === 'settings' ? 'journal' : S.activeTab;
   $$('.main-tab').forEach(b => b.addEventListener('click', () => {
+    const clicked = b.dataset.tab;
+    const isOverlay = clicked === 'guide' || clicked === 'settings';
+    // Toggle: clicking active guide/settings returns to previous content tab
+    if (isOverlay && S.activeTab === clicked) {
+      const target = $(`.main-tab[data-tab="${_prevContentTab}"]`);
+      if (target) { target.click(); return; }
+    }
     // Save current tab scroll position
     const prevTab = S.activeTab;
     if (prevTab) _tabScrollPos[prevTab] = window.scrollY;
+    // Track last content tab for toggle-back
+    if (!isOverlay) _prevContentTab = clicked;
     $$('.main-tab').forEach(x => x.classList.remove('active'));
     b.classList.add('active');
     $$('.tab-content').forEach(x => x.classList.remove('active'));
     $(`#tab-${b.dataset.tab}`)?.classList.add('active');
     S.activeTab = b.dataset.tab; _saveState();
-    // Restore scroll position or go to top
-    window.scrollTo(0, _tabScrollPos[b.dataset.tab] || 0);
+    // Restore scroll position or go to top (smooth for returning tabs)
+    const savedPos = _tabScrollPos[b.dataset.tab] || 0;
+    window.scrollTo({top: savedPos, behavior: savedPos > 0 ? 'smooth' : 'instant'});
     if (b.dataset.tab === 'guide') renderGuide();
     if (b.dataset.tab === 'settings') { if (!window._stgRendered) { renderSettings(); window._stgRendered = true; } }
+    if (b.dataset.tab === 'journal' && window.PrismJournal?._refreshOnTabSwitch) window.PrismJournal._refreshOnTabSwitch();
   }));
 
   // Toggle groups
@@ -2752,7 +2995,11 @@ function init() {
     const container = p.parentElement;
     $$('.sub-pane', container).forEach(x => x.classList.remove('active'));
     const pane = $(`#${st.dataset.stab}`, container);
-    if (pane) pane.classList.add('active');
+    if (pane) {
+      pane.classList.add('active');
+      // Guide tab: scroll to top when switching sub-tabs
+      if (container.closest('.guide-wrap')) pane.scrollIntoView({block:'start',behavior:'smooth'});
+    }
   });
 
   // ── Fetch indices button ──
@@ -3630,6 +3877,11 @@ function applySettings() {
     const item = $(`.ticker-chip[data-idx="${k}"]`);
     if (item) item.style.display = show ? '' : 'none';
   });
+  // Hide empty ticker groups
+  $$('.ticker-group').forEach(g => {
+    const hasVisible = !!$(`.ticker-chip[data-idx]:not([style*="display:none"]):not([style*="display: none"])`, g);
+    g.style.display = hasVisible ? '' : 'none';
+  });
 
   // First load: restore from cache, only fetch if cache is stale or empty
   if (!applySettings._fetched) {
@@ -4211,6 +4463,7 @@ function calcMargin() {
     </div>`;
 
     $('#margin-results').innerHTML = subTabs('mr', ['風險概覽', '壓力測試', '計算公式'], [overview, stress, formula]) + (window.PrismJournal ? PrismJournal.recordBtnHTML('margin') : '');
+    _scrollToResults($('#margin-results'));
     return;
   }
 
@@ -4367,6 +4620,7 @@ function calcMargin() {
     </div>`;
 
     $('#margin-results').innerHTML = subTabs('mr', ['風險概覽', '壓力測試', '計算公式'], [overview, stress, formula]) + (window.PrismJournal ? PrismJournal.recordBtnHTML('margin') : '');
+    _scrollToResults($('#margin-results'));
 
   } else {
     // ── SHORT ──
@@ -4499,6 +4753,7 @@ function calcMargin() {
     </div>`;
 
     $('#margin-results').innerHTML = subTabs('mr', ['風險概覽', '壓力測試', '計算公式'], [overview, stress, formula]) + (window.PrismJournal ? PrismJournal.recordBtnHTML('margin') : '');
+    _scrollToResults($('#margin-results'));
   }
 }
 
@@ -4912,6 +5167,8 @@ window.fillFromTicker = function(targetId, force) {
   const v = gV(idxId);
   if (v) {
     el.value = v;
+    el.classList.add('input-filled-flash');
+    setTimeout(() => el.classList.remove('input-filled-flash'), 600);
     el.dispatchEvent(new Event('input', { bubbles: true }));
     if (targetId !== 'f-entry') {
       const cacheKey = idxId.replace('idx-', '');
@@ -5077,6 +5334,7 @@ function calcFutures() {
   </div>`;
 
   $('#futures-results').innerHTML = subTabs('fr', ['風險概覽', '壓力測試', '計算公式'], [overview, stress, formula]) + (window.PrismJournal ? PrismJournal.recordBtnHTML('futures') : '');
+  _scrollToResults($('#futures-results'));
 }
 
 // ================================================================
@@ -5336,6 +5594,7 @@ function calcOptions() {
       </div>
     </div>`;
     $('#options-results').innerHTML = subTabs('or', ['風險概覽', '到期情境', '計算公式'], [overview, stress, formula]) + (window.PrismJournal ? PrismJournal.recordBtnHTML('options') : '');
+    _scrollToResults($('#options-results'));
   } else {
     const rr = gV('o-rr') / 100, mr = gV('o-mr') / 100;
     const pmv = prem * mul, uv = ul * mul;
@@ -5413,6 +5672,7 @@ function calcOptions() {
       </div>
     </div>`;
     $('#options-results').innerHTML = subTabs('or', ['風險概覽', '到期情境', '計算公式'], [overview, stress, formula]) + (window.PrismJournal ? PrismJournal.recordBtnHTML('options') : '');
+    _scrollToResults($('#options-results'));
   }
 }
 
@@ -5490,8 +5750,15 @@ document.addEventListener('keydown', e => {
     t._timer = setTimeout(() => t.classList.remove('show'), 3500);
   }
   window._showToast = showToast;
-  window.addEventListener('online', () => showToast('網路已恢復連線', 'online'));
-  window.addEventListener('offline', () => showToast('網路連線已中斷，部分功能可能無法使用', 'offline'));
+  // Persistent offline bar
+  let _offBar = null;
+  function _getOffBar() {
+    if (!_offBar) { _offBar = document.createElement('div'); _offBar.className = 'j-offline-bar'; _offBar.textContent = '離線模式 — 變更將在重新連線時同步'; document.body.appendChild(_offBar); }
+    return _offBar;
+  }
+  window.addEventListener('online', () => { showToast('網路已恢復連線', 'online'); _getOffBar().classList.remove('show'); });
+  window.addEventListener('offline', () => { showToast('網路連線已中斷', 'offline'); _getOffBar().classList.add('show'); });
+  if (!navigator.onLine) requestAnimationFrame(() => _getOffBar().classList.add('show'));
 })();
 
 // ================================================================
@@ -5933,6 +6200,7 @@ function calcCrypto() {
   </div>`;
 
   $('#crypto-results').innerHTML = subTabs('cr', ['風險概覽', '壓力測試', '計算公式'], [overview, stress, formula]) + (window.PrismJournal ? PrismJournal.recordBtnHTML('crypto') : '');
+  _scrollToResults($('#crypto-results'));
 }
 
 // ================================================================

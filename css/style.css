@@ -161,7 +161,7 @@ html[data-font-scale="xl"]{font-size:18.5px}
 /* ========== Reset ========== */
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html{font-size:16px;overflow-x:hidden;overflow-x:clip;scroll-behavior:smooth}
-body{font-family:var(--sans);background:var(--bg0);color:var(--t1);line-height:1.55;-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent;overflow-x:hidden;overflow-x:clip;max-width:100vw}
+body{font-family:var(--sans);background:var(--bg0);color:var(--t1);line-height:1.55;-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent;overflow-x:hidden;overflow-x:clip;max-width:100vw;transition:background-color .2s,color .2s}
 #app{max-width:1440px;margin:0 auto;padding:0 20px}
 
 /* ========== Header ========== */
@@ -324,12 +324,16 @@ body{font-family:var(--sans);background:var(--bg0);color:var(--t1);line-height:1
 
 /* ========== Ticker Strip ========== */
 .ticker-bar{display:flex;align-items:flex-start;gap:0;padding:6px 0;border-bottom:1px solid var(--bdr);min-height:30px}
-.ticker-strip{display:flex;align-items:baseline;gap:0;flex:1;min-width:0;flex-wrap:wrap;overflow:hidden}
+.ticker-strip{display:flex;align-items:stretch;gap:0;flex:1;min-width:0;flex-wrap:wrap;overflow:hidden}
+.ticker-group{display:flex;align-items:baseline;gap:0;flex-wrap:nowrap;padding:0 2px}
+.ticker-group+.ticker-group{border-left:1px solid var(--bdr2);margin-left:6px;padding-left:8px}
+.ticker-region{font-size:.58rem;font-weight:700;color:var(--accent);letter-spacing:.04em;padding:2px 5px;background:var(--accent-d);border-radius:3px;margin-right:6px;white-space:nowrap;line-height:1;align-self:center;flex-shrink:0}
 .ticker-chip{display:flex;align-items:baseline;gap:4px;white-space:nowrap;padding:2px 0;text-decoration:none;color:inherit;border-radius:4px;transition:background-color var(--dur)}
 .ticker-chip:hover{background:var(--bg2)}
 .ticker-chip[draggable]{cursor:grab}
 .ticker-dragging{opacity:.4;outline:2px dashed var(--accent);outline-offset:-2px;z-index:10;cursor:grabbing}
-.ticker-chip+.ticker-chip::before{content:'';display:inline-block;width:1px;height:12px;background:var(--bdr2);margin:0 8px;vertical-align:middle;flex-shrink:0}
+.ticker-chip+.ticker-chip::before{content:'';display:inline-block;width:1px;height:12px;background:var(--bdr2);margin:0 6px;vertical-align:middle;flex-shrink:0}
+.ticker-region+.ticker-chip::before{display:none}
 .tc-name{font-size:calc(.75rem * var(--fs-ticker-name));color:var(--t3);font-weight:600}
 .tc-price{font-family:var(--mono);font-size:calc(.88rem * var(--fs-ticker-price));font-weight:700;color:var(--t1);transition:color .3s}
 .tc-price.stale{color:var(--t3)}
@@ -565,6 +569,74 @@ body{font-family:var(--sans);background:var(--bg0);color:var(--t1);line-height:1
 .guide-warn{display:flex;gap:8px;padding:8px 10px;background:var(--red-d);border:1px solid rgba(255,23,68,.25);border-radius:6px;margin:8px 0;font-size:.85rem;color:var(--t2);line-height:1.6}
 .guide-warn::before{content:'⚠️';flex-shrink:0}
 
+/* ── Course Layout ── */
+.course-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--bdr)}
+.course-header-left{display:flex;align-items:center;gap:8px}
+.course-title{font-size:1.05rem;font-weight:700;color:var(--t1)}
+.course-progress{display:flex;align-items:center;gap:8px}
+.course-pbar{width:100px;height:5px;background:var(--bg3);border-radius:3px;overflow:hidden}
+.course-pfill{height:100%;background:var(--accent);border-radius:3px;transition:width .4s var(--ease-out)}
+.course-ptext{font-size:.75rem;color:var(--t3);font-family:var(--mono)}
+
+.course-layout{display:flex;gap:16px;align-items:flex-start}
+.course-nav{width:210px;flex-shrink:0;position:sticky;top:60px;max-height:calc(100vh - 80px);overflow-y:auto;padding-right:4px}
+.course-body{flex:1;min-width:0}
+
+.course-phase{margin-bottom:4px;border-radius:var(--r);overflow:hidden}
+.phase-hdr{display:flex;align-items:center;gap:8px;padding:8px 10px;width:100%;background:none;border:none;cursor:pointer;color:var(--t1);border-radius:6px;transition:background var(--dur)}
+.phase-hdr:hover{background:var(--bg3)}
+.phase-badge{font-size:.68rem;font-weight:700;color:var(--accent);background:var(--accent-d);padding:2px 7px;border-radius:4px;font-family:var(--mono)}
+.phase-title{font-size:.82rem;font-weight:600;flex:1;text-align:left}
+.phase-sub{font-size:.68rem;color:var(--t3);font-weight:400}
+.phase-chevron{transition:transform .2s;opacity:.4;flex-shrink:0}
+.course-phase.expanded .phase-chevron{transform:rotate(180deg)}
+
+.phase-chs{list-style:none;max-height:0;overflow:hidden;transition:max-height .25s cubic-bezier(.4,0,.2,1)}
+.course-phase.expanded .phase-chs{max-height:300px}
+
+.ch-item{display:flex;align-items:center;gap:6px;padding:6px 10px 6px 22px;cursor:pointer;border-radius:5px;font-size:.8rem;color:var(--t2);transition:background var(--dur),color var(--dur)}
+.ch-item:hover{background:var(--bg3)}
+.ch-item.active{background:var(--accent-d);color:var(--accent);font-weight:600}
+.ch-status{width:16px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.ch-dot{width:7px;height:7px;border-radius:50%;border:1.5px solid var(--t3);display:block}
+.ch-item.active .ch-dot{border-color:var(--accent);background:var(--accent)}
+.ch-num{font-size:.7rem;font-family:var(--mono);color:var(--t3);min-width:14px}
+.ch-label{flex:1}
+
+/* ── Chapter Content ── */
+.ch-head{display:flex;align-items:center;gap:12px;margin-bottom:14px;padding-bottom:10px;border-bottom:2px solid var(--bdr)}
+.ch-badge{font-size:.72rem;font-weight:700;color:var(--accent);background:var(--accent-d);padding:4px 10px;border-radius:5px;white-space:nowrap;font-family:var(--mono)}
+.ch-head-text{flex:1}.ch-head-text h3{font-size:.95rem;font-weight:700;color:var(--t1);margin-bottom:2px}.ch-head-text .ch-desc{font-size:.78rem;color:var(--t3);margin:0}
+.ch-done-btn{font-size:.74rem;padding:5px 12px;border:1px solid var(--bdr);border-radius:5px;background:none;color:var(--t3);cursor:pointer;white-space:nowrap;transition:all var(--dur)}
+.ch-done-btn:hover{border-color:var(--accent);color:var(--accent)}
+.ch-done-btn.completed{background:var(--accent-d);color:var(--accent);border-color:var(--accent);font-weight:600}
+
+.ch-footer{display:flex;justify-content:space-between;align-items:center;margin-top:18px;padding-top:14px;border-top:2px solid var(--bdr);gap:8px}
+.ch-footer-left,.ch-footer-right{display:flex}
+.ch-nav-btn{display:inline-flex;align-items:center;gap:6px;font-size:.82rem;padding:8px 14px;border:1px solid var(--bdr);border-radius:6px;background:none;color:var(--t2);cursor:pointer;transition:all var(--dur);white-space:nowrap}
+.ch-nav-btn:hover{background:var(--bg3);color:var(--t1);border-color:var(--bdr2)}
+.ch-next{background:var(--accent-d);border-color:rgba(0,180,216,.3);color:var(--accent);font-weight:600}
+.ch-next:hover{background:var(--accent);color:#fff}
+.ch-complete-msg{font-size:.88rem;font-weight:700;color:var(--accent)}
+
+/* ── Course Mobile ── */
+@media(max-width:768px){
+  .course-layout{flex-direction:column;gap:0}
+  .course-nav{width:100%;position:static;max-height:none;overflow:visible;display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px;padding:0}
+  .course-phase{flex:1;min-width:calc(50% - 4px)}
+  .phase-hdr{padding:6px 8px}
+  .phase-badge{font-size:.62rem;padding:1px 5px}
+  .phase-title{font-size:.76rem}
+  .phase-sub{display:none}
+  .phase-chs{position:absolute;z-index:20;background:var(--bg1);border:1px solid var(--bdr2);border-radius:var(--r);box-shadow:var(--shadow-md);width:200px;left:0;top:100%}
+  .course-phase{position:relative}
+  .ch-item{padding:5px 8px 5px 14px;font-size:.76rem}
+  .ch-head{flex-wrap:wrap;gap:8px}.ch-badge{font-size:.66rem}.ch-head-text h3{font-size:.88rem}
+  .ch-done-btn{font-size:.7rem;padding:4px 8px}
+  .ch-footer{flex-direction:column;gap:8px}
+  .ch-nav-btn{width:100%;justify-content:center;font-size:.78rem;padding:10px}
+}
+
 /* ========== Footer ========== */
 .site-footer{text-align:center;padding:10px 0;border-top:1px solid var(--bdr);margin-top:6px}
 .site-footer p{font-size:.8rem;color:var(--t3)}
@@ -673,6 +745,12 @@ input[type="number"]{-moz-appearance:textfield}
   .ticker-bar{padding:3px 0;flex-direction:row;gap:0;align-items:center}
   .ticker-strip{display:flex;gap:0;flex:1;min-width:0;flex-wrap:wrap;overflow:hidden;max-height:22px}
   .ticker-bar.expanded .ticker-strip{max-height:none}
+  .ticker-group{gap:0;flex-wrap:nowrap;padding:0 1px}
+  .ticker-group+.ticker-group{border-left:none;margin-left:0;padding-left:0}
+  .ticker-region{display:none}
+  .ticker-bar.expanded .ticker-region{display:inline-block;font-size:.5rem;padding:1px 4px;margin-right:4px}
+  .ticker-bar.expanded .ticker-group{flex-wrap:wrap;width:100%;padding:2px 0;border-left:none;margin-left:0}
+  .ticker-bar.expanded .ticker-group+.ticker-group{border-top:1px solid var(--bdr);margin-top:2px;padding-top:3px}
   .ticker-chip{display:flex;align-items:baseline;gap:3px;padding:1px 0;white-space:nowrap;flex-shrink:0}
   .ticker-chip+.ticker-chip::before{content:'';display:inline-block;width:1px;height:10px;background:var(--bdr2);margin:0 5px;vertical-align:middle;flex-shrink:0}
   .ticker-chip:hover{background:none}
@@ -962,7 +1040,7 @@ input[type="number"]{-moz-appearance:textfield}
 .j-empty-hint{font-size:.8rem;color:var(--t3);max-width:300px;line-height:1.5}
 
 /* ── Modal ── */
-.j-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);z-index:var(--z-modal-overlay);opacity:0;pointer-events:none;transition:opacity .25s}
+.j-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);z-index:var(--z-modal-overlay);opacity:0;pointer-events:none;transition:opacity .2s ease}
 .j-modal-overlay.open{opacity:1;pointer-events:auto}
 .j-modal{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) scale(.96);width:640px;max-width:92vw;max-height:88vh;background:var(--bg1);border:1px solid var(--bdr2);border-radius:12px;z-index:var(--z-modal);display:flex;flex-direction:column;opacity:0;pointer-events:none;transition:opacity .2s ease,transform .2s ease;box-shadow:var(--shadow-lg)}
 .j-modal.open{opacity:1;pointer-events:auto;transform:translate(-50%,-50%) scale(1)}
@@ -1059,8 +1137,9 @@ input[type="number"]{-moz-appearance:textfield}
 .j-pl-loss strong{color:var(--red)}
 .j-pl-detail{font-size:.7rem!important;color:var(--t3)!important}
 .j-live-price{font-size:.68rem;color:var(--t3);font-weight:400;margin-top:2px}
-.j-pl-loading{font-size:.72rem;color:var(--t3);font-style:italic;animation:j-pulse 1.2s ease-in-out infinite}
+.j-pl-loading{font-size:.72rem;color:var(--t3);font-style:italic;animation:j-pulse 1.2s ease-in-out infinite;position:relative}.j-pl-loading::after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent 25%,var(--bg3) 50%,transparent 75%);background-size:200% 100%;animation:j-shimmer 1.5s ease-in-out infinite;border-radius:3px;opacity:.3}
 @keyframes j-pulse{0%,100%{opacity:.4}50%{opacity:1}}
+@keyframes j-shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
 
 /* ── Detail View ── */
 .j-detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
@@ -1672,6 +1751,58 @@ kbd{display:inline-block;padding:2px 6px;background:var(--bg0);border:1px solid 
 .scroll-top-btn.show{opacity:1;pointer-events:auto;transform:translateY(0)}
 .scroll-top-btn:hover{background:var(--accent);color:#fff;border-color:var(--accent)}
 .scroll-top-btn:active{transform:scale(.9)}
+
+/* ── Journal Body View Transition ── */
+.j-body{animation:fadeIn .18s var(--ease-out)}
+
+/* ── Diary Trade Row (clickable) ── */
+.j-diary-trade-row[data-trade-id]{transition:background var(--dur),padding-left var(--dur)}
+.j-diary-trade-row[data-trade-id]:hover{background:var(--bg2);padding-left:4px}
+
+/* ── Input Filled Flash (ticker → calc) ── */
+@keyframes inputFlash{0%{box-shadow:0 0 0 2px var(--accent)}100%{box-shadow:0 0 0 0 transparent}}
+.input-filled-flash{animation:inputFlash .6s var(--ease-out)}
+
+/* ── Calendar Cell Tap ── */
+@keyframes calTap{0%{background:var(--accent);color:#fff}100%{background:transparent}}
+.cal-cell-tap{animation:calTap .3s var(--ease-out)}
+
+/* ── Dashboard Stat Pill Clickable ── */
+.j-stat-clickable{cursor:pointer;border-radius:4px;padding:1px 4px;margin:-1px -4px;transition:background var(--dur)}
+.j-stat-clickable:hover{background:var(--bg2)}
+
+/* ── Trade Detail Navigation ── */
+.j-detail-nav{display:flex;align-items:center;gap:6px;margin-left:auto;margin-right:8px}
+.j-detail-nav-btn{display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;border:1px solid var(--bdr);background:none;color:var(--t2);cursor:pointer;transition:all var(--dur)}
+.j-detail-nav-btn:hover{background:var(--accent);color:#fff;border-color:var(--accent)}
+.j-detail-nav-pos{font-size:.7rem;color:var(--t3);min-width:48px;text-align:center}
+
+/* ── Empty State Action Buttons ── */
+.j-empty-add-btn{margin-top:12px;display:inline-flex;align-items:center;gap:6px;padding:8px 20px;font-size:.82rem}
+.j-empty-clear-btn{margin-top:8px}
+
+/* ── Holding Detail Row Hover ── */
+.j-holding-detail[data-trade-id]:hover td{background:var(--bg2)}
+.j-holding-sub-card{transition:background var(--dur)}
+.j-holding-sub-card:hover{background:var(--bg2)}
+
+/* ── Filter Active Dot ── */
+.j-filter-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent);margin-left:4px;vertical-align:middle}
+.j-filter-toggle.has-filter{color:var(--accent);border-color:var(--accent)}
+
+/* ── Offline Indicator ── */
+.j-offline-bar{position:fixed;top:0;left:0;right:0;z-index:999;background:var(--orange);color:#fff;font-size:.75rem;font-weight:600;text-align:center;padding:4px 12px;transform:translateY(-100%);transition:transform .3s var(--ease-out)}
+.j-offline-bar.show{transform:translateY(0)}
+
+/* ── Button Disabled State ── */
+.j-btn:disabled,.j-btn-primary:disabled,.j-btn-save:disabled{opacity:.5;cursor:not-allowed;pointer-events:none}
+
+/* ── Symbol Autocomplete Selection Flash ── */
+@keyframes fieldHighlight{0%{box-shadow:0 0 0 2px var(--accent)}100%{box-shadow:none}}
+.j-field-flash{animation:fieldHighlight .5s var(--ease-out)}
+
+/* ── Theme Transition (cards, panels) ── */
+.card,.stg-section,.j-card,.j-table,.j-modal,.j-stats-strip,.j-summary-bar{transition:background-color .2s,border-color .2s,color .15s}
 
 /* ── Reduced Motion (accessibility + battery saving) ── */
 @media(prefers-reduced-motion:reduce){

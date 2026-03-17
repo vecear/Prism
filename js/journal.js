@@ -267,6 +267,7 @@ function newTrade() {
     tags: [], notes: '', status: 'open', contractMul: '',
     account: '', imageUrl: '', rating: 0,
     reviewDiscipline: 0, reviewTiming: 0, reviewSizing: 0,
+    pricingStage: '',
   };
 }
 
@@ -316,7 +317,7 @@ function getLiveQuoteKey(t) { return `${t.symbol}|${t.market}`; }
 
 // ── CSV Export ──
 function exportCSV() {
-  const cols = ['date','market','type','symbol','name','direction','status','entryPrice','exitPrice','quantity','contractMul','stopLoss','takeProfit','fee','tax','account','rating','tags','notes'];
+  const cols = ['date','market','type','symbol','name','direction','status','entryPrice','exitPrice','quantity','contractMul','stopLoss','takeProfit','fee','tax','account','rating','tags','notes','pricingStage'];
   const rows = [cols.join(',')];
   for (const t of getFilteredTrades()) {
     rows.push(cols.map(c => {
@@ -332,6 +333,7 @@ function exportCSV() {
   a.download = `prism-trades-${new Date().toISOString().slice(0,10)}.csv`;
   a.click();
   URL.revokeObjectURL(a.href);
+  if(window._showToast)window._showToast(`已匯出 ${getFilteredTrades().length} 筆交易`);
 }
 
 // ── CSV Import ──
@@ -350,7 +352,9 @@ function importCSV() {
     header.forEach((h, i) => colMap[h.trim()] = i);
     const required = ['symbol', 'entryPrice'];
     if (!required.every(r => r in colMap)) { if(window._showToast)window._showToast('CSV 缺少必要欄位: symbol, entryPrice'); return; }
-    let count = 0;
+    let count = 0, errors = 0;
+    const total = lines.length - 1;
+    if(window._showToast)window._showToast(`匯入中… 0/${total}`);
     for (let i = 1; i < lines.length; i++) {
       const vals = parseCSVLine(lines[i]);
       if (!vals.length) continue;
@@ -367,11 +371,13 @@ function importCSV() {
         rating: parseInt(g('rating')) || 0,
         tags: g('tags') ? g('tags').split(';').map(s => s.trim()).filter(Boolean) : [],
         notes: g('notes'),
+        pricingStage: g('pricingStage') || '',
       };
       try { await api('/trades', { method: 'POST', body: JSON.stringify(data) }); count++; }
-      catch (e) { console.error('Import row error:', e); }
+      catch (e) { console.error('Import row error:', e); errors++; }
+      if (count % 10 === 0 && window._showToast) window._showToast(`匯入中… ${count}/${total}`);
     }
-    if(window._showToast)window._showToast(`匯入完成：${count} 筆交易`);
+    if(window._showToast)window._showToast(`匯入完成：${count} 筆成功${errors ? `，${errors} 筆失敗` : ''}`);
     await loadTrades();
     renderJournal();
   });
@@ -1245,6 +1251,15 @@ window.PrismJournal = {
   isLoggedIn: () => !!(authToken && currentUser),
   showLogin: showLoginModal,
   doLogout: handleLogout,
+  // Called by app.js when journal tab is activated — refresh if stale
+  _refreshOnTabSwitch() {
+    if (!authToken) return;
+    const now = Date.now();
+    if (!this._lastLoad || now - this._lastLoad > 30000) { // 30s staleness
+      this._lastLoad = now;
+      loadTrades().then(() => renderJournal());
+    }
+  },
 
   // Collect current calculator inputs and save as trade
   recordFromCalc(tabType) {
@@ -1457,7 +1472,7 @@ function renderJournal() {
           <button class="j-act-btn" id="j-export-report" title="匯出報表"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></button>
           <button class="j-act-btn ${batchMode?'active':''}" id="j-batch-toggle" title="批次操作" style="${batchMode?'color:var(--accent);border-color:var(--accent)':''}"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg></button>
         </div>
-        <button class="j-add-btn" id="j-add"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>新增交易</button>
+        <button class="j-add-btn" id="j-add" title="新增交易 (N)"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>新增交易</button>
       </div>
     </div><!-- j-header -->
     <div id="j-dashboard"></div>
@@ -1531,18 +1546,18 @@ function renderDashboard() {
   const refreshBtn = hasOpen ? `<button class="j-refresh-quotes-btn" id="j-refresh-quotes" title="更新未平倉報價"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 4v6h6"/><path d="M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg></button>` : '';
 
   // Build inline stat pills
-  const pill = (label, val, c) => `<span class="j-stat-pill"><span class="j-stat-lbl">${label}</span><span class="j-stat-val ${c}">${val}</span></span>`;
+  const pill = (label, val, c, action) => `<span class="j-stat-pill${action?' j-stat-clickable':''}" ${action?`data-action="${action}"`:''} ${action?'title="點擊篩選"':''}><span class="j-stat-lbl">${label}</span><span class="j-stat-val ${c}">${val}</span></span>`;
   const sep = '<span class="j-stat-sep">\u00b7</span>';
 
   let statsHTML;
   if (mktRows.length <= 1) {
     const m = mktRows[0]?.[0] || 'tw', d = mktRows[0]?.[1] || { today: 0, week: 0, month: 0, unreal: 0 };
     statsHTML = [
-      pill('今日', fmtMoney(d.today, m), cls(d.today)),
-      pill('本週', fmtMoney(d.week, m), cls(d.week)),
-      pill('本月', fmtMoney(d.month, m), cls(d.month)),
-      pill('未實現', d.unreal ? fmtMoney(d.unreal, m) : ' —', cls(d.unreal)),
-      pill('持倉', String(openCount), ''),
+      pill('今日', fmtMoney(d.today, m), cls(d.today), 'today'),
+      pill('本週', fmtMoney(d.week, m), cls(d.week), 'week'),
+      pill('本月', fmtMoney(d.month, m), cls(d.month), 'month'),
+      pill('未實現', d.unreal ? fmtMoney(d.unreal, m) : ' —', cls(d.unreal), 'open'),
+      pill('持倉', String(openCount), '', 'open'),
     ].join(sep);
   } else {
     // Multi-market: show market badge + values inline per market
@@ -1578,6 +1593,19 @@ function renderDashboard() {
     btn.disabled = false;
     btn.classList.remove('loading');
   });
+
+  // Stat pill click → filter
+  $$('.j-stat-clickable', el).forEach(p => p.addEventListener('click', () => {
+    const a = p.dataset.action;
+    if (a === 'today') { quickFilter = 'today'; }
+    else if (a === 'week') { const wa = new Date(); wa.setDate(wa.getDate()-6); filterState.dateFrom = wa.toISOString().slice(0,10); filterState.dateTo = new Date().toISOString().slice(0,10); quickFilter = 'all'; }
+    else if (a === 'month') { const n = new Date(); filterState.dateFrom = `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-01`; filterState.dateTo = n.toISOString().slice(0,10); quickFilter = 'all'; }
+    else if (a === 'open') { quickFilter = 'open'; }
+    viewMode = 'list';
+    renderFilters(); renderDashboard();
+    $$('.j-qf-chip').forEach(x => x.classList.toggle('active', x.dataset.qf === quickFilter));
+    if (viewMode === 'list') renderTradeList(); else if (viewMode === 'holdings') renderHoldings();
+  }));
 }
 
 // ================================================================
@@ -1641,10 +1669,11 @@ function renderCalendar() {
     cell.addEventListener('click', () => {
       const day = cell.dataset.day;
       const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      cell.classList.add('cal-cell-tap');
       filterState.dateFrom = dateStr;
       filterState.dateTo = dateStr;
       viewMode = 'list';
-      renderJournal();
+      setTimeout(() => renderJournal(), 150);
     });
   });
 }
@@ -1687,7 +1716,8 @@ function renderFilters() {
   const allAccounts = [...new Set(trades.map(t => t.account).filter(Boolean))].sort();
   const drv = _dateRangeValue();
   const customActive = drv === 'custom';
-  el.innerHTML = `<button class="j-filter-toggle" id="j-filter-toggle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/></svg>篩選</button><div class="j-filter-row">
+  const hasFilter = filterState.market!=='all'||filterState.type!=='all'||filterState.status!=='all'||filterState.tag!=='all'||filterState.account!=='all'||filterState.search||filterState.dateFrom||filterState.dateTo;
+  el.innerHTML = `<button class="j-filter-toggle${hasFilter?' has-filter':''}" id="j-filter-toggle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/></svg>篩選${hasFilter?'<span class="j-filter-dot"></span>':''}</button><div class="j-filter-row">
     <div class="j-filter-group">
       <select id="jf-market" class="j-filter-select"><option value="all">全部市場</option><option value="tw" ${filterState.market==='tw'?'selected':''}>台灣</option><option value="us" ${filterState.market==='us'?'selected':''}>美國</option><option value="crypto" ${filterState.market==='crypto'?'selected':''}>加密貨幣</option></select>
       <select id="jf-type" class="j-filter-select"><option value="all">全部類型</option><option value="stock" ${filterState.type==='stock'?'selected':''}>股票</option><option value="futures" ${filterState.type==='futures'?'selected':''}>期貨(全部)</option><option value="index_futures" ${filterState.type==='index_futures'?'selected':''}>指數期貨</option><option value="stock_futures" ${filterState.type==='stock_futures'?'selected':''}>個股期貨</option><option value="commodity_futures" ${filterState.type==='commodity_futures'?'selected':''}>原物料期貨</option><option value="crypto_contract" ${filterState.type==='crypto_contract'?'selected':''}>加密貨幣合約</option><option value="crypto_spot" ${filterState.type==='crypto_spot'?'selected':''}>加密貨幣現貨</option><option value="options" ${filterState.type==='options'?'selected':''}>選擇權</option><option value="etf" ${filterState.type==='etf'?'selected':''}>ETF</option></select>
@@ -1767,7 +1797,17 @@ function getFilteredTrades() {
 function renderTradeList() {
   const body=$('#j-body');if(!body)return;
   const filtered=getFilteredTrades();
-  if(!filtered.length){body.innerHTML=`<div class="j-empty"><svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="var(--t3)" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/></svg><p>尚無交易紀錄</p><p class="j-empty-hint">點擊「新增交易」或在計算器分頁點「記錄此交易」<br><kbd>N</kbd> 快速新增</p></div>`;return;}
+  if(!filtered.length){
+    const hasActiveFilter = filterState.market!=='all'||filterState.type!=='all'||filterState.status!=='all'||filterState.tag!=='all'||filterState.account!=='all'||filterState.search||filterState.dateFrom||filterState.dateTo||quickFilter!=='all';
+    if(hasActiveFilter){
+      body.innerHTML=`<div class="j-empty"><svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="var(--t3)" stroke-width="1.5"><path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/></svg><p>沒有符合條件的交易</p><p class="j-empty-hint">目前的篩選條件沒有匹配結果</p><button class="j-btn j-btn-sm j-empty-clear-btn" id="j-clear-filters">清除篩選</button></div>`;
+      $('#j-clear-filters')?.addEventListener('click',()=>{filterState={market:'all',type:'all',status:'all',tag:'all',account:'all',search:'',dateFrom:'',dateTo:''};quickFilter='all';renderFilters();renderTradeList();renderDashboard();});
+    } else {
+      body.innerHTML=`<div class="j-empty"><svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="var(--t3)" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/></svg><p>尚無交易紀錄</p><p class="j-empty-hint">開始記錄你的交易吧！</p><button class="j-btn j-empty-add-btn" id="j-empty-add"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>新增交易</button></div>`;
+      $('#j-empty-add')?.addEventListener('click',()=>openTradeForm(null));
+    }
+    return;
+  }
   const ML={tw:'台灣',us:'美國',crypto:'加密貨幣'},TL=TYPE_LABELS,DL={long:'做多',short:'做空'},DC={long:'j-dir-long',short:'j-dir-short'},SL={open:'持倉中',closed:'已平倉'};
   const si=f=>sortState.field!==f?'<span class="j-sort-icon"></span>':`<span class="j-sort-icon active">${sortState.asc?'&#9650;':'&#9660;'}</span>`;
   const cp=filtered.filter(t=>t.status==='closed').map(t=>calcPL(t)).filter(Boolean);
@@ -2031,7 +2071,7 @@ function renderHoldings() {
       const tCost = (parseFloat(t.entryPrice) || 0) * tQ * tMul + tDir * tFeeTotal;
       const tAvgEntry = tQ * tMul > 0 ? tCost / (tQ * tMul) : 0;
       const tMktVal = g.hasQuote ? g.currentPrice * tQ * tMul : null;
-      h += `<tr class="j-holding-detail" data-parent="${esc(g.symbol)}|${g.market}|${g.direction}" style="display:none">
+      h += `<tr class="j-holding-detail" data-parent="${esc(g.symbol)}|${g.market}|${g.direction}" data-trade-id="${t.id}" style="display:none;cursor:pointer">
         <td class="j-td-date" style="padding-left:16px">${fmtDate(t.date)}</td>
         <td></td>
         <td class="j-td-num">${t.quantity || '—'}</td>
@@ -2140,6 +2180,18 @@ function renderHoldings() {
       if (e.target.closest('.j-act-btn')) return;
       head.closest('.j-card').classList.toggle('expanded');
     });
+  });
+  // Holding detail row click → trade detail
+  $$('.j-holding-detail[data-trade-id]').forEach(r => {
+    r.addEventListener('click', e => { if (!e.target.closest('.j-act-btn')) openTradeDetail(r.dataset.tradeId); });
+  });
+  // Mobile sub-card click → trade detail
+  $$('.j-holding-sub-card').forEach(card => {
+    const editBtn = card.querySelector('.j-act-edit');
+    if (editBtn) {
+      card.style.cursor = 'pointer';
+      card.addEventListener('click', e => { if (!e.target.closest('.j-act-btn')) openTradeDetail(editBtn.dataset.id); });
+    }
   });
   // Action buttons
   $$('.j-act-close').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); quickCloseTrade(b.dataset.id); }));
@@ -2576,7 +2628,7 @@ function _renderDiaryTrades(dateStr) {
   return `<div class="j-diary-trades"><h5>當日交易 (${dayTrades.length} 筆${closed.length ? `，淨損益 ${plSummary}` : ''})</h5>
     ${dayTrades.map(t => {
       const pl = calcPL(t);
-      return `<div class="j-diary-trade-row"><span>${esc(t.symbol)} <span class="j-dir-${t.direction}">${DL[t.direction]}</span></span><span>${t.status === 'closed' && pl ? `<span class="${pl.net >= 0 ? 'tg' : 'tr'}">${fmtMoney(pl.net, t.market)}</span>` : '<span class="j-status-open" style="font-size:.7rem;padding:2px 6px">持倉</span>'}</span></div>`;
+      return `<div class="j-diary-trade-row" data-trade-id="${t.id}" style="cursor:pointer"><span>${esc(t.symbol)} <span class="j-dir-${t.direction}">${DL[t.direction]}</span></span><span>${t.status === 'closed' && pl ? `<span class="${pl.net >= 0 ? 'tg' : 'tr'}">${fmtMoney(pl.net, t.market)}</span>` : '<span class="j-status-open" style="font-size:.7rem;padding:2px 6px">持倉</span>'}</span></div>`;
     }).join('')}
   </div>`;
 }
@@ -2736,13 +2788,13 @@ function renderDiary() {
     <div class="j-diary-cols">
       <div class="j-diary-col">
         <div class="j-diary-col-head">盤前</div>
-        <div class="j-fg"><label>盤勢觀察</label><textarea id="jd-market" rows="3" placeholder="大盤走勢、重要消息...">${esc(entry?.marketNote||'')}</textarea></div>
-        <div class="j-fg"><label>交易計畫</label><textarea id="jd-plan" rows="3" placeholder="計畫進出場、觀察標的...">${esc(entry?.plan||'')}</textarea></div>
+        <div class="j-fg"><label>盤勢觀察</label><textarea id="jd-market" rows="3" placeholder="大盤走勢、市場確定性變化、重要消息...">${esc(entry?.marketNote||'')}</textarea></div>
+        <div class="j-fg"><label>交易計畫</label><textarea id="jd-plan" rows="3" placeholder="計畫進出場、觀察標的、持股在定價第幾階段...">${esc(entry?.plan||'')}</textarea></div>
       </div>
       <div class="j-diary-col">
         <div class="j-diary-col-head">盤後</div>
-        <div class="j-fg"><label>收盤檢討</label><textarea id="jd-review" rows="3" placeholder="執行力、情緒管控、改進...">${esc(entry?.review||'')}</textarea></div>
-        <div class="j-fg"><label>今日心得</label><input type="text" id="jd-takeaway" value="${esc(entry?.takeaway||'')}" placeholder="今天最重要的學習..."></div>
+        <div class="j-fg"><label>收盤檢討</label><textarea id="jd-review" rows="3" placeholder="執行紀律、情緒管控、持股確定性有變化嗎...">${esc(entry?.review||'')}</textarea></div>
+        <div class="j-fg"><label>今日心得</label><input type="text" id="jd-takeaway" value="${esc(entry?.takeaway||'')}" placeholder="今天最重要的學習，定價邏輯有被破壞嗎..."></div>
       </div>
       <div class="j-diary-col j-diary-col-info">
         <div class="j-diary-col-head">資訊</div>
@@ -2764,12 +2816,12 @@ function renderDiary() {
         <button class="j-diary-tab" data-pane="trades">交易${dayTrades.length?` (${dayTrades.length})`:''}</button>
       </div>
       <div class="j-diary-tab-pane ${defaultTab==='pre'?'active':''}" data-pane="pre">
-        <div class="j-fg"><label>盤勢觀察</label><textarea id="jd-market-m" rows="3" placeholder="大盤走勢、重要消息...">${esc(entry?.marketNote||'')}</textarea></div>
-        <div class="j-fg"><label>交易計畫</label><textarea id="jd-plan-m" rows="3" placeholder="計畫進出場、觀察標的...">${esc(entry?.plan||'')}</textarea></div>
+        <div class="j-fg"><label>盤勢觀察</label><textarea id="jd-market-m" rows="3" placeholder="大盤走勢、市場確定性變化、重要消息...">${esc(entry?.marketNote||'')}</textarea></div>
+        <div class="j-fg"><label>交易計畫</label><textarea id="jd-plan-m" rows="3" placeholder="計畫進出場、觀察標的、持股在定價第幾階段...">${esc(entry?.plan||'')}</textarea></div>
       </div>
       <div class="j-diary-tab-pane ${defaultTab==='post'?'active':''}" data-pane="post">
-        <div class="j-fg"><label>收盤檢討</label><textarea id="jd-review-m" rows="3" placeholder="執行力、情緒管控、改進...">${esc(entry?.review||'')}</textarea></div>
-        <div class="j-fg"><label>今日心得</label><input type="text" id="jd-takeaway-m" value="${esc(entry?.takeaway||'')}" placeholder="今天最重要的學習..."></div>
+        <div class="j-fg"><label>收盤檢討</label><textarea id="jd-review-m" rows="3" placeholder="執行紀律、情緒管控、持股確定性有變化嗎...">${esc(entry?.review||'')}</textarea></div>
+        <div class="j-fg"><label>今日心得</label><input type="text" id="jd-takeaway-m" value="${esc(entry?.takeaway||'')}" placeholder="今天最重要的學習，定價邏輯有被破壞嗎..."></div>
       </div>
       <div class="j-diary-tab-pane" data-pane="trades">
         ${dayTrades.length ? _renderDiaryTrades(editDate) : '<div class="j-diary-no-trades">今日尚無交易</div>'}
@@ -2857,6 +2909,11 @@ function renderDiary() {
     $$('.j-diary-entry[data-date]', body).forEach(el => el.addEventListener('click', () => {
       _diaryEditingDate = el.dataset.date;
       renderDiary();
+    }));
+
+    // Click on diary trade row to open trade detail
+    $$('.j-diary-trade-row[data-trade-id]', body).forEach(el => el.addEventListener('click', () => {
+      openTradeDetail(el.dataset.tradeId);
     }));
 
     // Mood picker
@@ -3001,7 +3058,9 @@ function computeStats(pls) {
   const highDisc=reviewed.filter(t=>(t.reviewDiscipline||0)>=4),lowDisc=reviewed.filter(t=>(t.reviewDiscipline||0)<=2&&(t.reviewDiscipline||0)>0);
   const highDiscPL=highDisc.length?highDisc.reduce((s,t)=>s+t.pl.net,0)/highDisc.length:0;
   const lowDiscPL=lowDisc.length?lowDisc.reduce((s,t)=>s+t.pl.net,0)/lowDisc.length:0;
-  return {tn,tf,tt,count:pls.length,w,l,wr,aw,al,pf,mw,ml,mcw,mcl,expectancy,maxDD,maxDDPct,avgHold,wHold,lHold,rMultiples,avgR,byT,byM,byTg,byDow,byTime,byAcct,byRating,bySymbol,rollingData,revengeTrades,revengeNet,afterLossCount,afterLossNet,afterLossList,revengeList,reviewed,avgDisc,avgTim,avgSiz,highDisc,lowDisc,highDiscPL,lowDiscPL,pls,sorted};
+  const byStage={};
+  pls.forEach(t=>{const s=t.pricingStage||'';if(s){if(!byStage[s])byStage[s]={c:0,n:0,w:0};byStage[s].c++;byStage[s].n+=t.pl.net;if(t.pl.net>0)byStage[s].w++;}});
+  return {tn,tf,tt,count:pls.length,w,l,wr,aw,al,pf,mw,ml,mcw,mcl,expectancy,maxDD,maxDDPct,avgHold,wHold,lHold,rMultiples,avgR,byT,byM,byTg,byDow,byTime,byAcct,byRating,bySymbol,byStage,rollingData,revengeTrades,revengeNet,afterLossCount,afterLossNet,afterLossList,revengeList,reviewed,avgDisc,avgTim,avgSiz,highDisc,lowDisc,highDiscPL,lowDiscPL,pls,sorted};
 }
 
 // ── Dimension table data source ──
@@ -3013,6 +3072,7 @@ const DIM_DEFS = {
   tag:     { label: '標籤',  key: 'byTg',  sort: (a,b) => b[1].n - a[1].n, fmt: k => `<span class="j-tag">${esc(k)}</span>` },
   account: { label: '帳戶',  key: 'byAcct',sort: (a,b) => b[1].n - a[1].n, fmt: k => esc(k) },
   rating:  { label: '評分',  key: 'byRating', sort: (a,b) => b[0] - a[0], fmt: k => '★'.repeat(parseInt(k)) + '☆'.repeat(5 - parseInt(k)) },
+  stage:   { label: '定價階段', key: 'byStage', sort: (a,b) => b[1].n - a[1].n, fmt: k => ({expansion:'估值擴張',catchup:'基本面追趕',compression:'估值收縮',unknown:'不確定'})[k]||k },
 };
 
 function _renderDimTable(st, dim, fm) {
@@ -3035,7 +3095,7 @@ function _renderDimTable(st, dim, fm) {
 
 // Render integrated stats page for a specific market
 function renderStatsPage(st, market, fm) {
-  const {tn,tf,tt,count,w,l,wr,aw,al,pf,mw,ml,mcw,mcl,expectancy,maxDD,maxDDPct,avgHold,wHold,lHold,rMultiples,avgR,byDow,byTime,rollingData,revengeTrades,revengeNet,afterLossCount,afterLossNet,afterLossList,revengeList,reviewed,avgDisc,avgTim,avgSiz,highDisc,lowDisc,highDiscPL,lowDiscPL,pls,sorted} = st;
+  const {tn,tf,tt,count,w,l,wr,aw,al,pf,mw,ml,mcw,mcl,expectancy,maxDD,maxDDPct,avgHold,wHold,lHold,rMultiples,avgR,byDow,byTime,byStage,rollingData,revengeTrades,revengeNet,afterLossCount,afterLossNet,afterLossList,revengeList,reviewed,avgDisc,avgTim,avgSiz,highDisc,lowDisc,highDiscPL,lowDiscPL,pls,sorted} = st;
 
   // ── Hero KPIs ──
   const kpi = (label, val, cls, tip) => `<div class="j-kpi"${tip?` title="${tip}"`:''}><span class="j-kpi-lbl">${label}</span><span class="j-kpi-val ${cls||''}">${val}</span></div>`;
@@ -3096,6 +3156,13 @@ function renderStatsPage(st, market, fm) {
   if (afterLossCount > 0) badges += revengeTrades > 0
     ? _badge('\u{26a0}\u{fe0f}', '疑似報復', `${revengeTrades}筆`, 'tr', `虧損後2hr內${revengeTrades}筆 均${fm(revengeNet/revengeTrades)}`)
     : _badge('\u{2705}', '無報復交易', '', 'tg', '');
+  const stageLabels={expansion:'擴張',catchup:'追趕',compression:'收縮',unknown:'不確定'};
+  const stageKeys=Object.keys(byStage);
+  if(stageKeys.length){
+    const best=stageKeys.reduce((a,b)=>((byStage[a].n/byStage[a].c)>(byStage[b].n/byStage[b].c)?a:b));
+    const bAvg=byStage[best].n/byStage[best].c;
+    badges+=_badge('\u{1f4c8}','定價階段',`${stageLabels[best]||best}期最佳`,bAvg>=0?'tg':'tr',stageKeys.map(k=>`${stageLabels[k]||k}: ${byStage[k].c}筆 均${fm(byStage[k].n/byStage[k].c)}`).join('\n'));
+  }
 
   // ================================================================
   //  Section 2: Charts — seamless tile grid
@@ -3325,6 +3392,7 @@ function openTradeForm(id, prefill) {
           <div class="j-review-item"><span class="j-review-label">時機</span><div class="j-review-picker" data-field="timing">${[1,2,3,4,5].map(i=>`<button type="button" class="j-rv-dot ${i<=(t.reviewTiming||0)?'active':''}" data-val="${i}">${i}</button>`).join('')}</div><input type="hidden" id="jf-rv-timing" value="${t.reviewTiming||0}"></div>
           <div class="j-review-item"><span class="j-review-label">倉位</span><div class="j-review-picker" data-field="sizing">${[1,2,3,4,5].map(i=>`<button type="button" class="j-rv-dot ${i<=(t.reviewSizing||0)?'active':''}" data-val="${i}">${i}</button>`).join('')}</div><input type="hidden" id="jf-rv-sizing" value="${t.reviewSizing||0}"></div>
         </div>
+        <div class="j-review-item" style="margin-top:8px"><span class="j-review-label">定價階段</span><div class="j-pricing-stage-picker" id="jf-pricing-stage">${[['expansion','估值擴張'],['catchup','基本面追趕'],['compression','估值收縮'],['unknown','不確定']].map(([v,l])=>`<button type="button" class="j-tag-btn${t.pricingStage===v?' active':''}" data-stage="${v}">${l}</button>`).join('')}</div><input type="hidden" id="jf-pricing-stage-val" value="${t.pricingStage||''}"></div>
       </div>
       ${getChecklistItems().length ? `<div class="j-checklist-section">
         <label class="j-review-title">交易前檢查清單</label>
@@ -3335,7 +3403,7 @@ function openTradeForm(id, prefill) {
         <div class="j-tag-picker" id="jf-tags">${TAG_PRESETS.map(tag=>`<button type="button" class="j-tag-btn ${(t.tags||[]).includes(tag)?'active':''}" data-tag="${tag}">${tag}</button>`).join('')}${(t.tags||[]).filter(tag=>!TAG_PRESETS.includes(tag)).map(tag=>`<button type="button" class="j-tag-btn active" data-tag="${tag}">${tag}</button>`).join('')}</div>
         <input type="text" id="jf-custom-tag" placeholder="自訂標籤，按 Enter 新增" class="j-custom-tag-input">
       </div>
-      <div class="j-fg j-fg-wide" style="margin-top:10px"><label>策略筆記</label><textarea id="jf-notes" rows="4" placeholder="進出場理由、觀察、檢討...">${t.notes||''}</textarea></div>
+      <div class="j-fg j-fg-wide" style="margin-top:10px"><label>策略筆記</label><textarea id="jf-notes" rows="4" placeholder="進出場理由、持有理由、市場在等什麼訊號...">${t.notes||''}</textarea></div>
       <div id="jf-offset-hint" class="j-offset-hint"></div>
       <div class="j-form-pl" id="jf-pl-preview"></div>
     </div>
@@ -3348,6 +3416,9 @@ function openTradeForm(id, prefill) {
   `;
 
   overlay.classList.add('open'); modal.classList.add('open');
+
+  // Auto-focus symbol input for new trades
+  if (!id) requestAnimationFrame(() => $('#jf-symbol')?.focus());
 
   // ── DateTime picker logic ──
   {
@@ -3541,7 +3612,7 @@ function openTradeForm(id, prefill) {
       if (e.key === 'ArrowDown') { e.preventDefault(); acFocus = Math.min(acFocus + 1, acItems.length - 1); acUpdateFocus(); }
       else if (e.key === 'ArrowUp') { e.preventDefault(); acFocus = Math.max(acFocus - 1, 0); acUpdateFocus(); }
       else if (e.key === 'Enter' && acFocus >= 0) { e.preventDefault(); acPick(acFocus); }
-      else if (e.key === 'Escape') { acList.classList.remove('open'); }
+      else if (e.key === 'Escape') { e.stopPropagation(); acList.classList.remove('open'); symInput.blur(); }
     });
     acList.addEventListener('mousedown', e => {
       skipBlur = true;
@@ -3557,8 +3628,9 @@ function openTradeForm(id, prefill) {
       const r = acItems[i]; if (!r) return;
       symInput.value = r.code;
       const nameInput = $('#jf-name');
-      if (nameInput && r.name) nameInput.value = r.name.replace(/\s*\(.*\)\s*$/, '');
+      if (nameInput && r.name) { nameInput.value = r.name.replace(/\s*\(.*\)\s*$/, ''); nameInput.classList.add('j-field-flash'); setTimeout(()=>nameInput.classList.remove('j-field-flash'),500); }
       if (r.mul && $('#jf-mul')) { $('#jf-mul').value = r.mul; $('#jf-mul-wrap')?.classList.remove('j-hidden'); }
+      symInput.classList.add('j-field-flash'); setTimeout(()=>symInput.classList.remove('j-field-flash'),500);
       acList.classList.remove('open'); acItems = [];
       updateSmartFees();
     }
@@ -3621,6 +3693,13 @@ function openTradeForm(id, prefill) {
       $$('.j-rv-dot', picker).forEach((d, i) => d.classList.toggle('active', i < val));
     }));
   });
+  // Pricing stage picker
+  $$('#jf-pricing-stage .j-tag-btn', modal).forEach(btn => btn.addEventListener('click', () => {
+    const wasActive = btn.classList.contains('active');
+    $$('#jf-pricing-stage .j-tag-btn', modal).forEach(b => b.classList.remove('active'));
+    if (!wasActive) { btn.classList.add('active'); $('#jf-pricing-stage-val').value = btn.dataset.stage; }
+    else { $('#jf-pricing-stage-val').value = ''; }
+  }));
 
   const updateOffsetHint=()=>{
     const hint=$('#jf-offset-hint');if(!hint||editingId)return;
@@ -3716,6 +3795,13 @@ function showSavedToast() {
 }
 
 async function saveTrade() {
+  // Validate required fields
+  const sym = $('#jf-symbol')?.value.trim();
+  if (!sym) {
+    const el = $('#jf-symbol');
+    if (el) { el.classList.add('j-field-flash'); el.focus(); el.scrollIntoView({behavior:'smooth',block:'center'}); setTimeout(()=>el.classList.remove('j-field-flash'),500); }
+    throw new Error('請輸入交易代號');
+  }
   const data = {
     id: editingId || (Date.now().toString(36)+Math.random().toString(36).slice(2,7)),
     date:$('#jf-date')?.value||localISOString(),
@@ -3734,6 +3820,7 @@ async function saveTrade() {
     reviewDiscipline:parseInt($('#jf-rv-discipline')?.value)||0,
     reviewTiming:parseInt($('#jf-rv-timing')?.value)||0,
     reviewSizing:parseInt($('#jf-rv-sizing')?.value)||0,
+    pricingStage:$('#jf-pricing-stage-val')?.value||'',
   };
   if (editingId) {
     await api(`/trades/${editingId}`, { method: 'PUT', body: JSON.stringify(data) });
@@ -3823,7 +3910,13 @@ function openTradeDetail(id) {
   const rp=(!isNaN(en)&&!isNaN(sl)&&en)?((Math.abs(en-sl)/en)*100).toFixed(2):null;
   const rwp=(!isNaN(en)&&!isNaN(tp)&&en)?((Math.abs(tp-en)/en)*100).toFixed(2):null;
   const rr=rp&&rwp&&parseFloat(rp)>0?(parseFloat(rwp)/parseFloat(rp)).toFixed(2):null;
-  modal.innerHTML=`<div class="j-modal-header"><h3><span class="j-badge j-badge-${t.market}">${ML[t.market]}</span> <strong>${esc(t.symbol)}</strong> ${esc(t.name)}</h3><button class="j-modal-close" id="jd-close">&times;</button></div>
+  // Prev/next navigation
+  const filtered = getFilteredTrades();
+  const idx = filtered.findIndex(x => x.id === id);
+  const prevId = idx > 0 ? filtered[idx - 1].id : null;
+  const nextId = idx < filtered.length - 1 ? filtered[idx + 1].id : null;
+  const navHTML = `<div class="j-detail-nav">${prevId?`<button class="j-detail-nav-btn" id="jd-prev" title="上一筆 (←)"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg></button>`:'<span></span>'}<span class="j-detail-nav-pos">${idx+1} / ${filtered.length}</span>${nextId?`<button class="j-detail-nav-btn" id="jd-next" title="下一筆 (→)"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></button>`:'<span></span>'}</div>`;
+  modal.innerHTML=`<div class="j-modal-header"><h3><span class="j-badge j-badge-${t.market}">${ML[t.market]}</span> <strong>${esc(t.symbol)}</strong> ${esc(t.name)}</h3>${navHTML}<button class="j-modal-close" id="jd-close">&times;</button></div>
   <div class="j-modal-body"><div class="j-detail-grid">
     <div class="j-detail-item"><span class="j-dl">日期</span><span class="j-dv">${fmtDateTime(t.date)}</span></div>
     <div class="j-detail-item"><span class="j-dl">類型</span><span class="j-dv">${TL[t.type]}</span></div>
@@ -3845,11 +3938,22 @@ function openTradeDetail(id) {
   ${t.account?`<div class="j-detail-item" style="grid-column:1/-1"><span class="j-dl">帳戶</span><span class="j-dv">${esc(t.account)}</span></div>`:''}
   ${t.rating?`<div class="j-detail-item"><span class="j-dl">自評</span><span class="j-dv">${ratingHTML(t.rating)}</span></div>`:''}
   ${(t.reviewDiscipline||t.reviewTiming||t.reviewSizing)?`<div class="j-detail-review" style="grid-column:1/-1"><span class="j-dl">覆盤評分</span><div class="j-detail-rv-scores"><span>紀律 <strong>${t.reviewDiscipline||0}</strong>/5</span><span>時機 <strong>${t.reviewTiming||0}</strong>/5</span><span>倉位 <strong>${t.reviewSizing||0}</strong>/5</span></div></div>`:''}
+  ${t.pricingStage?`<div class="j-detail-item" style="grid-column:1/-1"><span class="j-dl">定價階段</span><span class="j-dv">${({expansion:'估值擴張 (Multiple Expansion)',catchup:'基本面追趕 (Earnings Catch-up)',compression:'估值收縮 (Multiple Compression)',unknown:'不確定'})[t.pricingStage]||t.pricingStage}</span></div>`:''}
   ${t.notes?`<div class="j-detail-notes"><h4>策略筆記</h4><div class="j-notes-content" style="white-space:pre-wrap">${esc(t.notes)}</div></div>`:''}
   ${t.imageUrl && /^https?:\/\//.test(t.imageUrl)?`<div class="j-detail-notes"><h4>交易截圖</h4><img src="${esc(t.imageUrl)}" class="j-detail-img" alt="交易截圖" loading="lazy" onerror="this.style.display='none'"></div>`:''}
   </div><div class="j-modal-footer">${t.status==='open'?`<button class="j-btn-cancel j-detail-close-btn" id="jd-quick-close" style="color:var(--red);border-color:var(--red)">平倉</button>`:''}<button class="j-btn-cancel" id="jd-calc" title="在計算器中開啟">計算器</button><button class="j-btn-cancel" id="jd-dup" title="複製為新交易">複製</button><span style="flex:1"></span><button class="j-btn-cancel" id="jd-back">關閉</button><button class="j-btn-save" id="jd-edit">編輯</button></div>`;
+  const _prevFocus = document.activeElement;
   overlay.classList.add('open');modal.classList.add('open');
-  const cl=()=>{overlay.classList.remove('open');modal.classList.remove('open');};
+  requestAnimationFrame(() => $('#jd-back')?.focus());
+  const cl=()=>{overlay.classList.remove('open');modal.classList.remove('open');document.removeEventListener('keydown',detailKH);_prevFocus?.focus();};
+  const detailKH = e => {
+    if(e.key==='Escape')cl();
+    if(e.key==='ArrowLeft'&&prevId){e.preventDefault();cl();setTimeout(()=>openTradeDetail(prevId),80);}
+    if(e.key==='ArrowRight'&&nextId){e.preventDefault();cl();setTimeout(()=>openTradeDetail(nextId),80);}
+  };
+  document.addEventListener('keydown',detailKH);
+  $('#jd-prev')?.addEventListener('click',()=>{cl();setTimeout(()=>openTradeDetail(prevId),80);});
+  $('#jd-next')?.addEventListener('click',()=>{cl();setTimeout(()=>openTradeDetail(nextId),80);});
   $('#jd-close').addEventListener('click',cl);overlay.addEventListener('click',(e)=>{if(e.target===overlay)cl();});$('#jd-back').addEventListener('click',cl);
   $('#jd-edit').addEventListener('click',()=>{cl();setTimeout(()=>openTradeForm(id),100);});
   $('#jd-quick-close')?.addEventListener('click', () => { cl(); quickCloseTrade(id); });

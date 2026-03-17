@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS trades (
   tax REAL DEFAULT 0,
   tags TEXT DEFAULT '[]',
   notes TEXT DEFAULT '',
+  pricing_stage TEXT DEFAULT '',
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now')),
   FOREIGN KEY (user_id) REFERENCES users(id)
