@@ -344,12 +344,12 @@ function importCSV() {
     if (!file) return;
     const text = await file.text();
     const lines = text.split(/\r?\n/).filter(l => l.trim());
-    if (lines.length < 2) { alert('CSV 檔案格式錯誤'); return; }
+    if (lines.length < 2) { if(window._showToast)window._showToast('CSV 檔案格式錯誤'); return; }
     const header = parseCSVLine(lines[0]);
     const colMap = {};
     header.forEach((h, i) => colMap[h.trim()] = i);
     const required = ['symbol', 'entryPrice'];
-    if (!required.every(r => r in colMap)) { alert('CSV 缺少必要欄位: symbol, entryPrice'); return; }
+    if (!required.every(r => r in colMap)) { if(window._showToast)window._showToast('CSV 缺少必要欄位: symbol, entryPrice'); return; }
     let count = 0;
     for (let i = 1; i < lines.length; i++) {
       const vals = parseCSVLine(lines[i]);
@@ -371,7 +371,7 @@ function importCSV() {
       try { await api('/trades', { method: 'POST', body: JSON.stringify(data) }); count++; }
       catch (e) { console.error('Import row error:', e); }
     }
-    alert(`匯入完成：${count} 筆交易`);
+    if(window._showToast)window._showToast(`匯入完成：${count} 筆交易`);
     await loadTrades();
     renderJournal();
   });
@@ -522,14 +522,21 @@ function quickCloseTrade(id) {
   updatePreview();
 
   // Focus price input
-  setTimeout(() => $('#j-close-price')?.focus(), 50);
+  requestAnimationFrame(() => $('#j-close-price')?.focus());
+
+  // Enter-to-submit & Escape-to-close
+  const _closeKeydown = e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#j-close-exec')?.click(); }
+    if (e.key === 'Escape') close();
+  };
+  modal.addEventListener('keydown', _closeKeydown);
 
   // Execute close
   $('#j-close-exec').onclick = async () => {
     const exitPrice = parseFloat($('#j-close-price')?.value);
     const closeQty = parseFloat($('#j-close-qty')?.value) || totalQty;
-    if (isNaN(exitPrice) || exitPrice <= 0) { alert('請輸入有效的出場價格'); return; }
-    if (closeQty <= 0 || closeQty > totalQty) { alert('數量無效'); return; }
+    if (isNaN(exitPrice) || exitPrice <= 0) { if(window._showToast)window._showToast('請輸入有效的出場價格'); const _el=$('#j-close-price'); if(_el){_el.classList.add('j-input-error');_el.focus();_el.addEventListener('animationend',()=>_el.classList.remove('j-input-error'),{once:true});} return; }
+    if (closeQty <= 0 || closeQty > totalQty) { if(window._showToast)window._showToast('數量無效'); return; }
 
     const btn = $('#j-close-exec');
     btn.disabled = true; btn.textContent = '處理中…';
@@ -564,7 +571,7 @@ function quickCloseTrade(id) {
       renderJournal();
       if (window._showToast) window._showToast(`已平倉 ${closeQty} 單位 ${t.symbol}`);
     } catch (e) {
-      alert('平倉失敗：' + e.message);
+      if(window._showToast)window._showToast('平倉失敗：' + e.message);
       btn.disabled = false; btn.textContent = '確認平倉';
     }
   };
@@ -625,15 +632,15 @@ async function partialCloseTrade(id) {
   const t = trades.find(x => x.id === id);
   if (!t || t.status !== 'open') return;
   const totalQty = parseFloat(t.quantity);
-  if (!totalQty || isNaN(totalQty)) { alert('此交易沒有數量'); return; }
+  if (!totalQty || isNaN(totalQty)) { if(window._showToast)window._showToast('此交易沒有數量'); return; }
   const closeQtyStr = prompt(`總數量 ${totalQty}，要平倉多少？`);
   if (!closeQtyStr) return;
   const closeQty = parseFloat(closeQtyStr);
-  if (isNaN(closeQty) || closeQty <= 0 || closeQty > totalQty) { alert('數量無效'); return; }
+  if (isNaN(closeQty) || closeQty <= 0 || closeQty > totalQty) { if(window._showToast)window._showToast('數量無效'); return; }
 
   const lq = liveQuotes[getLiveQuoteKey(t)];
   const exitPrice = (lq?.price != null && !isNaN(lq.price)) ? lq.price : parseFloat(prompt('請輸入平倉價格：') || '');
-  if (exitPrice == null || isNaN(exitPrice)) { alert('價格無效'); return; }
+  if (exitPrice == null || isNaN(exitPrice)) { if(window._showToast)window._showToast('價格無效'); return; }
 
   const remainQty = totalQty - closeQty;
   const feeRatio = closeQty / totalQty;
@@ -651,7 +658,7 @@ async function partialCloseTrade(id) {
     await api(`/trades/${id}`, { method: 'PUT', body: JSON.stringify(remainData) });
     await loadTrades();
     renderJournal();
-  } catch (e) { alert('部分平倉失敗：' + e.message); }
+  } catch (e) { if(window._showToast)window._showToast('部分平倉失敗：' + e.message); }
 }
 
 // ── FIFO Offset Close (智能沖銷) ──
@@ -691,11 +698,18 @@ async function offsetClose(symbol, market, direction) {
 
   overlay.classList.add('open');
   modal.classList.add('open');
+  requestAnimationFrame(() => $('#j-offset-price')?.focus());
 
   const close = () => { overlay.classList.remove('open'); modal.classList.remove('open'); };
   $('#j-offset-cancel').onclick = close;
   $('#j-offset-cancel2').onclick = close;
   overlay.onclick = e => { if (e.target === overlay) close(); };
+
+  // Enter-to-submit & Escape-to-close
+  modal.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#j-offset-exec')?.click(); }
+    if (e.key === 'Escape') close();
+  });
 
   // Preview logic
   function buildPreview() {
@@ -735,8 +749,8 @@ async function offsetClose(symbol, market, direction) {
   $('#j-offset-exec').onclick = async () => {
     const exitPrice = parseFloat($('#j-offset-price')?.value);
     const closeQty = parseFloat($('#j-offset-qty')?.value) || totalQty;
-    if (isNaN(exitPrice) || exitPrice <= 0) { alert('請輸入有效的出場價格'); return; }
-    if (closeQty <= 0 || closeQty > totalQty) { alert('數量無效'); return; }
+    if (isNaN(exitPrice) || exitPrice <= 0) { if(window._showToast)window._showToast('請輸入有效的出場價格'); const _el=$('#j-offset-price'); if(_el){_el.classList.add('j-input-error');_el.focus();_el.addEventListener('animationend',()=>_el.classList.remove('j-input-error'),{once:true});} return; }
+    if (closeQty <= 0 || closeQty > totalQty) { if(window._showToast)window._showToast('數量無效'); return; }
 
     let remaining = closeQty;
     const ops = []; // { type: 'close'|'split', trade, used, leftover }
@@ -787,7 +801,7 @@ async function offsetClose(symbol, market, direction) {
       renderJournal();
       if (window._showToast) window._showToast(`已沖銷 ${closeQty} 單位 ${symbol}`);
     } catch (e) {
-      alert('沖銷失敗：' + e.message);
+      if(window._showToast)window._showToast('沖銷失敗：' + e.message);
       btn.disabled = false;
       btn.textContent = '確認沖銷';
     }
@@ -806,7 +820,9 @@ function toggleBatchMode() {
 
 async function batchDelete() {
   if (!batchSelected.size) return;
-  if (!confirm(`確定要刪除 ${batchSelected.size} 筆交易？`)) return;
+  _confirmDialog(`確定要刪除 <strong>${batchSelected.size}</strong> 筆交易？`, _doBatchDelete, { confirmText: '刪除' });
+}
+async function _doBatchDelete() {
   const deletedIds = new Set();
   const errors = [];
   await Promise.all([...batchSelected].map(async id => {
@@ -817,7 +833,8 @@ async function batchDelete() {
   batchSelected.clear();
   batchMode = false;
   renderJournal();
-  if (errors.length) alert(`${deletedIds.size} 筆已刪除，${errors.length} 筆失敗`);
+  if (errors.length && window._showToast) window._showToast(`${deletedIds.size} 筆已刪除，${errors.length} 筆失敗`);
+  else if (window._showToast) window._showToast(`已刪除 ${deletedIds.size} 筆交易`);
 }
 
 async function batchAddTag() {
@@ -835,12 +852,12 @@ async function batchAddTag() {
     batchSelected.clear();
     batchMode = false;
     renderJournal();
-  } catch (e) { alert('批次加標籤失敗：' + e.message); }
+  } catch (e) { if(window._showToast)window._showToast('批次加標籤失敗：' + e.message); }
 }
 
 async function batchClose() {
   const openIds = [...batchSelected].filter(id => { const t = trades.find(x => x.id === id); return t?.status === 'open'; });
-  if (!openIds.length) { alert('沒有選取持倉中的交易'); return; }
+  if (!openIds.length) { if(window._showToast)window._showToast('沒有選取持倉中的交易'); return; }
   // Snapshot trade data and quotes before confirm to avoid stale references
   const closeJobs = [];
   for (const id of openIds) {
@@ -853,21 +870,22 @@ async function batchClose() {
       fee: String((parseFloat(t.fee) || 0) + (parseFloat(ef.fee) || 0)),
       tax: String((parseFloat(t.tax) || 0) + (parseFloat(ef.tax) || 0)) } });
   }
-  if (!closeJobs.length) { alert('無法取得即時報價'); return; }
-  if (!confirm(`以即時報價平倉 ${closeJobs.length} 筆持倉？`)) return;
-  let closed = 0;
-  for (const job of closeJobs) {
-    try {
-      await api(`/trades/${job.id}`, { method: 'PUT', body: JSON.stringify(job.data) });
-      const idx = trades.findIndex(x => x.id === job.id);
-      if (idx >= 0) trades[idx] = job.data;
-      closed++;
-    } catch (e) { console.warn('[Journal] Batch close error:', e.message); }
-  }
-  batchSelected.clear();
-  batchMode = false;
-  if (window._showToast) window._showToast(`已平倉 ${closed} 筆`); else alert(`已平倉 ${closed} 筆`);
-  renderJournal();
+  if (!closeJobs.length) { if(window._showToast)window._showToast('無法取得即時報價'); return; }
+  _confirmDialog(`以即時報價平倉 <strong>${closeJobs.length}</strong> 筆持倉？`, async () => {
+    let closed = 0;
+    for (const job of closeJobs) {
+      try {
+        await api(`/trades/${job.id}`, { method: 'PUT', body: JSON.stringify(job.data) });
+        const idx = trades.findIndex(x => x.id === job.id);
+        if (idx >= 0) trades[idx] = job.data;
+        closed++;
+      } catch (e) { console.warn('[Journal] Batch close error:', e.message); }
+    }
+    batchSelected.clear();
+    batchMode = false;
+    if (window._showToast) window._showToast(`已平倉 ${closed} 筆`);
+    renderJournal();
+  });
 }
 
 // ── Average Cost for same symbol open trades ──
@@ -918,7 +936,7 @@ function ratingHTML(rating, editable = false, id = '') {
 // ── Export HTML Report ──
 function exportReport() {
   const pls = trades.filter(t => t.status === 'closed').map(t => ({ ...t, pl: calcPL(t) })).filter(t => t.pl);
-  if (!pls.length) { alert('沒有已平倉交易可供匯出'); return; }
+  if (!pls.length) { if(window._showToast)window._showToast('沒有已平倉交易可供匯出'); return; }
   const ML_FULL = { tw: '台股', us: '美股', crypto: '加密貨幣' };
   const markets = [...new Set(pls.map(t => t.market))];
   const ec = renderEquityCurve(pls);
@@ -1198,6 +1216,7 @@ function showLoginModal() {
       loadTemplatesFromServer();
       // If journal tab is active, refresh it
       if ($('#tab-journal')?.classList.contains('active')) { await loadTrades(); renderJournal(); }
+      if (window._showToast) window._showToast(`歡迎回來，${username}`);
     } catch (e) {
       $('#jg-error').textContent = e.message;
       btn.disabled = false; btn.textContent = mode === 'login' ? '登入' : '註冊';
@@ -1748,7 +1767,7 @@ function getFilteredTrades() {
 function renderTradeList() {
   const body=$('#j-body');if(!body)return;
   const filtered=getFilteredTrades();
-  if(!filtered.length){body.innerHTML=`<div class="j-empty"><svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="var(--t3)" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/></svg><p>尚無交易紀錄</p><p class="j-empty-hint">點擊「新增交易」或在計算器分頁點「記錄此交易」</p></div>`;return;}
+  if(!filtered.length){body.innerHTML=`<div class="j-empty"><svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="var(--t3)" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/></svg><p>尚無交易紀錄</p><p class="j-empty-hint">點擊「新增交易」或在計算器分頁點「記錄此交易」<br><kbd>N</kbd> 快速新增</p></div>`;return;}
   const ML={tw:'台灣',us:'美國',crypto:'加密貨幣'},TL=TYPE_LABELS,DL={long:'做多',short:'做空'},DC={long:'j-dir-long',short:'j-dir-short'},SL={open:'持倉中',closed:'已平倉'};
   const si=f=>sortState.field!==f?'<span class="j-sort-icon"></span>':`<span class="j-sort-icon active">${sortState.asc?'&#9650;':'&#9660;'}</span>`;
   const cp=filtered.filter(t=>t.status==='closed').map(t=>calcPL(t)).filter(Boolean);
@@ -2193,7 +2212,7 @@ function renderMonthlyBarChart(byM) {
   if (months.length < 2) return '';
   const vals = months.map(([, v]) => v.n);
   const maxAbs = Math.max(1, ...vals.map(v => Math.abs(v)));
-  const W = 600, H = 130, pad = 32, barGap = 3;
+  const W = 600, H = 120, pad = 32, barGap = 3;
   const barW = Math.min(36, (W - pad * 2) / months.length - barGap);
   const zeroY = H / 2;
   const scale = (H / 2 - 14) / maxAbs;
@@ -2205,7 +2224,7 @@ function renderMonthlyBarChart(byM) {
     const y = v.n >= 0 ? zeroY - h : zeroY;
     const color = v.n >= 0 ? 'var(--green)' : 'var(--red)';
     bars += `<rect x="${x}" y="${y}" width="${barW}" height="${h}" fill="${color}" opacity=".7" rx="2"><title>${m}: ${fmtNum(v.n, 0)}</title></rect>`;
-    bars += `<text x="${x + barW / 2}" y="${H - 4}" text-anchor="middle" fill="var(--t3)" font-size="8">${m.slice(5)}</text>`;
+    bars += `<text x="${x + barW / 2}" y="${H - 4}" text-anchor="middle" fill="var(--t3)" font-size="10">${m.slice(5)}</text>`;
   });
 
   return `<svg viewBox="0 0 ${W} ${H}" class="j-equity-svg">
@@ -2222,11 +2241,10 @@ function renderTradePLBars(pls) {
   const sorted = [...pls].sort((a, b) => a.date > b.date ? 1 : -1);
   const nets = sorted.map(t => t.pl.net);
   const maxAbs = Math.max(1, ...nets.map(v => Math.abs(v)));
-  const W = 600, H = 120, pad = 30, barGap = 1;
-  const usable = W - pad * 2;
-  const barW = Math.max(1, Math.min(12, (usable / nets.length) - barGap));
+  const W = 600, H = 120, pad = 32, barGap = 1;
+  const barW = Math.max(4, Math.min(14, ((W - pad * 2 - 40) / nets.length) - barGap));
   const totalW = nets.length * (barW + barGap);
-  const svgW = Math.max(W, totalW + pad * 2);
+  const svgW = Math.max(W, totalW + pad * 2 + 40);
   const zeroY = H / 2;
   const scale = (H / 2 - 16) / maxAbs;
 
@@ -2247,20 +2265,20 @@ function renderTradePLBars(pls) {
     const avgW = wins.reduce((s, n) => s + n, 0) / wins.length;
     const yW = zeroY - avgW * scale;
     guides += `<line x1="${pad}" y1="${yW.toFixed(1)}" x2="${svgW - pad}" y2="${yW.toFixed(1)}" stroke="var(--green)" stroke-width="0.7" stroke-dasharray="4,3" opacity=".6"/>`;
-    guides += `<text x="${pad - 3}" y="${yW.toFixed(1)}" fill="var(--green)" font-size="8" text-anchor="end" dy="3" opacity=".7">均+</text>`;
+    guides += `<text x="${pad - 3}" y="${yW.toFixed(1)}" fill="var(--green)" font-size="10" text-anchor="end" dy="3" opacity=".7">均+</text>`;
   }
   if (losses.length) {
     const avgL = losses.reduce((s, n) => s + n, 0) / losses.length;
     const yL = zeroY - avgL * scale;
     guides += `<line x1="${pad}" y1="${yL.toFixed(1)}" x2="${svgW - pad}" y2="${yL.toFixed(1)}" stroke="var(--red)" stroke-width="0.7" stroke-dasharray="4,3" opacity=".6"/>`;
-    guides += `<text x="${pad - 3}" y="${yL.toFixed(1)}" fill="var(--red)" font-size="8" text-anchor="end" dy="3" opacity=".7">均−</text>`;
+    guides += `<text x="${pad - 3}" y="${yL.toFixed(1)}" fill="var(--red)" font-size="10" text-anchor="end" dy="3" opacity=".7">均−</text>`;
   }
 
   return `<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none"><svg viewBox="0 0 ${svgW} ${H}" class="j-equity-svg" style="min-width:${svgW}px">
       <line x1="${pad}" y1="${zeroY}" x2="${svgW - pad}" y2="${zeroY}" stroke="var(--bdr2)" stroke-width="0.5"/>
       ${guides}${bars}
-      <text x="${pad}" y="${H - 3}" fill="var(--t3)" font-size="8">${sorted[0].date?.slice(5, 10) || ''}</text>
-      <text x="${pad + totalW}" y="${H - 3}" fill="var(--t3)" font-size="8" text-anchor="end">${sorted[sorted.length - 1].date?.slice(5, 10) || ''}</text>
+      <text x="${pad}" y="${H - 3}" fill="var(--t3)" font-size="10">${sorted[0].date?.slice(5, 10) || ''}</text>
+      <text x="${pad + totalW}" y="${H - 3}" fill="var(--t3)" font-size="10" text-anchor="end">${sorted[sorted.length - 1].date?.slice(5, 10) || ''}</text>
     </svg></div>`;
 }
 
@@ -2294,11 +2312,11 @@ function renderHoldScatter(pls) {
   const axis = `
     <line x1="${pad}" y1="${zeroY}" x2="${W - pad}" y2="${zeroY}" stroke="var(--bdr2)" stroke-width="0.5" stroke-dasharray="4"/>
     <line x1="${pad}" y1="10" x2="${pad}" y2="${H - 10}" stroke="var(--bdr2)" stroke-width="0.5" stroke-dasharray="4"/>
-    <text x="${pad - 3}" y="${zeroY}" fill="var(--t3)" font-size="8" text-anchor="end" dy="3">0</text>
-    <text x="${pad}" y="${H - 2}" fill="var(--t3)" font-size="8" text-anchor="middle">0</text>
-    <text x="${W - pad}" y="${H - 2}" fill="var(--t3)" font-size="8" text-anchor="end">${maxD}天</text>
-    <text x="${pad - 3}" y="14" fill="var(--green)" font-size="7" text-anchor="end">+${fmtNum(maxAbs, 0)}</text>
-    <text x="${pad - 3}" y="${H - 8}" fill="var(--red)" font-size="7" text-anchor="end">-${fmtNum(maxAbs, 0)}</text>`;
+    <text x="${pad - 3}" y="${zeroY}" fill="var(--t3)" font-size="10" text-anchor="end" dy="3">0</text>
+    <text x="${pad}" y="${H - 2}" fill="var(--t3)" font-size="10" text-anchor="middle">0</text>
+    <text x="${W - pad}" y="${H - 2}" fill="var(--t3)" font-size="10" text-anchor="end">${maxD}天</text>
+    <text x="${pad - 3}" y="14" fill="var(--green)" font-size="10" text-anchor="end">+${fmtNum(maxAbs, 0)}</text>
+    <text x="${pad - 3}" y="${H - 8}" fill="var(--red)" font-size="10" text-anchor="end">-${fmtNum(maxAbs, 0)}</text>`;
 
   return `<svg viewBox="0 0 ${W} ${H}" class="j-equity-svg">${axis}${dots}</svg>`;
 }
@@ -2352,14 +2370,14 @@ function renderRollingChart(data, pls, fm) {
     ${expBars}
     <line x1="${pad}" y1="${zeroY}" x2="${W - pad}" y2="${zeroY}" stroke="var(--bdr2)" stroke-width="0.5" stroke-dasharray="4"/>
     <line x1="${pad}" y1="${line50y.toFixed(1)}" x2="${W - pad}" y2="${line50y.toFixed(1)}" stroke="var(--t3)" stroke-width="0.5" stroke-dasharray="3,4"/>
-    <text x="${pad - 3}" y="${line50y.toFixed(1)}" fill="var(--t3)" font-size="8" text-anchor="end" dy="3">50%</text>
+    <text x="${pad - 3}" y="${line50y.toFixed(1)}" fill="var(--t3)" font-size="10" text-anchor="end" dy="3">50%</text>
     <polyline points="${wrPts.join(' ')}" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linejoin="round"/>
     <circle cx="${(pad + (n - 1) * xStep).toFixed(1)}" cy="${wrPts[n - 1].split(',')[1]}" r="3" fill="var(--accent)"/>
-    <text x="${W - pad + 4}" y="${wrPts[n - 1].split(',')[1]}" fill="var(--accent)" font-size="9" dy="3">${lastWr.toFixed(1)}%</text>
-    <text x="${pad}" y="${H - 2}" fill="var(--t3)" font-size="8">#1</text>
-    <text x="${W - pad}" y="${H - 2}" fill="var(--t3)" font-size="8" text-anchor="end">#${n}</text>
-    <text x="${pad - 3}" y="18" fill="var(--t3)" font-size="7" text-anchor="end">100%</text>
-    <text x="${pad - 3}" y="${H - 10}" fill="var(--t3)" font-size="7" text-anchor="end">0%</text>
+    <text x="${W - pad + 4}" y="${wrPts[n - 1].split(',')[1]}" fill="var(--accent)" font-size="10" dy="3">${lastWr.toFixed(1)}%</text>
+    <text x="${pad}" y="${H - 2}" fill="var(--t3)" font-size="10">#1</text>
+    <text x="${W - pad}" y="${H - 2}" fill="var(--t3)" font-size="10" text-anchor="end">#${n}</text>
+    <text x="${pad - 3}" y="18" fill="var(--t3)" font-size="10" text-anchor="end">100%</text>
+    <text x="${pad - 3}" y="${H - 10}" fill="var(--t3)" font-size="10" text-anchor="end">0%</text>
   </svg>`;
 }
 
@@ -2369,8 +2387,8 @@ function renderRollingChart(data, pls, fm) {
 function renderRMultipleChart(rMultiples) {
   if (!rMultiples || rMultiples.length < 3) return '';
   const sorted = [...rMultiples].sort((a, b) => a - b);
-  const W = 600, H = 110, pad = 30, barGap = 2;
-  const barW = Math.max(3, Math.min(16, (W - pad * 2) / sorted.length - barGap));
+  const W = 600, H = 120, pad = 32, barGap = 2;
+  const barW = Math.max(4, Math.min(16, (W - pad * 2 - 40) / sorted.length - barGap));
   const maxAbs = Math.max(1, ...sorted.map(v => Math.abs(v)));
   const zeroY = H / 2;
   const scale = (H / 2 - 14) / maxAbs;
@@ -2389,14 +2407,14 @@ function renderRMultipleChart(rMultiples) {
   const guides = `
     <line x1="${pad}" y1="${zeroY}" x2="${W - pad}" y2="${zeroY}" stroke="var(--bdr2)" stroke-width="0.5"/>
     <line x1="${pad}" y1="${y1R.toFixed(1)}" x2="${W - pad}" y2="${y1R.toFixed(1)}" stroke="var(--green)" stroke-width="0.5" stroke-dasharray="4,3" opacity=".5"/>
-    <text x="${pad - 3}" y="${y1R.toFixed(1)}" fill="var(--green)" font-size="7" text-anchor="end" dy="3">+1R</text>
+    <text x="${pad - 3}" y="${y1R.toFixed(1)}" fill="var(--green)" font-size="10" text-anchor="end" dy="3">+1R</text>
     <line x1="${pad}" y1="${yN1R.toFixed(1)}" x2="${W - pad}" y2="${yN1R.toFixed(1)}" stroke="var(--red)" stroke-width="0.5" stroke-dasharray="4,3" opacity=".5"/>
-    <text x="${pad - 3}" y="${yN1R.toFixed(1)}" fill="var(--red)" font-size="7" text-anchor="end" dy="3">-1R</text>`;
+    <text x="${pad - 3}" y="${yN1R.toFixed(1)}" fill="var(--red)" font-size="10" text-anchor="end" dy="3">-1R</text>`;
 
   const pos = rMultiples.filter(r => r > 0).length;
   const avgR = (rMultiples.reduce((s, r) => s + r, 0) / rMultiples.length);
   return `<svg viewBox="0 0 ${W} ${H}" class="j-equity-svg">${guides}${bars}
-    <text x="${W - pad}" y="12" fill="var(--t2)" font-size="8" text-anchor="end">${pos}/${rMultiples.length} 正R · 均 ${avgR.toFixed(2)}R</text>
+    <text x="${W - pad}" y="12" fill="var(--t2)" font-size="10" text-anchor="end">${pos}/${rMultiples.length} 正R · 均 ${avgR.toFixed(2)}R</text>
   </svg>`;
 }
 
@@ -2405,8 +2423,8 @@ function renderRMultipleChart(rMultiples) {
 // ================================================================
 function renderAfterLossChart(afterLossList, fm) {
   if (!afterLossList || afterLossList.length < 3) return '';
-  const W = 600, H = 110, pad = 34, barGap = 2;
-  const barW = Math.max(3, Math.min(14, (W - pad * 2) / afterLossList.length - barGap));
+  const W = 600, H = 120, pad = 34, barGap = 2;
+  const barW = Math.max(4, Math.min(14, (W - pad * 2 - 40) / afterLossList.length - barGap));
   const nets = afterLossList.map(a => a.trade.pl.net);
   const maxAbs = Math.max(1, ...nets.map(v => Math.abs(v)));
   const zeroY = H / 2;
@@ -2430,8 +2448,8 @@ function renderAfterLossChart(afterLossList, fm) {
   return `<svg viewBox="0 0 ${W} ${H}" class="j-equity-svg">
     <line x1="${pad}" y1="${zeroY}" x2="${W - pad}" y2="${zeroY}" stroke="var(--bdr2)" stroke-width="0.5"/>
     ${bars}
-    <text x="${W - pad}" y="12" fill="var(--t2)" font-size="8" text-anchor="end">勝率 ${wr}% · 淨損益 ${fm(totalNet)}</text>
-    <text x="${pad}" y="${H - 2}" fill="var(--t3)" font-size="7">舊→新</text>
+    <text x="${W - pad}" y="12" fill="var(--t2)" font-size="10" text-anchor="end">勝率 ${wr}% · 淨損益 ${fm(totalNet)}</text>
+    <text x="${pad}" y="${H - 2}" fill="var(--t3)" font-size="10">舊→新</text>
   </svg>`;
 }
 
@@ -2466,11 +2484,11 @@ function renderSizeVsPL(pls, fm) {
   return `<svg viewBox="0 0 ${W} ${H}" class="j-equity-svg">
     <line x1="${pad}" y1="${zeroY}" x2="${W - pad}" y2="${zeroY}" stroke="var(--bdr2)" stroke-width="0.5" stroke-dasharray="4"/>
     <line x1="${pad}" y1="10" x2="${pad}" y2="${H - 10}" stroke="var(--bdr2)" stroke-width="0.5" stroke-dasharray="4"/>
-    <text x="${pad - 3}" y="${zeroY}" fill="var(--t3)" font-size="7" text-anchor="end" dy="3">0</text>
-    <text x="${W - pad}" y="${H - 2}" fill="var(--t3)" font-size="7" text-anchor="end">部位大</text>
-    <text x="${pad}" y="${H - 2}" fill="var(--t3)" font-size="7">部位小</text>
-    <text x="${pad - 3}" y="14" fill="var(--green)" font-size="7" text-anchor="end">+</text>
-    <text x="${pad - 3}" y="${H - 8}" fill="var(--red)" font-size="7" text-anchor="end">-</text>
+    <text x="${pad - 3}" y="${zeroY}" fill="var(--t3)" font-size="10" text-anchor="end" dy="3">0</text>
+    <text x="${W - pad}" y="${H - 2}" fill="var(--t3)" font-size="10" text-anchor="end">部位大</text>
+    <text x="${pad}" y="${H - 2}" fill="var(--t3)" font-size="10">部位小</text>
+    <text x="${pad - 3}" y="14" fill="var(--green)" font-size="10" text-anchor="end">+</text>
+    <text x="${pad - 3}" y="${H - 8}" fill="var(--red)" font-size="10" text-anchor="end">-</text>
     ${dots}
   </svg>`;
 }
@@ -2503,36 +2521,37 @@ function renderWeekdayHeatmap(byDow, byTime, pls) {
   const allAvg = Object.values(grid).filter(g => g.c > 0).map(g => g.n / g.c);
   const maxAvg = Math.max(1, ...allAvg.map(v => Math.abs(v)));
 
-  const cellW = 64, cellH = 22, padL = 24, padT = 16, gap = 2;
-  const W = padL + slots.length * (cellW + gap), H = padT + dayOrder.length * (cellH + gap);
+  const W = 600, padL = 40, padT = 20, gap = 3;
+  const cellW = (W - padL - gap) / slots.length - gap, cellH = 28;
+  const H = padT + dayOrder.length * (cellH + gap);
 
   let cells = '';
   // Column headers
   slots.forEach((s, ci) => {
-    cells += `<text x="${padL + ci * (cellW + gap) + cellW / 2}" y="12" fill="var(--t3)" font-size="9" text-anchor="middle">${slotLabels[ci]}</text>`;
+    cells += `<text x="${padL + ci * (cellW + gap) + cellW / 2}" y="14" fill="var(--t3)" font-size="10" text-anchor="middle">${slotLabels[ci]}</text>`;
   });
   // Rows
   dayOrder.forEach((dow, ri) => {
     const y = padT + ri * (cellH + gap);
-    cells += `<text x="${padL - 4}" y="${y + cellH / 2 + 3}" fill="var(--t3)" font-size="9" text-anchor="end">${dayLabels[ri]}</text>`;
+    cells += `<text x="${padL - 6}" y="${y + cellH / 2 + 4}" fill="var(--t3)" font-size="10" text-anchor="end">${dayLabels[ri]}</text>`;
     slots.forEach((slot, ci) => {
       const x = padL + ci * (cellW + gap);
       const g = grid[`${dow}-${slot}`];
       if (!g || g.c === 0) {
         cells += `<rect x="${x}" y="${y}" width="${cellW}" height="${cellH}" fill="var(--bg3)" opacity=".3" rx="4"/>`;
-        cells += `<text x="${x + cellW / 2}" y="${y + cellH / 2 + 3}" fill="var(--t3)" font-size="8" text-anchor="middle">—</text>`;
+        cells += `<text x="${x + cellW / 2}" y="${y + cellH / 2 + 4}" fill="var(--t3)" font-size="10" text-anchor="middle">—</text>`;
       } else {
         const avg = g.n / g.c;
         const intensity = Math.min(1, Math.abs(avg) / maxAvg);
         const alpha = 0.15 + intensity * 0.55;
         const color = avg >= 0 ? 'var(--green)' : 'var(--red)';
         cells += `<rect x="${x}" y="${y}" width="${cellW}" height="${cellH}" fill="${color}" opacity="${alpha.toFixed(2)}" rx="4"><title>週${dayLabels[ri]}${slotLabels[ci === 0 ? 0 : 1]}\n${g.c}筆 · 淨 ${fmtNum(g.n, 0)} · 均 ${fmtNum(avg, 0)}\n勝率 ${(g.w / g.c * 100).toFixed(0)}%</title></rect>`;
-        cells += `<text x="${x + cellW / 2}" y="${y + cellH / 2 + 3}" fill="var(--t1)" font-size="9" font-weight="600" text-anchor="middle">${fmtNum(avg, 0)}</text>`;
+        cells += `<text x="${x + cellW / 2}" y="${y + cellH / 2 + 4}" fill="var(--t1)" font-size="10" font-weight="600" text-anchor="middle">${fmtNum(avg, 0)}</text>`;
       }
     });
   });
 
-  return `<svg viewBox="0 0 ${W} ${H}" class="j-equity-svg" style="max-width:${W}px">${cells}</svg>`;
+  return `<svg viewBox="0 0 ${W} ${H}" class="j-equity-svg">${cells}</svg>`;
 }
 
 // ================================================================
@@ -2895,7 +2914,7 @@ function renderDiary() {
         btn.textContent = '✓';
         setTimeout(() => { btn.disabled = false; btn.textContent = label; }, 1500);
       } catch (e) {
-        alert('儲存失敗：' + e.message);
+        if(window._showToast)window._showToast('儲存失敗：' + e.message);
         btn.disabled = false; btn.textContent = label;
       }
     };
@@ -3034,7 +3053,7 @@ function renderStatsPage(st, market, fm) {
   //  Section 1: Performance Overview
   // ================================================================
   const hero = `<div class="j-hero-strip">
-    <div class="j-kpi j-kpi-hero" title="淨損益 = 總獲利 ${fm(totalGross)} + 總虧損 ${fm(totalLoss)}\n已扣手續費 ${fm(tf)} + 稅 ${fm(tt)}"><span class="j-kpi-lbl">淨損益</span><span class="j-kpi-val j-num-tick ${tn>=0?'tg':'tr'}">${fm(tn)}</span></div>
+    <div class="j-kpi j-kpi-hero" title="淨損益 = 總獲利 ${fm(totalGross)} + 總虧損 ${fm(totalLoss)}\n手續費 ${fm(tf)} + 稅 ${fm(tt)}"><span class="j-kpi-lbl">淨損益</span><span class="j-kpi-val j-num-tick ${tn>=0?'tg':'tr'}">${fm(tn)}</span></div>
     ${wrRing}
     ${kpi('獲利因子', pf===Infinity?'∞':pf.toFixed(2), '', `|均獲利| ÷ |均虧損| = |${fm(aw)}| ÷ |${fm(al)}|\n> 1 表示整體獲利`)}
     ${kpi('期望值', fm(expectancy), expectancy>=0?'tg':'tr', `勝率 × 均獲利 + 敗率 × 均虧損\n= ${wr}% × ${fm(aw)} + ${(100-parseFloat(wr)).toFixed(1)}% × ${fm(al)}`)}
@@ -3056,80 +3075,48 @@ function renderStatsPage(st, market, fm) {
   const sec1 = `<div class="j-stats-section">${hero}${moreToggle}${moreKpis}</div>`;
 
   // ================================================================
-  //  Build insight badges (inline with related charts)
+  //  Insight badges
   // ================================================================
   const _badge = (icon, text, val, cls, tip) => `<div class="j-insight-badge"${tip?` title="${tip}"`:''}>` +
     `<span class="j-insight-badge-icon">${icon}</span>` +
     `<span class="j-insight-badge-text">${text}</span>` +
     `${val?`<span class="j-insight-badge-val ${cls||''}">${val}</span>`:''}` +
     `</div>`;
-  let timeBadge = '', revengeBadge = '', discBadges = '';
+  let badges = '';
+  if (reviewed.length) {
+    badges += _badge('\u{1f4dd}', '覆盤', `紀律${avgDisc.toFixed(1)} 時機${avgTim.toFixed(1)} 倉位${avgSiz.toFixed(1)}`, '', `${reviewed.length}筆已評分`);
+    if (highDisc.length && lowDisc.length)
+      badges += _badge('\u{1f3af}', '高vs低紀律', `<span class="${highDiscPL>=0?'tg':'tr'}">${fm(highDiscPL)}</span> / <span class="${lowDiscPL>=0?'tg':'tr'}">${fm(lowDiscPL)}</span>`, '', `高(4-5)${highDisc.length}筆 低(1-2)${lowDisc.length}筆`);
+  }
   if (byTime.morning.c && byTime.afternoon.c) {
     const mAvg = byTime.morning.n / byTime.morning.c, aAvg = byTime.afternoon.n / byTime.afternoon.c;
-    const better = mAvg > aAvg ? '上午' : '下午';
-    const betterAvg = mAvg > aAvg ? mAvg : aAvg;
-    timeBadge = _badge('\u{1f4ca}', `${better}較佳`, fm(betterAvg), betterAvg >= 0 ? 'tg' : 'tr', `上午 ${byTime.morning.c}筆 均${fm(mAvg)}\n下午 ${byTime.afternoon.c}筆 均${fm(aAvg)}`);
+    const better = mAvg > aAvg ? '上午' : '下午', betterAvg = mAvg > aAvg ? mAvg : aAvg;
+    badges += _badge('\u{1f4ca}', `${better}較佳`, fm(betterAvg), betterAvg >= 0 ? 'tg' : 'tr', `上午${byTime.morning.c}筆 均${fm(mAvg)}\n下午${byTime.afternoon.c}筆 均${fm(aAvg)}`);
   }
-  if (afterLossCount > 0) {
-    revengeBadge = revengeTrades > 0
-      ? _badge('\u{26a0}\u{fe0f}', '疑似報復交易', `${revengeTrades}筆`, 'tr', `虧損後2hr內 ${revengeTrades}筆\n均損益 ${fm(revengeNet/revengeTrades)}`)
-      : _badge('\u{2705}', '無報復交易', '', 'tg', '');
-  }
-  if (reviewed.length) {
-    const rc = v => v >= 4 ? 'tg' : v <= 2 ? 'tr' : '';
-    discBadges = _badge('\u{1f4dd}', '覆盤', `紀律${avgDisc.toFixed(1)} 時機${avgTim.toFixed(1)} 倉位${avgSiz.toFixed(1)}`, '', `${reviewed.length}筆已評分`);
-    if (highDisc.length && lowDisc.length) {
-      discBadges += _badge('\u{1f3af}', '高vs低紀律', `<span class="${highDiscPL>=0?'tg':'tr'}">${fm(highDiscPL)}</span> / <span class="${lowDiscPL>=0?'tg':'tr'}">${fm(lowDiscPL)}</span>`, '', `高(4-5)${highDisc.length}筆 低(1-2)${lowDisc.length}筆`);
-    }
-  }
-  const allBadges = discBadges + timeBadge + revengeBadge;
-  const badgesRow = allBadges ? `<div class="j-insight-badges">${allBadges}</div>` : '';
+  if (afterLossCount > 0) badges += revengeTrades > 0
+    ? _badge('\u{26a0}\u{fe0f}', '疑似報復', `${revengeTrades}筆`, 'tr', `虧損後2hr內${revengeTrades}筆 均${fm(revengeNet/revengeTrades)}`)
+    : _badge('\u{2705}', '無報復交易', '', 'tg', '');
 
   // ================================================================
-  //  Section 2: All Charts (merged)
+  //  Section 2: Charts — seamless tile grid
   // ================================================================
-  const _hd = (title, tip) => `<div class="j-chart-hd"><span class="j-chart-title">${title}</span><span class="j-chart-tip" title="${tip}">?</span></div>`;
-
+  const _hd = (t, tip) => `<div class="j-chart-hd"><span class="j-chart-title">${t}</span><span class="j-chart-tip" title="${tip}">?</span></div>`;
   const equity = renderEquityCurve(pls);
-  const monthlyChart = renderMonthlyBarChart(st.byM);
-  const tradePLBars = renderTradePLBars(pls);
-  const rollingChart = renderRollingChart(rollingData, pls, fm);
-  const rMultipleChart = renderRMultipleChart(rMultiples);
-  const afterLossChart = renderAfterLossChart(afterLossList, fm);
-  const sizeVsPLChart = renderSizeVsPL(pls, fm);
-  const holdScatter = renderHoldScatter(pls);
-  const weekdayHeat = renderWeekdayHeatmap(byDow, byTime, pls);
-
-  let sec2Inner = '';
-  // Equity curve (full width sparkline)
-  if (equity) sec2Inner += equity;
-  // Row 1: monthly + trade PL
-  const r1Cells = [];
-  if (monthlyChart) r1Cells.push(`<div class="j-chart-cell">${_hd('月度損益','各月份已平倉淨損益加總，觀察月度穩定性與季節模式')}${monthlyChart}</div>`);
-  if (tradePLBars) r1Cells.push(`<div class="j-chart-cell">${_hd('逐筆損益','每筆交易按時間排序。虛線為平均獲利/虧損水準，找出異常大的虧損')}${tradePLBars}</div>`);
-  if (r1Cells.length) sec2Inner += `<div class="j-charts-row">${r1Cells.join('')}</div>`;
-  // Row 2: rolling + R-multiple
-  const r2Cells = [];
-  if (rollingChart) r2Cells.push(`<div class="j-chart-cell">${_hd('滾動勝率','藍線=30筆滾動勝率，柱狀=滾動期望值。持續下滑代表策略可能失效')}${rollingChart}</div>`);
-  if (rMultipleChart) r2Cells.push(`<div class="j-chart-cell">${_hd('R 倍數分布','以停損為1R換算損益倍數。看是否有>2R的大獲利來覆蓋小虧損')}${rMultipleChart}</div>`);
-  if (r2Cells.length) sec2Inner += `<div class="j-charts-row">${r2Cells.join('')}</div>`;
-  // Row 3: after-loss + size vs PL
-  const r3Cells = [];
-  if (afterLossChart) r3Cells.push(`<div class="j-chart-cell">${_hd('虧損後行為','每根柱子是虧損後的下一筆交易。大量紅色=報復性交易或心態傾斜')}${afterLossChart}</div>`);
-  if (sizeVsPLChart) r3Cells.push(`<div class="j-chart-cell">${_hd('部位 vs 損益','散點越右=部位越大。大部位聚集在下方表示加碼風控有問題')}${sizeVsPLChart}</div>`);
-  if (r3Cells.length) sec2Inner += `<div class="j-charts-row">${r3Cells.join('')}</div>`;
-  // Row 4: hold scatter + weekday heatmap
-  const r4Cells = [];
-  if (holdScatter) r4Cells.push(`<div class="j-chart-cell">${_hd('持倉天數 vs 損益','X=持倉天數，Y=淨損益。找出最適持倉週期')}${holdScatter}</div>`);
-  if (weekdayHeat) r4Cells.push(`<div class="j-chart-cell">${_hd('時段熱力圖','顏色深淺=平均損益高低。集中在績效好的時段交易')}${weekdayHeat}</div>`);
-  if (r4Cells.length) sec2Inner += `<div class="j-charts-row">${r4Cells.join('')}</div>`;
-  // Insight badges at bottom of chart section
-  if (badgesRow) sec2Inner += badgesRow;
-
-  const sec2 = sec2Inner ? `<div class="j-stats-section"><div class="j-section-title">圖表總覽</div>${sec2Inner}</div>` : '';
+  const cells = [];
+  const _add = (svg, t, tip) => { if (svg) cells.push(`<div class="j-chart-cell">${_hd(t, tip)}${svg}</div>`); };
+  _add(renderMonthlyBarChart(st.byM), '月度損益', '各月份已平倉淨損益加總，觀察穩定性與季節模式');
+  _add(renderTradePLBars(pls), '逐筆損益', '每筆按時間排序，虛線為均獲利/虧損水準');
+  _add(renderRollingChart(rollingData, pls, fm), '滾動勝率', '藍線=30筆滾動勝率，柱狀=滾動期望值');
+  _add(renderRMultipleChart(rMultiples), 'R 倍數', '以停損為1R換算損益倍數，>2R為理想獲利');
+  _add(renderAfterLossChart(afterLossList, fm), '虧損後行為', '虧損後下一筆交易損益，紅色密集=報復性交易');
+  _add(renderSizeVsPL(pls, fm), '部位 vs 損益', '部位越大散點越右，右下密集=加碼風控問題');
+  _add(renderHoldScatter(pls), '持倉 vs 損益', '持倉天數與淨損益關係，找最適持倉週期');
+  _add(renderWeekdayHeatmap(byDow, byTime, pls), '時段熱力圖', '顏色深淺=平均損益高低');
+  const chartGrid = cells.length ? `<div class="j-charts-grid">${cells.join('')}</div>` : '';
+  const sec2 = (equity || chartGrid || badges) ? `<div class="j-stats-section">${equity||''}${chartGrid}${badges?`<div class="j-insight-badges">${badges}</div>`:''}</div>` : '';
 
   // ================================================================
-  //  Section 3: Dimension Analysis (compact)
+  //  Section 3: Dimension Analysis
   // ================================================================
   const availDims = Object.entries(DIM_DEFS).filter(([,def]) => {
     const d = st[def.key]; return d && Object.keys(d).length > 0;
@@ -3141,25 +3128,22 @@ function renderStatsPage(st, market, fm) {
   const sec3 = `<div class="j-stats-section"><div class="j-section-title">維度分析</div>${dimPills}${dimTable}</div>`;
 
   // ================================================================
-  //  Section 4: Tutorial (collapsed by default)
+  //  Tutorial (collapsed)
   // ================================================================
-  const tutorialToggle = `<button class="j-tutorial-toggle" id="j-tutorial-toggle"><svg viewBox="0 0 12 12" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 4l4 4 4-4"/></svg>如何用圖表檢討交易 — 10 步驟指南</button>`;
-  const sec4 = `<div class="j-stats-section" style="padding:4px 6px">
-    ${tutorialToggle}
-    <div class="j-tutorial-wrap collapsed" id="j-tutorial-wrap">
-      <div class="j-tutorial">
-        <div class="j-tutorial-step"><div class="j-tutorial-num">1</div><div class="j-tutorial-body"><div class="j-tutorial-heading">先看整體績效</div><p>確認<strong>淨損益</strong>、<strong>勝率</strong>和<strong>期望值</strong>。期望值為正代表策略長期可獲利。為負則檢查虧損是否太大或獲利截短太快。</p></div></div>
-        <div class="j-tutorial-step"><div class="j-tutorial-num">2</div><div class="j-tutorial-body"><div class="j-tutorial-heading">觀察資金曲線</div><p>曲線應穩定上升。<strong>回撤帶</strong>過大代表風控需改善，理想在 10-20% 以內。曲線長期走平則策略需調整。</p></div></div>
-        <div class="j-tutorial-step"><div class="j-tutorial-num">3</div><div class="j-tutorial-body"><div class="j-tutorial-heading">檢查月度穩定性</div><p>連續多月虧損是暫停檢討的警訊。注意是否有季節性虧損模式。</p></div></div>
-        <div class="j-tutorial-step"><div class="j-tutorial-num">4</div><div class="j-tutorial-body"><div class="j-tutorial-heading">逐筆損益找異常</div><p>找出<strong>異常大的虧損</strong>（未遵守停損）。獲利全是矮柱 = 截短利潤，嘗試延長持倉。</p></div></div>
-        <div class="j-tutorial-step"><div class="j-tutorial-num">5</div><div class="j-tutorial-body"><div class="j-tutorial-heading">滾動勝率追蹤策略</div><p>勝率和期望值同步下降時，<strong>減少部位</strong>或暫停交易，等待確認策略是否需要調整。</p></div></div>
-        <div class="j-tutorial-step"><div class="j-tutorial-num">6</div><div class="j-tutorial-body"><div class="j-tutorial-heading">R 倍數評估風報比</div><p>好的系統平均 R 為正，且有少數 > 2R 大贏家。多數在 ±1R 之間代表停利設太近。</p></div></div>
-        <div class="j-tutorial-step"><div class="j-tutorial-num">7</div><div class="j-tutorial-body"><div class="j-tutorial-heading">虧損後行為模式</div><p>虧損後常接虧損 = <strong>報復性交易</strong>。建議連虧 N 筆後強制休息再交易。</p></div></div>
-        <div class="j-tutorial-step"><div class="j-tutorial-num">8</div><div class="j-tutorial-body"><div class="j-tutorial-heading">部位大小與損益</div><p>大部位大虧損密集 = 加碼缺乏紀律。小部位試單，確認後才加碼；虧損時<strong>絕不攤平</strong>。</p></div></div>
-        <div class="j-tutorial-step"><div class="j-tutorial-num">9</div><div class="j-tutorial-body"><div class="j-tutorial-heading">找最佳交易時段</div><p>集中在績效好的時段交易，減少劣勢時段下單。</p></div></div>
-        <div class="j-tutorial-step"><div class="j-tutorial-num">10</div><div class="j-tutorial-body"><div class="j-tutorial-heading">維度分析深入挖掘</div><p>比較不同市場、類型、方向績效，找到<strong>優勢領域</strong>並專注。</p></div></div>
-      </div>
-    </div>
+  const sec4 = `<div class="j-stats-section" style="padding:4px 8px">
+    <button class="j-tutorial-toggle" id="j-tutorial-toggle"><svg viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 4l4 4 4-4"/></svg>如何用圖表檢討交易</button>
+    <div class="j-tutorial-wrap collapsed" id="j-tutorial-wrap"><div class="j-tutorial">
+      <div class="j-tutorial-step"><div class="j-tutorial-num">1</div><div class="j-tutorial-body"><div class="j-tutorial-heading">先看整體績效</div><p>確認<strong>期望值</strong>是否為正，正=策略長期可獲利。</p></div></div>
+      <div class="j-tutorial-step"><div class="j-tutorial-num">2</div><div class="j-tutorial-body"><div class="j-tutorial-heading">資金曲線</div><p>穩定上升最佳。<strong>回撤帶</strong>過大=風控需改善。</p></div></div>
+      <div class="j-tutorial-step"><div class="j-tutorial-num">3</div><div class="j-tutorial-body"><div class="j-tutorial-heading">月度穩定性</div><p>連續多月虧損=暫停檢討。注意季節模式。</p></div></div>
+      <div class="j-tutorial-step"><div class="j-tutorial-num">4</div><div class="j-tutorial-body"><div class="j-tutorial-heading">逐筆異常</div><p>異常大虧損=未遵停損。矮綠柱=截短利潤。</p></div></div>
+      <div class="j-tutorial-step"><div class="j-tutorial-num">5</div><div class="j-tutorial-body"><div class="j-tutorial-heading">滾動勝率</div><p>持續下滑=策略失效，應<strong>減少部位</strong>。</p></div></div>
+      <div class="j-tutorial-step"><div class="j-tutorial-num">6</div><div class="j-tutorial-body"><div class="j-tutorial-heading">R 倍數</div><p>均R為正且有>2R大贏家=好系統。</p></div></div>
+      <div class="j-tutorial-step"><div class="j-tutorial-num">7</div><div class="j-tutorial-body"><div class="j-tutorial-heading">虧損後行為</div><p>虧損後常接虧=<strong>報復性交易</strong>，需強制休息。</p></div></div>
+      <div class="j-tutorial-step"><div class="j-tutorial-num">8</div><div class="j-tutorial-body"><div class="j-tutorial-heading">部位與損益</div><p>大部位大虧密集=加碼無紀律，虧損<strong>絕不攤平</strong>。</p></div></div>
+      <div class="j-tutorial-step"><div class="j-tutorial-num">9</div><div class="j-tutorial-body"><div class="j-tutorial-heading">最佳時段</div><p>集中績效好的時段，減少劣勢時段下單。</p></div></div>
+      <div class="j-tutorial-step"><div class="j-tutorial-num">10</div><div class="j-tutorial-body"><div class="j-tutorial-heading">維度分析</div><p>比較市場/類型/方向，找到<strong>優勢領域</strong>並專注。</p></div></div>
+    </div></div>
   </div>`;
 
   return sec1 + sec2 + sec3 + sec4;
@@ -3685,7 +3669,7 @@ function openTradeForm(id, prefill) {
     const name = prompt('模板名稱：');
     if (!name?.trim()) return;
     saveTemplate(name.trim());
-    alert(`模板「${name.trim()}」已儲存`);
+    if(window._showToast)window._showToast(`模板「${name.trim()}」已儲存`);
   });
 
   const closeModal=()=>{overlay.classList.remove('open');modal.classList.remove('open');editingId=null;document.removeEventListener('keydown',escHandler);};
@@ -3705,7 +3689,7 @@ function openTradeForm(id, prefill) {
       }
     } catch(err) {
       console.error('Save trade error:', err);
-      alert('儲存失敗：' + err.message);
+      if(window._showToast)window._showToast('儲存失敗：' + err.message);
       btn.disabled = false; btn.textContent = id ? '儲存修改' : '新增紀錄';
     }
   });
@@ -3755,6 +3739,7 @@ async function saveTrade() {
     await api(`/trades/${editingId}`, { method: 'PUT', body: JSON.stringify(data) });
     const idx = trades.findIndex(t => t.id === editingId);
     if (idx >= 0) trades[idx] = data;
+    if (window._showToast) window._showToast(`已更新 ${data.symbol || '交易'} 紀錄`);
   } else {
     // Auto-offset: check for opposing open positions
     const oppositeDir = data.direction === 'long' ? 'short' : 'long';
@@ -3883,10 +3868,35 @@ function openTradeDetail(id) {
   });
 }
 
+function _confirmDialog(msg, onConfirm, opts = {}) {
+  const { confirmText = '確認', confirmColor = 'var(--red)' } = opts;
+  let overlay = $('#j-confirm-overlay');
+  if (!overlay) { overlay = document.createElement('div'); overlay.id = 'j-confirm-overlay'; overlay.className = 'j-modal-overlay'; document.body.appendChild(overlay); }
+  let modal = $('#j-confirm-modal');
+  if (!modal) { modal = document.createElement('div'); modal.id = 'j-confirm-modal'; modal.className = 'j-modal'; modal.style.width = '360px'; modal.style.maxWidth = '90vw'; document.body.appendChild(modal); }
+  modal.innerHTML = `
+    <div class="j-modal-body" style="padding:20px 24px;text-align:center">
+      <div style="font-size:.88rem;color:var(--t1);margin-bottom:16px;line-height:1.5">${msg}</div>
+      <div style="display:flex;gap:8px;justify-content:center">
+        <button class="j-btn" id="j-confirm-no" style="min-width:72px">取消</button>
+        <button class="j-btn j-btn-primary" id="j-confirm-yes" style="min-width:72px;background:${confirmColor}">${confirmText}</button>
+      </div>
+    </div>`;
+  overlay.classList.add('open'); modal.classList.add('open');
+  const close = () => { overlay.classList.remove('open'); modal.classList.remove('open'); document.removeEventListener('keydown', kh); };
+  const kh = e => { if (e.key === 'Escape') close(); if (e.key === 'Enter') { close(); onConfirm(); } };
+  document.addEventListener('keydown', kh);
+  $('#j-confirm-no').onclick = close;
+  overlay.onclick = e => { if (e.target === overlay) close(); };
+  $('#j-confirm-yes').onclick = () => { close(); onConfirm(); };
+  requestAnimationFrame(() => $('#j-confirm-yes')?.focus());
+}
+
 async function deleteTrade(id) {
   const t=trades.find(x=>x.id===id);if(!t)return;
-  if(!confirm(`確定要刪除 ${t.symbol} ${t.name} 的交易紀錄嗎？`))return;
-  try{await api(`/trades/${id}`,{method:'DELETE'});trades=trades.filter(x=>x.id!==id);renderJournal();}catch(e){alert('刪除失敗：'+e.message);}
+  _confirmDialog(`確定要刪除 <strong>${esc(t.symbol)}</strong> 的交易紀錄嗎？`, async () => {
+    try{await api(`/trades/${id}`,{method:'DELETE'});trades=trades.filter(x=>x.id!==id);renderJournal();if(window._showToast)window._showToast(`已刪除 ${t.symbol} 交易紀錄`);}catch(e){if(window._showToast)window._showToast('刪除失敗：'+e.message);}
+  }, { confirmText: '刪除' });
 }
 
 // ================================================================

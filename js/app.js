@@ -824,13 +824,18 @@ function wrapNumberInputs(container) {
     minus.addEventListener('click', () => adjust(-1));
     plus.addEventListener('click', () => adjust(1));
 
-    let _holdTimer = null, _holdInterval = null;
+    let _holdTimer = null, _holdInterval = null, _holdCount = 0;
     const startHold = (dir) => {
+      _holdCount = 0;
       _holdTimer = setTimeout(() => {
-        _holdInterval = setInterval(() => adjust(dir), 80);
-      }, 400);
+        _holdInterval = setInterval(() => {
+          _holdCount++;
+          const multi = _holdCount > 30 ? 5 : _holdCount > 15 ? 2 : 1;
+          for (let i = 0; i < multi; i++) adjust(dir);
+        }, 60);
+      }, 350);
     };
-    const stopHold = () => { clearTimeout(_holdTimer); clearInterval(_holdInterval); };
+    const stopHold = () => { clearTimeout(_holdTimer); clearInterval(_holdInterval); _holdCount = 0; };
     [minus, plus].forEach((btn, i) => {
       const dir = i === 0 ? -1 : 1;
       btn.addEventListener('pointerdown', () => startHold(dir));
@@ -2701,13 +2706,18 @@ function init() {
   _initTickerToggle();
 
   // Main tabs
+  const _tabScrollPos = {};
   $$('.main-tab').forEach(b => b.addEventListener('click', () => {
+    // Save current tab scroll position
+    const prevTab = S.activeTab;
+    if (prevTab) _tabScrollPos[prevTab] = window.scrollY;
     $$('.main-tab').forEach(x => x.classList.remove('active'));
     b.classList.add('active');
     $$('.tab-content').forEach(x => x.classList.remove('active'));
     $(`#tab-${b.dataset.tab}`)?.classList.add('active');
-    window.scrollTo(0, 0);
     S.activeTab = b.dataset.tab; _saveState();
+    // Restore scroll position or go to top
+    window.scrollTo(0, _tabScrollPos[b.dataset.tab] || 0);
     if (b.dataset.tab === 'guide') renderGuide();
     if (b.dataset.tab === 'settings') { if (!window._stgRendered) { renderSettings(); window._stgRendered = true; } }
   }));
@@ -2751,7 +2761,7 @@ function init() {
 
   // ── Hard reload button (clear cache & reload) ──
   $('#btn-hard-reload')?.addEventListener('click', async () => {
-    if (!confirm('確定要重新載入頁面嗎？將清除快取並載入最新版本。')) return;
+    if (!confirm('確定要重新載入頁面嗎？\n將清除快取並載入最新版本。')) return;
     if ('caches' in window) {
       const keys = await caches.keys();
       await Promise.all(keys.map(k => caches.delete(k)));
@@ -3202,8 +3212,11 @@ function renderSettings() {
       <h4><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h8M6 16h.01M18 16h.01"/></svg>鍵盤快捷鍵</h4>
       <div class="stg-s-body">
         <div style="font-size:.8rem;color:var(--t2);line-height:1.8">
-          <div><kbd>1</kbd>~<kbd>6</kbd> 切換分頁（股票/期貨/選擇權/紀錄/說明/設定）</div>
+          <div><kbd>1</kbd>~<kbd>7</kbd> 切換分頁（紀錄/股票/期貨/選擇權/加密/說明/設定）</div>
           <div><kbd>R</kbd> 重新整理報價</div>
+          <div><kbd>N</kbd> 新增交易（紀錄頁）</div>
+          <div><kbd>?</kbd> 開啟說明頁</div>
+          <div><kbd>Esc</kbd> 關閉彈窗</div>
         </div>
       </div>
     </div>`;
@@ -3681,6 +3694,7 @@ async function handleFetchIndices(updateForms) {
     _renderSentimentStrip();
     _fetchFearGreed();
     _fetchCreditSpread();
+    if (updateForms && window._showToast) window._showToast(`報價已更新（${ok} 成功${fail ? `，${fail} 失敗` : ''}）`);
   } catch (e) { console.warn('[Prism] Index fetch error:', e.message); }
   btn.classList.remove('loading');
 }
@@ -5440,6 +5454,16 @@ document.addEventListener('keydown', e => {
     const btn = $('#btn-fetch-indices');
     if (btn && !btn.classList.contains('loading')) { btn.click(); e.preventDefault(); }
   }
+  // N to add new trade (only on journal tab)
+  if ((e.key === 'n' || e.key === 'N') && $('#tab-journal')?.classList.contains('active')) {
+    const addBtn = $('.j-add-btn');
+    if (addBtn) { addBtn.click(); e.preventDefault(); }
+  }
+  // ? or / to show guide tab
+  if (e.key === '?') {
+    const guideBtn = $(`.main-tab[data-tab="guide"]`);
+    if (guideBtn) { guideBtn.click(); e.preventDefault(); }
+  }
 });
 
 // ================================================================
@@ -5468,6 +5492,22 @@ document.addEventListener('keydown', e => {
   window._showToast = showToast;
   window.addEventListener('online', () => showToast('網路已恢復連線', 'online'));
   window.addEventListener('offline', () => showToast('網路連線已中斷，部分功能可能無法使用', 'offline'));
+})();
+
+// ================================================================
+//  SCROLL-TO-TOP BUTTON
+// ================================================================
+(function() {
+  const btn = document.createElement('button');
+  btn.className = 'scroll-top-btn';
+  btn.setAttribute('aria-label', '回到頂部');
+  btn.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>';
+  document.body.appendChild(btn);
+  let _ticking = false;
+  window.addEventListener('scroll', () => {
+    if (!_ticking) { _ticking = true; requestAnimationFrame(() => { btn.classList.toggle('show', window.scrollY > 300); _ticking = false; }); }
+  }, { passive: true });
+  btn.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
 })();
 
 // ================================================================
