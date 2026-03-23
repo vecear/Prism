@@ -78,8 +78,6 @@ const INDEX_DEFS = {
 const PriceService = {
   PROXIES: [
     url => `${API_BASE}/api/proxy?url=${encodeURIComponent(url)}`,
-    url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-    url => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
   ],
 
   async _fetchTimeout(url, ms = 8000, opts = {}) {
@@ -490,7 +488,6 @@ const PriceService = {
     let data;
     try { const r = await this._fetchTimeout(url, 4000, postOpts); if (r.ok) data = await r.json(); } catch {}
     if (!data) { try { const r = await this._fetchTimeout(`${API_BASE}/api/proxy?url=${encodeURIComponent(url)}`, 8000, postOpts); if (r.ok) data = await r.json(); } catch {} }
-    if (!data) { try { const r = await this._fetchTimeout(`https://corsproxy.io/?url=${encodeURIComponent(url)}`, 10000, postOpts); if (r.ok) data = await r.json(); } catch {} }
     if (!data) { const getUrl = url + '?' + new URLSearchParams(payload).toString(); const r = await this._proxyFetch(getUrl, 10000); data = await r.json(); }
     return data;
   },
@@ -589,7 +586,15 @@ const _quoteCache = {
     this._save();
     return this._mem;
   },
-  _save() { try { localStorage.setItem(this._KEY, JSON.stringify(this._mem)); } catch (e) { console.warn('[Prism] Cache save failed:', e.message); } },
+  _saveTimer: null,
+  _save() {
+    if (this._saveTimer) return;
+    this._saveTimer = setTimeout(() => {
+      this._saveTimer = null;
+      try { localStorage.setItem(this._KEY, JSON.stringify(this._mem)); } catch (e) { console.warn('[Prism] Cache save failed:', e.message); }
+    }, 200);
+  },
+  _saveNow() { if (this._saveTimer) { clearTimeout(this._saveTimer); this._saveTimer = null; } try { localStorage.setItem(this._KEY, JSON.stringify(this._mem)); } catch (e) { console.warn('[Prism] Cache save failed:', e.message); } },
   // TTL: 依設定的 refreshInterval；若為 0（關閉自動更新）則 30 分鐘
   _ttl() { return (CFG.refreshInterval > 0 ? CFG.refreshInterval * 1000 : 1800000); },
   getIndex(key) {

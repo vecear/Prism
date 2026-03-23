@@ -633,40 +633,6 @@ function duplicateTrade(id) {
   openTradeForm(null, nt);
 }
 
-// ── Partial Close ──
-async function partialCloseTrade(id) {
-  const t = trades.find(x => x.id === id);
-  if (!t || t.status !== 'open') return;
-  const totalQty = parseFloat(t.quantity);
-  if (!totalQty || isNaN(totalQty)) { if(window._showToast)window._showToast('此交易沒有數量'); return; }
-  const closeQtyStr = prompt(`總數量 ${totalQty}，要平倉多少？`);
-  if (!closeQtyStr) return;
-  const closeQty = parseFloat(closeQtyStr);
-  if (isNaN(closeQty) || closeQty <= 0 || closeQty > totalQty) { if(window._showToast)window._showToast('數量無效'); return; }
-
-  const lq = liveQuotes[getLiveQuoteKey(t)];
-  const exitPrice = (lq?.price != null && !isNaN(lq.price)) ? lq.price : parseFloat(prompt('請輸入平倉價格：') || '');
-  if (exitPrice == null || isNaN(exitPrice)) { if(window._showToast)window._showToast('價格無效'); return; }
-
-  const remainQty = totalQty - closeQty;
-  const feeRatio = closeQty / totalQty;
-  const origFee = parseFloat(t.fee) || 0, origTax = parseFloat(t.tax) || 0;
-
-  // Create closed trade for the closed portion (floor for closed, remainder gets rest to keep total exact)
-  const closedFee = Math.floor(origFee * feeRatio), closedTax = Math.floor(origTax * feeRatio);
-  const ef = calcExitFees(t.market, t.type, exitPrice, closeQty, parseFloat(t.contractMul) || 1, t.direction, t.symbol);
-  const closedData = { ...t, id: undefined, quantity: closeQty, exitPrice, status: 'closed', fee: String(closedFee + (parseFloat(ef.fee) || 0)), tax: String(closedTax + (parseFloat(ef.tax) || 0)), date: localISOString() };
-  // Update original trade with remaining qty
-  const remainData = { ...t, quantity: remainQty, fee: origFee - closedFee, tax: origTax - closedTax };
-
-  try {
-    await api('/trades', { method: 'POST', body: JSON.stringify(closedData) });
-    await api(`/trades/${id}`, { method: 'PUT', body: JSON.stringify(remainData) });
-    await loadTrades();
-    renderJournal();
-  } catch (e) { if(window._showToast)window._showToast('部分平倉失敗：' + e.message); }
-}
-
 // ── FIFO Offset Close (智能沖銷) ──
 async function offsetClose(symbol, market, direction) {
   const openList = trades.filter(t => t.status === 'open' && t.symbol === symbol && t.market === market && t.direction === direction)
@@ -1948,7 +1914,7 @@ function renderTradeList() {
     fetchOpenTradeQuotes().then(() => {
       if (viewMode === 'list') renderTradeList();
       checkSLTPAlerts();
-    });
+    }).catch(e => console.warn('[Journal] Quote fetch failed:', e.message));
   }
 }
 
@@ -2205,7 +2171,7 @@ function renderHoldings() {
   if (needsFetch) {
     fetchOpenTradeQuotes().then(() => {
       if (viewMode === 'holdings') renderHoldings();
-    });
+    }).catch(e => console.warn('[Journal] Quote fetch failed:', e.message));
   }
 }
 
@@ -2635,7 +2601,7 @@ function _renderDiaryTrades(dateStr) {
 
 function _calcDiaryStreak() {
   if (!dailyJournals.length) return 0;
-  const sorted = [...dailyJournals].sort((a, b) => b.date.localeCompare(a.date));
+  const dateSet = new Set(dailyJournals.map(j => j.date));
   let streak = 0;
   const today = new Date();
   for (let i = 0; i < 365; i++) {
@@ -2643,7 +2609,7 @@ function _calcDiaryStreak() {
     const ds = d.toISOString().slice(0, 10);
     // Skip weekends
     if (d.getDay() === 0 || d.getDay() === 6) continue;
-    if (sorted.find(j => j.date === ds)) streak++;
+    if (dateSet.has(ds)) streak++;
     else break;
   }
   return streak;

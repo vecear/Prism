@@ -56,10 +56,8 @@ async function ensureDB(db) {
 }
 
 // ── CORS ──
-let _currentRequest = null;
 function corsHeaders(request) {
-  const req = request || _currentRequest;
-  const origin = req?.headers?.get('Origin') || '';
+  const origin = request?.headers?.get('Origin') || '';
   const allowed = ['https://prism-7t8.pages.dev', 'http://localhost:8788', 'http://127.0.0.1:8788', 'http://localhost:3000', 'http://127.0.0.1:3000'];
   const allowOrigin = allowed.includes(origin) ? origin : allowed[0];
   return {
@@ -69,14 +67,25 @@ function corsHeaders(request) {
     'Access-Control-Max-Age': '86400',
   };
 }
-function jsonRes(data, status = 200, request) {
+const SECURITY_HEADERS = {
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+};
+function withCors(response, request) {
+  const h = new Headers(response.headers);
+  for (const [k, v] of Object.entries(corsHeaders(request))) h.set(k, v);
+  for (const [k, v] of Object.entries(SECURITY_HEADERS)) h.set(k, v);
+  return new Response(response.body, { status: response.status, headers: h });
+}
+function jsonRes(data, status = 200) {
   return new Response(JSON.stringify(data), {
-    status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...corsHeaders(request) },
+    status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
   });
 }
-function jsonErr(status, message, request) {
+function jsonErr(status, message) {
   return new Response(JSON.stringify({ error: message }), {
-    status, headers: { 'Content-Type': 'application/json', ...corsHeaders(request) },
+    status, headers: { 'Content-Type': 'application/json' },
   });
 }
 
@@ -186,6 +195,7 @@ async function handleProxy(request) {
   const url = new URL(request.url);
   const target = url.searchParams.get('url');
   if (!target) return jsonErr(400, 'Missing ?url= parameter');
+  if (target.length > 2048) return jsonErr(400, 'URL too long');
   let targetUrl;
   try { targetUrl = new URL(target); } catch { return jsonErr(400, 'Invalid URL'); }
   if (!PROXY_ALLOWED.includes(targetUrl.hostname)) return jsonErr(403, 'Host not allowed');
@@ -195,6 +205,8 @@ async function handleProxy(request) {
     const ct = request.headers.get('content-type');
     if (ct) fetchOpts.headers['Content-Type'] = ct;
     if (request.method === 'POST') {
+      const cl = parseInt(request.headers.get('content-length') || '0', 10);
+      if (cl > 65536) return jsonErr(400, 'Request body too large');
       fetchOpts.body = await request.text();
       if (fetchOpts.body.length > 65536) return jsonErr(400, 'Request body too large');
     }
@@ -204,7 +216,7 @@ async function handleProxy(request) {
     const body = await resp.arrayBuffer();
     return new Response(body, {
       status: resp.status,
-      headers: { ...corsHeaders(request), 'Content-Type': resp.headers.get('Content-Type') || 'application/json', 'Cache-Control': 'public, max-age=30' },
+      headers: { 'Content-Type': resp.headers.get('Content-Type') || 'application/json', 'Cache-Control': 'public, max-age=30' },
     });
   } catch (e) { console.error('[Proxy Error]', e); return jsonErr(502, 'Proxy fetch failed'); }
 }
@@ -308,6 +320,9 @@ async function handleCreateTrade(request, env) {
   if (JSON.stringify(body).length > 32768) return jsonErr(400, '交易資料過大');
   if (!body.symbol?.trim()) return jsonErr(400, '交易代號不可為空');
   if (!body.entryPrice && body.entryPrice !== 0) return jsonErr(400, '進場價格不可為空');
+  if (body.date && !/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2})?)?$/.test(body.date)) return jsonErr(400, '日期格式無效');
+  const imgUrl = String(body.imageUrl || '').slice(0, 500);
+  if (imgUrl && !imgUrl.startsWith('https://')) return jsonErr(400, 'imageUrl 必須使用 HTTPS');
   const VALID_MARKETS = ['tw', 'us', 'crypto'];
   const VALID_TYPES = ['stock', 'etf', 'futures', 'options', 'index_futures', 'stock_futures', 'commodity_futures', 'crypto_contract', 'crypto_spot'];
   const VALID_DIRS = ['long', 'short'];
@@ -326,7 +341,7 @@ async function handleCreateTrade(request, env) {
       body.entryPrice ?? null, body.exitPrice ?? null, body.quantity ?? null,
       body.contractMul ? parseFloat(body.contractMul) || null : null, body.stopLoss ?? null, body.takeProfit ?? null,
       body.fee ?? 0, body.tax ?? 0, JSON.stringify(Array.isArray(body.tags) ? body.tags.slice(0, 20) : []), String(body.notes || '').slice(0, 5000),
-      String(body.account || '').slice(0, 50), String(body.imageUrl || '').slice(0, 500), body.rating ?? 0,
+      String(body.account || '').slice(0, 50), imgUrl, body.rating ?? 0,
       body.reviewDiscipline ?? 0, body.reviewTiming ?? 0, body.reviewSizing ?? 0, String(body.pricingStage || '').slice(0, 20), now, now
     ).run();
   } catch (e) {
@@ -346,7 +361,10 @@ async function handleUpdateTrade(request, env, tradeId) {
   try { body = await request.json(); } catch { return jsonErr(400, '無效的請求格式'); }
   if (JSON.stringify(body).length > 32768) return jsonErr(400, '交易資料過大');
   if (!body.date) return jsonErr(400, '日期不可為空');
+  if (!/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2})?)?$/.test(body.date)) return jsonErr(400, '日期格式無效');
   if (!body.symbol?.trim()) return jsonErr(400, '交易代號不可為空');
+  const imgUrl = String(body.imageUrl || '').slice(0, 500);
+  if (imgUrl && !imgUrl.startsWith('https://')) return jsonErr(400, 'imageUrl 必須使用 HTTPS');
   const VALID_MARKETS = ['tw', 'us', 'crypto'];
   const VALID_TYPES = ['stock', 'etf', 'futures', 'options', 'index_futures', 'stock_futures', 'commodity_futures', 'crypto_contract', 'crypto_spot'];
   const VALID_DIRS = ['long', 'short'];
@@ -359,7 +377,7 @@ async function handleUpdateTrade(request, env, tradeId) {
       body.entryPrice ?? null, body.exitPrice ?? null, body.quantity ?? null,
       body.contractMul ? parseFloat(body.contractMul) || null : null, body.stopLoss ?? null, body.takeProfit ?? null,
       body.fee ?? 0, body.tax ?? 0, JSON.stringify(Array.isArray(body.tags) ? body.tags.slice(0, 20) : []), String(body.notes || '').slice(0, 5000),
-      String(body.account || '').slice(0, 50), String(body.imageUrl || '').slice(0, 500), body.rating ?? 0,
+      String(body.account || '').slice(0, 50), imgUrl, body.rating ?? 0,
       body.reviewDiscipline ?? 0, body.reviewTiming ?? 0, body.reviewSizing ?? 0, String(body.pricingStage || '').slice(0, 20), now,
       tradeId, user.sub
     ).run();
@@ -418,11 +436,21 @@ async function handleSaveDailyJournal(request, env) {
   if (!user) return jsonErr(401, '未登入');
   let body;
   try { body = await request.json(); } catch { return jsonErr(400, '無效的請求格式'); }
+  if (JSON.stringify(body).length > 32768) return jsonErr(400, '日記資料過大');
   if (!body.date) return jsonErr(400, '日期不可為空');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(body.date)) return jsonErr(400, '日期格式無效');
   const now = new Date().toISOString();
+  const marketNote = String(body.marketNote || '').slice(0, 2000);
+  const plan = String(body.plan || '').slice(0, 5000);
+  const review = String(body.review || '').slice(0, 5000);
+  const takeaway = String(body.takeaway || '').slice(0, 2000);
+  const mood = Math.max(1, Math.min(5, parseInt(body.mood) || 3));
+  const discipline = Math.max(0, Math.min(5, parseInt(body.discipline) || 0));
+  const tags = JSON.stringify(Array.isArray(body.tags) ? body.tags.slice(0, 20) : []);
+  const starred = body.starred ? 1 : 0;
   await env.DB.prepare(`INSERT INTO daily_journal (user_id, date, mood, market_note, plan, review, discipline, tags, takeaway, starred, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(user_id, date) DO UPDATE SET mood=?, market_note=?, plan=?, review=?, discipline=?, tags=?, takeaway=?, starred=?, updated_at=?`).bind(
-    user.sub, body.date, body.mood ?? 3, body.marketNote || '', body.plan || '', body.review || '', body.discipline ?? 0, JSON.stringify(body.tags || []), body.takeaway || '', body.starred ?? 0, now,
-    body.mood ?? 3, body.marketNote || '', body.plan || '', body.review || '', body.discipline ?? 0, JSON.stringify(body.tags || []), body.takeaway || '', body.starred ?? 0, now
+    user.sub, body.date, mood, marketNote, plan, review, discipline, tags, takeaway, starred, now,
+    mood, marketNote, plan, review, discipline, tags, takeaway, starred, now
   ).run();
   return jsonRes({ ok: true });
 }
@@ -524,7 +552,6 @@ async function handleMigrateTrades(request, env) {
 // ── Router ──
 export default {
   async fetch(request, env, ctx) {
-    _currentRequest = request;
     const url = new URL(request.url);
     const path = url.pathname;
     const method = request.method;
@@ -536,48 +563,52 @@ export default {
 
     // Only handle /api/* routes in worker — catch all errors to avoid HTML fallback
     if (path.startsWith('/api/')) {
+      let resp;
       try {
         // Proxy doesn't need DB
-        if (path === '/api/proxy') return await handleProxy(request);
+        if (path === '/api/proxy') { resp = await handleProxy(request); }
 
         // Check DB binding
-        if (!env.DB) return jsonErr(500, 'D1 database binding not configured. Please add DB binding in Cloudflare Pages dashboard.');
+        else if (!env.DB) { resp = jsonErr(500, 'D1 database binding not configured. Please add DB binding in Cloudflare Pages dashboard.'); }
 
-        // Auto-migrate DB on first API request
-        await ensureDB(env.DB);
+        else {
+          // Auto-migrate DB on first API request
+          await ensureDB(env.DB);
 
-        // API routes
-        if (path === '/api/auth/register' && method === 'POST') return await handleRegister(request, env);
-        if (path === '/api/auth/login' && method === 'POST') return await handleLoginPost(request, env);
-        if (path === '/api/auth/me' && method === 'GET') return await handleMe(request, env);
-        if (path === '/api/trades' && method === 'GET') return await handleGetTrades(request, env);
-        if (path === '/api/trades' && method === 'POST') return await handleCreateTrade(request, env);
-        if (path === '/api/settings' && method === 'GET') return await handleGetSettings(request, env);
-        if (path === '/api/settings' && method === 'PUT') return await handleSaveSettings(request, env);
-        if (path === '/api/presets' && method === 'GET') return await handleGetPresets(request, env);
-        if (path === '/api/presets' && method === 'PUT') return await handleSavePresets(request, env);
-        if (path === '/api/templates' && method === 'GET') return await handleGetTemplates(request, env);
-        if (path === '/api/templates' && method === 'PUT') return await handleSaveTemplates(request, env);
-        if (path === '/api/app-state' && method === 'GET') return await handleGetAppState(request, env);
-        if (path === '/api/app-state' && method === 'PUT') return await handleSaveAppState(request, env);
-        if (path === '/api/migrate-trades' && method === 'POST') return await handleMigrateTrades(request, env);
-        if (path === '/api/daily-journal' && method === 'GET') return await handleGetDailyJournals(request, env);
-        if (path === '/api/daily-journal' && method === 'PUT') return await handleSaveDailyJournal(request, env);
-
-        // /api/trades/:id
-        const tradeMatch = path.match(/^\/api\/trades\/([^/]+)$/);
-        if (tradeMatch) {
-          const tradeId = tradeMatch[1];
-          if (tradeId.length > 50 || !/^[a-zA-Z0-9_-]+$/.test(tradeId)) return jsonErr(400, 'Invalid trade ID');
-          if (method === 'PUT') return await handleUpdateTrade(request, env, tradeId);
-          if (method === 'DELETE') return await handleDeleteTrade(request, env, tradeId);
+          // API routes
+          if (path === '/api/auth/register' && method === 'POST') resp = await handleRegister(request, env);
+          else if (path === '/api/auth/login' && method === 'POST') resp = await handleLoginPost(request, env);
+          else if (path === '/api/auth/me' && method === 'GET') resp = await handleMe(request, env);
+          else if (path === '/api/trades' && method === 'GET') resp = await handleGetTrades(request, env);
+          else if (path === '/api/trades' && method === 'POST') resp = await handleCreateTrade(request, env);
+          else if (path === '/api/settings' && method === 'GET') resp = await handleGetSettings(request, env);
+          else if (path === '/api/settings' && method === 'PUT') resp = await handleSaveSettings(request, env);
+          else if (path === '/api/presets' && method === 'GET') resp = await handleGetPresets(request, env);
+          else if (path === '/api/presets' && method === 'PUT') resp = await handleSavePresets(request, env);
+          else if (path === '/api/templates' && method === 'GET') resp = await handleGetTemplates(request, env);
+          else if (path === '/api/templates' && method === 'PUT') resp = await handleSaveTemplates(request, env);
+          else if (path === '/api/app-state' && method === 'GET') resp = await handleGetAppState(request, env);
+          else if (path === '/api/app-state' && method === 'PUT') resp = await handleSaveAppState(request, env);
+          else if (path === '/api/migrate-trades' && method === 'POST') resp = await handleMigrateTrades(request, env);
+          else if (path === '/api/daily-journal' && method === 'GET') resp = await handleGetDailyJournals(request, env);
+          else if (path === '/api/daily-journal' && method === 'PUT') resp = await handleSaveDailyJournal(request, env);
+          else {
+            // /api/trades/:id
+            const tradeMatch = path.match(/^\/api\/trades\/([^/]+)$/);
+            if (tradeMatch) {
+              const tradeId = tradeMatch[1];
+              if (tradeId.length > 50 || !/^[a-zA-Z0-9_-]+$/.test(tradeId)) resp = jsonErr(400, 'Invalid trade ID');
+              else if (method === 'PUT') resp = await handleUpdateTrade(request, env, tradeId);
+              else if (method === 'DELETE') resp = await handleDeleteTrade(request, env, tradeId);
+            }
+          }
         }
-
-        return jsonErr(404, 'API route not found');
+        if (!resp) resp = jsonErr(404, 'API route not found');
       } catch (e) {
         console.error('[Prism API Error]', e);
-        return jsonErr(500, 'Internal server error');
+        resp = jsonErr(500, 'Internal server error');
       }
+      return withCors(resp, request);
     }
 
     // Serve static assets
