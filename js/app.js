@@ -59,6 +59,7 @@ function _esc(str) {
 const INDEX_DEFS = {
   taiex:    { name: '加權指數',  placeholder: '22000', market: 'tw', region: '台灣', chart: 'TWSE:TAIEX' },
   txf:      { name: '台指期',    placeholder: '22000', market: 'tw', region: '台灣', chart: 'TXF1!' },
+  twn:      { name: '富台指',    placeholder: '2650',  market: 'sg', region: '台灣', chart: 'SGX:TWN1!' },
   es:       { name: 'S&P 期貨',  placeholder: '5800',  market: 'us', region: '美國', chart: 'CME_MINI:ES1!' },
   nq:       { name: '那指期貨',  placeholder: '20000', market: 'us', region: '美國', chart: 'CME_MINI:NQ1!' },
   ym:       { name: '道瓊期貨',  placeholder: '42000', market: 'us', region: '美國', chart: 'CBOT_MINI:YM1!' },
@@ -134,6 +135,28 @@ const PriceService = {
         if (all.length >= 2) break;
       }
       if (all.length >= 2) break;
+    }
+    return all;
+  },
+
+  // ── SGX 期貨合約月份解析（月合約）──
+  // Yahoo 格式: TWN-{月碼}{年}.SI  月碼: F=1,G=2,H=3,J=4,K=5,M=6,N=7,Q=8,U=9,V=10,X=11,Z=12
+  // 到期日 = 合約月份倒數第二個交易日（簡化為該月最後週四）
+  _sgxMonthCodes: ['F','G','H','J','K','M','N','Q','U','V','X','Z'],
+  _sgxContractPair(base) {
+    const now = new Date();
+    const all = [];
+    for (let off = 0; off < 3 && all.length < 2; off++) {
+      const d = new Date(now.getFullYear(), now.getMonth() + off, 1);
+      const y = d.getFullYear(), m = d.getMonth(); // 0-based
+      // 簡化到期日：該月最後一個週四
+      const last = new Date(y, m + 1, 0);
+      let expiry = new Date(last);
+      while (expiry.getDay() !== 4) expiry.setDate(expiry.getDate() - 1);
+      if ((expiry - now) / 864e5 > -1) {
+        const code = this._sgxMonthCodes[m];
+        all.push({ symbol: `${base}-${code}${String(y).slice(-2)}.SI`, expiry });
+      }
     }
     return all;
   },
@@ -229,6 +252,30 @@ const PriceService = {
   async fetchIndex(key) {
     // 台指期走專屬 TAIFEX MIS API
     if (key === 'txf') return await this.fetchTxfQuote();
+
+    // SGX 富台指：月合約，取成交量較高者
+    if (key === 'twn') {
+      try {
+        const pair = this._sgxContractPair('TWN');
+        const results = await Promise.all(pair.map(async p => {
+          try {
+            const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(p.symbol)}?range=1d&interval=1d`;
+            const r = await this._proxyFetch(url);
+            const m = (await r.json())?.chart?.result?.[0]?.meta;
+            if (!m?.regularMarketPrice) return null;
+            const price = m.regularMarketPrice, prev = m.chartPreviousClose || m.previousClose || price;
+            const sourceTime = m.regularMarketTime ? m.regularMarketTime * 1000 : null;
+            return { price, prevClose: prev, change: price - prev, changePct: prev ? ((price - prev) / prev * 100) : 0, currency: m.currency || '', name: INDEX_DEFS[key]?.name || '', sourceTime, volume: m.regularMarketVolume || 0, symbol: p.symbol };
+          } catch { return null; }
+        }));
+        const valid = results.filter(Boolean);
+        if (valid.length) {
+          valid.sort((a, b) => b.volume - a.volume);
+          return valid[0];
+        }
+      } catch {}
+      throw new Error('富台指報價失敗');
+    }
 
     // CME/CBOT 期貨：查當季+下季合約，取成交量較高者（=主力合約）
     const cmeBases = { es: 'ES', nq: 'NQ', ym: 'YM', nkd: 'NKD' };
@@ -856,7 +903,7 @@ const DEFAULT_SETTINGS = {
   theme: 'dark',               // 'dark' | 'light' | 'midnight' | 'emerald' | 'warm'
   autoFetch: true,
   refreshInterval: 10,
-  indices: { taiex: true, txf: true, es: true, nq: true, ym: true, sox: true, nkd: true, kospi: true, shanghai: true, hsi: true, btc: true, eth: true, sol: true },
+  indices: { taiex: true, txf: true, twn: true, es: true, nq: true, ym: true, sox: true, nkd: true, kospi: true, shanghai: true, hsi: true, btc: true, eth: true, sol: true },
   showVix: true,
   showFearGreed: true,
   showVixTerm: true,
@@ -971,7 +1018,7 @@ const S = _savedS || {
 };
 if (!S.activeTab) S.activeTab = 'journal';
 if (!S.crypto) S.crypto = { mode: 'spot', direction: 'long' };
-if (!S.guide) S.guide = { completed: [], active: 'mindset' };
+if (!S.guide) S.guide = { completed: [], active: 'overview' };
 function _saveState() {
   localStorage.setItem('prism_state', JSON.stringify(S));
   // Sync state to server (debounced fire-and-forget)
@@ -1395,6 +1442,7 @@ function buildTickerBar() {
       <span class="tc-price stale" id="disp-${key}">—</span>
       <span class="tc-chg" id="chg-${key}"></span>
       ${key === 'txf' ? '<span class="ticker-basis" id="ticker-basis"></span>' : ''}
+      ${key === 'twn' ? '<span class="ticker-basis" id="ticker-twn-est"></span>' : ''}
       <input type="hidden" id="idx-${key}">
     </a>`;
   };
@@ -1524,6 +1572,30 @@ function _updateBasis(results) {
   const label = basis >= 0 ? '正價差' : '逆價差';
   el.textContent = `${label} ${basis >= 0 ? '+' : ''}${basis.toFixed(0)}`;
   el.className = `ticker-basis ${basis >= 0 ? 'up' : 'down'}`;
+  _remeasureTickerRow();
+}
+
+// 富台指推估台指：台指前收 × (富台指現價 / 富台指前收)
+function _updateTwnEstimate(results) {
+  const el = $('#ticker-twn-est');
+  if (!el) return;
+  const twn = results?.twn || _quoteCache.getIndex('twn');
+  if (!twn || twn.error || !twn.price || !twn.prevClose) { el.textContent = ''; return; }
+  // 基準：優先用台指期前收，其次加權前收
+  const txf = results?.txf || _quoteCache.getIndex('txf');
+  const taiex = results?.taiex || _quoteCache.getIndex('taiex');
+  const txfPrev = (!txf?.error && txf?.prevClose) ? txf.prevClose : 0;
+  const taiexPrev = (!taiex?.error && taiex?.prevClose) ? taiex.prevClose : 0;
+  const base = txfPrev || taiexPrev;
+  if (!base) { el.textContent = ''; return; }
+  const est = base * (twn.price / twn.prevClose);
+  const chg = est - base;
+  const dir = chg >= 0 ? 'up' : 'down';
+  const baseName = txfPrev ? '台指期前收' : '加權前收';
+  const ratio = (base / twn.prevClose).toFixed(3);
+  el.textContent = `≈台指 ${fmt(est, 0)}`;
+  el.className = `ticker-basis ${dir}`;
+  el.title = `比值 ${ratio} (${baseName} ${fmt(base, 0)} ÷ 富台指前收 ${fmt(twn.prevClose, 0)})\n推估 = 富台指 ${fmt(twn.price, 0)} × ${ratio} = ${fmt(est, 0)}\n變動 ${chg >= 0 ? '+' : ''}${fmt(chg, 0)} 點 (${chg >= 0 ? '+' : ''}${(chg / base * 100).toFixed(2)}%)`;
   _remeasureTickerRow();
 }
 
@@ -2379,6 +2451,123 @@ function renderGuide() {
 <div class="guide-tip">「時間在市場裡」比「抓準進場時機」更重要。S&P 500 過去 30 年年化報酬約 10%，但如果錯過漲幅最大的 10 天，報酬腰斬。</div>
 </div>`;
 
+  const introConceptPart = `<div class="guide-card">
+<h4>什麼是投資？</h4>
+<p>投資是將資金投入資產，期望未來獲得報酬的行為。報酬來源有兩種：</p>
+<ul>
+<li><strong>資本利得</strong>：買低賣高的價差（如 100 元買進、120 元賣出 → 賺 20 元）</li>
+<li><strong>被動收入</strong>：持有期間的配息/利息（如股票股利、債券利息）</li>
+</ul>
+<p>投資 vs 投機 vs 賭博的關鍵差異在於<strong>有無分析依據和風險管理</strong>。</p>
+</div>
+<div class="guide-card">
+<h4>常見投資商品比較</h4>
+<table class="guide-table">
+<tr><th>商品</th><th>風險等級</th><th>槓桿</th><th>適合對象</th><th>最低門檻</th></tr>
+<tr><td>銀行定存</td><td>極低</td><td>無</td><td>保守型、緊急預備金</td><td>1 元</td></tr>
+<tr><td>債券 / 債券 ETF</td><td>低~中</td><td>無</td><td>穩健配息</td><td>~1,000 元</td></tr>
+<tr><td>股票</td><td>中</td><td>無 (現股)</td><td>長期投資、價值投資</td><td>零股 ~數十元</td></tr>
+<tr><td>ETF</td><td>低~中</td><td>無 (原型)</td><td>被動投資、分散風險</td><td>~數千元</td></tr>
+<tr><td>期貨</td><td>高</td><td>7~20x</td><td>避險、短線交易</td><td>~2 萬 (微台)</td></tr>
+<tr><td>選擇權</td><td>高~極高</td><td>可達數十倍</td><td>避險、策略交易</td><td>~數千元</td></tr>
+<tr><td>加密貨幣</td><td>極高</td><td>1~125x</td><td>高風險投機</td><td>~10 USDT</td></tr>
+</table>
+</div>`;
+
+  const introPracticalPart = `<div class="guide-card">
+<h4>下單類型</h4>
+<table class="guide-table">
+<tr><th>類型</th><th>說明</th><th>適用情境</th></tr>
+<tr><td><strong>市價單 (Market)</strong></td><td>以當下最佳價格立即成交</td><td>急需成交、流動性高的標的</td></tr>
+<tr><td><strong>限價單 (Limit)</strong></td><td>指定價格，到價才成交</td><td>不急、想控制成本</td></tr>
+<tr><td><strong>停損單 (Stop)</strong></td><td>價格觸及設定值後，轉為市價單送出</td><td>保護部位、突破追價</td></tr>
+<tr><td><strong>停損限價 (Stop-Limit)</strong></td><td>觸及停損價後，以限價單送出</td><td>避免市價單滑價過大</td></tr>
+<tr><td><strong>MIT (觸價單)</strong></td><td>價格觸及後自動轉市價</td><td>期貨常用，進場或出場</td></tr>
+</table>
+</div>
+<div class="guide-card">
+<h4>委託條件（台股）</h4>
+<table class="guide-table">
+<tr><th>條件</th><th>全名</th><th>說明</th></tr>
+<tr><td><strong>ROD</strong></td><td>Rest of Day</td><td>當日有效，未成交部分保留至收盤（預設）</td></tr>
+<tr><td><strong>IOC</strong></td><td>Immediate or Cancel</td><td>立即成交，未成交部分取消（允許部分成交）</td></tr>
+<tr><td><strong>FOK</strong></td><td>Fill or Kill</td><td>全部成交或全部取消（不允許部分成交）</td></tr>
+</table>
+<div class="guide-tip">零股交易只支援限價 ROD。盤後定價只支援限價，且價格固定為收盤價。</div>
+</div>
+<div class="guide-card">
+<h4>如何看懂報價 — 五檔明細</h4>
+<table class="guide-table">
+<tr><th>賣量</th><th>賣價</th><th></th><th>買價</th><th>買量</th></tr>
+<tr><td>150</td><td>101.5</td><td>賣五</td><td></td><td></td></tr>
+<tr><td>200</td><td>101.0</td><td>賣四</td><td></td><td></td></tr>
+<tr><td>80</td><td>100.5</td><td>賣三</td><td></td><td></td></tr>
+<tr><td>50</td><td>100.0</td><td>賣二</td><td></td><td></td></tr>
+<tr><td>30</td><td>99.5</td><td>賣一(最佳賣)</td><td></td><td></td></tr>
+<tr><td></td><td></td><td>買一(最佳買)</td><td>99.0</td><td>45</td></tr>
+<tr><td></td><td></td><td>買二</td><td>98.5</td><td>120</td></tr>
+<tr><td></td><td></td><td>買三</td><td>98.0</td><td>200</td></tr>
+</table>
+<ul>
+<li><strong>買一 (Bid)</strong>：目前市場願意付出的最高買價</li>
+<li><strong>賣一 (Ask)</strong>：目前市場願意接受的最低賣價</li>
+<li><strong>價差 (Spread)</strong>：賣一 - 買一 = 99.5 - 99.0 = 0.5，價差越小流動性越好</li>
+<li>掛市價買進 → 成交在 99.5（賣一）；掛市價賣出 → 成交在 99.0（買一）</li>
+</ul>
+</div>
+<div class="guide-card">
+<h4>基本面分析 — 看公司體質</h4>
+<p>基本面分析的核心是回答：<strong>「這家公司值多少錢？」</strong></p>
+<table class="guide-table">
+<tr><th>指標</th><th>公式</th><th>怎麼看</th></tr>
+<tr><td><strong>EPS (每股盈餘)</strong></td><td>淨利 ÷ 股數</td><td>越高越好，代表每股賺多少錢</td></tr>
+<tr><td><strong>P/E (本益比)</strong></td><td>股價 ÷ EPS</td><td>越低可能越便宜；但低 P/E 可能是衰退股</td></tr>
+<tr><td><strong>P/B (股價淨值比)</strong></td><td>股價 ÷ 每股淨值</td><td>< 1 表示股價低於帳面價值，可能被低估</td></tr>
+<tr><td><strong>ROE (股東權益報酬率)</strong></td><td>淨利 ÷ 股東權益</td><td>> 15% 通常很優秀；巴菲特最重視的指標</td></tr>
+<tr><td><strong>殖利率</strong></td><td>每股股利 ÷ 股價</td><td>> 4% 算高殖利率；要看配息是否穩定</td></tr>
+<tr><td><strong>負債比</strong></td><td>總負債 ÷ 總資產</td><td>> 60% 需留意財務風險</td></tr>
+<tr><td><strong>營收年增率</strong></td><td>(今年營收 - 去年) ÷ 去年</td><td>成長股的核心指標，持續正成長為佳</td></tr>
+<tr><td><strong>自由現金流</strong></td><td>營業現金流 - 資本支出</td><td>正數代表公司有真正的現金賺進來</td></tr>
+</table>
+<div class="guide-tip">P/E 需搭配同產業比較才有意義。科技股 P/E 30 可能合理，但傳產股 P/E 30 就偏貴。</div>
+</div>
+<div class="guide-card">
+<h4>除權息 (Ex-Dividend)</h4>
+<ul>
+<li><strong>除息</strong>：配發現金股利。除息日股價會扣除股利金額（如股價 100、配 5 元 → 開盤參考價 95）</li>
+<li><strong>除權</strong>：配發股票股利。股數增加，股價等比例下調</li>
+<li><strong>填息/填權</strong>：除權息後股價回到除權息前的價位，代表真正獲利</li>
+<li><strong>貼息/貼權</strong>：除權息後股價持續下跌，代表「賺了股利賠了價差」</li>
+</ul>
+<div class="guide-warn">台股股利所得需繳稅（合併計稅或分開計稅 28%）。高所得者可能配息越多、繳稅越多。</div>
+</div>
+<div class="guide-card">
+<h4>ETF 入門</h4>
+<p>ETF (Exchange Traded Fund) = 可在交易所買賣的基金，一次買進一籃子股票。</p>
+<table class="guide-table">
+<tr><th>類型</th><th>範例</th><th>追蹤標的</th><th>特性</th></tr>
+<tr><td>市值型</td><td>0050、VOO、SPY</td><td>大盤指數</td><td>被動投資首選，長期報酬貼近大盤</td></tr>
+<tr><td>高股息</td><td>0056、00878、SCHD</td><td>高殖利率股票</td><td>穩定配息，適合存股族</td></tr>
+<tr><td>產業型</td><td>00891 (半導體)、QQQ</td><td>特定產業</td><td>集中曝險，波動較大</td></tr>
+<tr><td>債券型</td><td>00679B、TLT、BND</td><td>政府/公司債</td><td>波動低，與股票負相關</td></tr>
+<tr><td>槓桿/反向</td><td>00631L (正2)、00632R (反1)</td><td>大盤的 2x/-1x</td><td>每日重新平衡，不適合長期持有</td></tr>
+</table>
+<div class="guide-warn">槓桿 ETF 有「波動率拖累」(volatility drag)，長期報酬不等於標的 × 倍數。只適合短線交易。</div>
+</div>
+<div class="guide-card">
+<h4>建立投資計畫的步驟</h4>
+<ol>
+<li><strong>確認財務目標</strong>：退休？買房？子女教育？不同目標 = 不同時間軸和風險承受度</li>
+<li><strong>建立緊急預備金</strong>：3~6 個月生活費放在高流動性帳戶，不拿來投資</li>
+<li><strong>決定資產配置</strong>：股票 vs 債券 vs 現金的比例。年輕可偏股票，接近退休偏債券</li>
+<li><strong>選擇投資工具</strong>：主動選股 or 被動 ETF？建議新手從指數 ETF 開始</li>
+<li><strong>定期定額</strong>：每月固定投入，避免擇時風險（Dollar Cost Averaging）</li>
+<li><strong>定期再平衡</strong>：每半年或一年檢視，將偏離的配置比例調回目標</li>
+<li><strong>持續學習</strong>：市場永遠有新東西，保持學習但不要被雜訊干擾</li>
+</ol>
+<div class="guide-tip">「時間在市場裡」比「抓準進場時機」更重要。S&P 500 過去 30 年年化報酬約 10%，但如果錯過漲幅最大的 10 天，報酬腰斬。</div>
+</div>`;
+
   // ── 市場風險指標 ──
   const indicators = `<div class="guide-card">
 <h4>為什麼要看這些指標？</h4>
@@ -2829,37 +3018,286 @@ function renderGuide() {
 <div class="guide-tip">建議的檢查清單項目：① 我有獨立於價格的判斷依據嗎？ ② 這筆交易在定價第幾階段？ ③ 市場在等什麼訊號提高確定性？ ④ 如果判斷錯誤，我的停損在哪？ ⑤ 這筆部位大小符合我的風險管理規則嗎？</div>
 </div>`;
 
+  // ── Phase V: 延伸閱讀 ──
+
+  const beginnerStart = `<div class="guide-card">
+<h4>結論先行：新手的優先順序</h4>
+<p>資深投資人 Moon 分享了給新手的建議：從白紙到獨當一面，優先順序是——</p>
+<ol>
+<li><strong>金融／資本市場整體結構與邏輯</strong>（上帝視角）</li>
+<li><strong>定性／定量分析</strong>（基本面＋估值）</li>
+<li><strong>風險管理／實際操作</strong></li>
+</ol>
+<p>這行跟做水電沒兩樣，就是<strong>師徒制</strong>。如果沒辦法自己拉到上帝視角，就得找師傅帶。</p>
+<div class="guide-warn">絕對不是在還一知半解前，就直接跳下去學技術分析。非專業投資人之所以會被搞得很慘，天天當沖、看 K 線圖，絕大多數原因就是直接跳入「技術分析」的泥潭。</div>
+</div>
+<div class="guide-card">
+<h4>資本市場的上帝視角</h4>
+<p>先花時間建立對整個資本市場的基本認知：</p>
+<table class="guide-table">
+<tr><th>概念</th><th>說明</th></tr>
+<tr><td><strong>資本市場的角色</strong></td><td>了解市場是什麼、主要玩家有誰：券商、Market Maker、投行 Sell Side、Buy Side（對沖基金、退休基金等）</td></tr>
+<tr><td><strong>Money has to go somewhere</strong></td><td>聰明錢像癌細胞，需要附著在會長大的地方 → <em>Money Chases Growth</em>。不是物理資產（土地、房地產、藝術品），就是金融資產</td></tr>
+<tr><td><strong>資產類別 (Asset Class)</strong></td><td>債券、股票 (Equity)、大宗商品（金銀銅鐵石油大豆玉米）、貨幣／外匯、去中心虛擬幣（比特／乙太）</td></tr>
+<tr><td><strong>板塊 (Sector)</strong></td><td>Equity 底下有 11 大類：Information Technology、Healthcare、Consumer Discretionary、Consumer Staples、Industrial 等</td></tr>
+<tr><td><strong>資金輪動 (Rotation)</strong></td><td>錢在不同 Asset Class 與 Sector 間流進流出，造就了<strong>波動 (Volatility)</strong></td></tr>
+</table>
+</div>
+<div class="guide-card">
+<h4>波動、風險與投資組合</h4>
+<p>我們的風險與機會，都源自於「波動」。如果一項商品 100 年都沒有價格起伏，它就沒有風險，但也沒有投資套利的機會。</p>
+<ul>
+<li><strong>波動</strong>孕育了<strong>風險管理</strong>的存在與必要性</li>
+<li><strong>投資組合 (Portfolio)</strong> 是風險管理最基本的操作——通過分散化資金 (Diversification)，避免過度集中 (Over-exposed) 在同類型資產上</li>
+<li>波動一來，錢一次性從持有的地方流出，就會爆炸 → 這叫<strong>系統性風險</strong></li>
+<li>VIX 井噴 = 擠兌指數，不需要每項專精，但至少要知道它的存在</li>
+</ul>
+<div class="guide-warn">每一項技能都是「無底洞」，知識點填都填不完。一旦在還沒建立上帝視角前就跳進去，旅程還沒開始就陷入 Rabbit Hole，這死胡同單位是以「年」來算的。</div>
+</div>`;
+
+  const researchBias = `<div class="guide-card">
+<h4>投資研究的結構性盲點</h4>
+<p>前 JP Morgan 買方分析師 Vincent 觀察到：研究能力的差距多半跟技巧無關，而是<strong>思維邊界的差距</strong>。常見的三大結構性盲點：</p>
+<ol>
+<li><strong>時間軸匹配</strong>：投資期長決定你該關心哪些變數</li>
+<li><strong>權重與降噪</strong>：碰到新消息，能否分出訊號與噪音</li>
+<li><strong>情境到動作 (Context → Action)</strong>：「如果 A → 做 X；如果 B → 做 Y」</li>
+</ol>
+<div class="guide-tip">投資研究自我檢查清單：① 持有期是多長？ ② 最關鍵的 3 個假設？ ③ 最可能推翻論點的 3 個風險？ ④ 新事件的邊際貢獻 (+/0/-)？ ⑤ 邊際變化超過閾值時該做什麼？</div>
+</div>
+<div class="guide-card">
+<h4>盲點一：在錯誤的時間框架裡分析錯誤的變數</h4>
+<p>Stan Druckenmiller：「好的投資人要能想像 12 到 18 個月後的報紙頭條。」市場交易的是預期，你看到的「現在」往往只是別人已經定價過的歷史。</p>
+<table class="guide-table">
+<tr><th>投資期</th><th>該關注什麼</th><th>降噪方式</th></tr>
+<tr><td><strong>短期</strong>（數週～1月）</td><td>新聞流 (newsflow)、訊息的邊際變化</td><td>估值權重較低，情緒與事件驅動為主</td></tr>
+<tr><td><strong>長期</strong>（2–3年+）</td><td>結構性市佔提升、競爭格局永久改變、護城河強化</td><td>設定「警鈴閾值」：如毛利率連續兩季非季節性下滑才提高警覺</td></tr>
+</table>
+<p><strong>例外</strong>：產業處在從 0 到 1 的「共識形成期」時，長線敘事的權重會被不成比例的放大。如果市場正處在典範轉移初期，先放下傳統估值、提高敘事權重。</p>
+<div class="guide-tip">讀到任何新聞的第一個反射動作：它跟我的時間軸匹配嗎？它對我的投資論點有邊際貢獻嗎？同時警惕是否落入確認偏誤。</div>
+</div>
+<div class="guide-card">
+<h4>盲點二：忽略市場評價體系的漂移</h4>
+<p>估值這門課更像藝術而非科學。真正拉開差距的，不是「工具用得對不對」，而是「市場評價體系會不會改變」。</p>
+<table class="guide-table">
+<tr><th>漂移形式</th><th>說明</th><th>範例</th></tr>
+<tr><td><strong>清算→盈利</strong></td><td>市場從 P/B（當資產看）轉向 P/E（當獲利看），股價漲幅遠超 EPS 增長</td><td>產業長期谷底後 ROE 連續跳升</td></tr>
+<tr><td><strong>創造新度量衡</strong></td><td>在財報框架外尋找價值，但新指標必須有「作廢條件」</td><td>Market Cap/User（需同步監控 CAC 與 LTV）</td></tr>
+<tr><td><strong>預判偏好漂移</strong></td><td>哪些因素會讓市場集體改變對這家公司的定價偏好？</td><td>電力從「公用事業」10x P/E → 「AI 算力軍火庫」30x P/E</td></tr>
+</table>
+<div class="guide-warn">估值不必追求算到最精準。更關鍵的是看懂市場正在用哪把尺、那把尺什麼時候可能會變。</div>
+</div>
+<div class="guide-card">
+<h4>盲點三：缺乏情境分析的決策主線</h4>
+<p>差異化來自你對「what if」的情境分析。靜態分析告訴你現在產業長什麼樣子；情境分析告訴你，如果某個關鍵變數改變，利潤空間會怎麼重新分配。</p>
+<p><strong>Pre-mortem（事前驗屍）</strong>：假設一年後這筆投資徹底失敗、虧損 50%，倒推可能的路徑。逼你找出那些致命但常被忽略的假設。</p>
+<p>以記憶體為例：</p>
+<ul>
+<li>結論「供給結構性偏緊」最關鍵的假設是什麼？（HBM 擠壓 DDR5？廠商對擴產猶豫？）</li>
+<li>需求毀滅 (Demand Destruction) 的臨界點在哪？</li>
+<li>產業鏈利潤重新分配時，誰的議價能力最強？</li>
+<li>如果最後失敗了，最可能出錯的假設是什麼？</li>
+</ul>
+<div class="guide-tip">投資人跟評論員的差別：評論員寫「我覺得未來會怎樣」；投資人寫「如果 A 發生我做 X，如果 B 發生我做 Y」。前者為了寫作，後者為了求生。</div>
+</div>
+<div class="guide-card">
+<h4>橫向對比：識別更好風報比的機會</h4>
+<p>不要只盯單一公司，要看整條產業鏈。變化會沿價值鏈傳導，但每個節點的速度、規模、受益程度都不同。</p>
+<p>範例：判斷「電力不足」是未來核心主題 → 買什麼？發電廠、設備商、節能方案、電網基建？</p>
+<p>以 GE Vernova 為例，需進一步問：</p>
+<ul>
+<li>能不能擴產？速度多快？邊際成本多少？</li>
+<li>現有訂單是「保量不保價」？還是有重新定價能力？</li>
+<li>產品組合能否往高毛利移動？</li>
+<li>上述改變會怎麼影響估值方法？</li>
+</ul>
+<div class="guide-warn">最好的投資未必是彈性最大的，而是「上行夠、下行也有支撐」的不對稱性機會。對轉折點沒有強信心時，最佳標的常是那個能活到最後的公司。</div>
+</div>
+<div class="guide-card">
+<h4>建立持續進步的系統</h4>
+<p>如果研究結論無法導出「我願意下多大、錯了怎麼辦、何時加碼／撤退」，那它還不算一份優秀的投資研究。</p>
+<p><strong>最重要的一個建議</strong>：在你開始寫任何分析之前，先想清楚你的時間軸是什麼，然後讓所有後續的分析匹配這個時間軸。</p>
+<p>產業知識是入場券，但差異化來自三件事：</p>
+<ol>
+<li>對邊際變化的敏感度</li>
+<li>對情境假設的嚴謹度</li>
+<li>在眾多選項裡選出最佳機會的判斷力</li>
+</ol>
+<div class="guide-tip">真正好的研究，會讓你更謙卑。你更常承認「不知道」，但你也更清楚「如果發生，我該怎麼辦」。別當資訊搬運工，要成為那個能在混亂裡端出主菜的人。</div>
+</div>`;
+
+  const industryAnalysis = `<div class="guide-card">
+<h4>行業分析的基礎重要性</h4>
+<p>許多投資新手直接研究公司財報，卻忽略了最基礎的問題：<strong>這家公司身處什麼行業？這個行業的土壤是肥沃還是貧瘠？</strong></p>
+<p>巴菲特觀點：「當聲名顯赫的管理層遭遇以基本面差著稱的行業，最終獲得完整聲譽的往往是這個行業。」——行業結構對企業命運有決定性影響。</p>
+<div class="guide-tip">行業分析的能力是區分初級分析師與高級研究員的核心能力，適用於投行併購、對沖基金、企業戰略部門。</div>
+</div>
+<div class="guide-card">
+<h4>第一性原理：三個根本問題</h4>
+<p>用第一性原理分析行業，核心要回答：</p>
+<table class="guide-table">
+<tr><th>#</th><th>問題</th><th>思考方向</th></tr>
+<tr><td>1</td><td><strong>基本需求</strong></td><td>行業滿足人類哪種基本需求？（食物、安全、社交、效率、娛樂）</td></tr>
+<tr><td>2</td><td><strong>價值創造機制</strong></td><td>核心價值是物理轉化、信息中介、還是關係信任？</td></tr>
+<tr><td>3</td><td><strong>長期競爭優勢</strong></td><td>企業如何持續存活並獲利？（護城河本質）</td></tr>
+</table>
+<p><strong>範例：分析流媒體行業</strong></p>
+<ul>
+<li>基本需求：娛樂與消遣</li>
+<li>價值創造：內容生產與分發效率革命</li>
+<li>長期優勢：獨家優質內容與用戶習慣</li>
+</ul>
+</div>
+<div class="guide-card">
+<h4>雙重分析切入思維</h4>
+<table class="guide-table">
+<tr><th></th><th>自上而下 (Macro→Micro)</th><th>自下而上 (Micro→Macro)</th></tr>
+<tr><td><strong>起點</strong></td><td>宏觀經濟環境與結構性趨勢</td><td>特定公司異常表現或競爭優勢</td></tr>
+<tr><td><strong>特點</strong></td><td>耗時較長（數週至數月），研究全面</td><td>目標導向性強，效率更高</td></tr>
+<tr><td><strong>輸出</strong></td><td>完整行業分析報告</td><td>一頁行業概覽備忘錄</td></tr>
+<tr><td><strong>適用</strong></td><td>尋找新投資賽道、長期戰略規劃</td><td>驗證個股研究、評估競爭格局</td></tr>
+</table>
+<div class="guide-tip">初學者建議選擇「已知一半、未知一半」的行業作為練習對象，避免完全熟悉產生認知偏見，也避免完全陌生導致方向迷失。</div>
+</div>`;
+
+  const oilRateFramework = `<div class="guide-card">
+<h4>為什麼要懂油價與利率？</h4>
+<p>油跟利率這兩個要素，幾乎把市場所有投資決策都串在一起：</p>
+<ul>
+<li><strong>利率</strong> = 錢的價格</li>
+<li><strong>原油</strong> = 生產跟運輸的底層成本</li>
+</ul>
+<p>這兩個一動，股票、債券、匯率，甚至你家的電費、物流成本，通通會跟著動。</p>
+<p>油是每天成交、即時反映供需；CPI 是月底才結算、還要季調，本來就有延遲。油的期現貨價格變化，甚至煉油的利差，會比新聞還早透露景氣方向。</p>
+</div>
+<div class="guide-card">
+<h4>看油價先記三件事</h4>
+<table class="guide-table">
+<tr><th>#</th><th>問題</th><th>判斷方式</th></tr>
+<tr><td>1</td><td>現在的油價是在反映<strong>需求還是供給</strong>？</td><td>多數戰爭只讓油價短線跳幾下；真正移動中樞的是全球景氣和供需重新平衡</td></tr>
+<tr><td>2</td><td>期貨是<strong>近月貴還是遠月貴</strong>？</td><td>近月貴 = 現在比較緊缺（逆價差）；遠月貴 = 現在不缺（正價差）</td></tr>
+<tr><td>3</td><td>油價跟利率是<strong>同向共振還是互相拉扯</strong>？</td><td>同向 = 趨勢明確；拉扯 = 注意轉折風險</td></tr>
+</table>
+<div class="guide-tip">把這三個問題想清楚，基本上可以過濾八成以上的市場噪音。</div>
+</div>
+<div class="guide-card">
+<h4>關鍵名詞解釋</h4>
+<table class="guide-table">
+<tr><th>名詞</th><th>說明</th></tr>
+<tr><td><strong>現貨 vs 期貨</strong></td><td>現貨 = 現在付錢提貨；期貨 = 先講好未來某月份交割的價格</td></tr>
+<tr><td><strong>逆價差 (Backwardation)</strong></td><td>近月貴、遠月便宜 → 市場現在比較缺，願意多付錢趕快拿到</td></tr>
+<tr><td><strong>正價差 (Contango)</strong></td><td>遠月貴、近月便宜 → 現在油不缺，倉儲商買現貨、賣遠月靠價差賺錢</td></tr>
+<tr><td><strong>月間價差 (Timespread)</strong></td><td>近月減次近月的差 → 告訴你短期在緊縮還是寬鬆</td></tr>
+<tr><td><strong>裂解價差 (Crack Spread)</strong></td><td>煉出的汽油＋柴油＋航煤加總價值 − 原油成本 = 煉廠毛利</td></tr>
+<tr><td><strong>基準油＋升貼水</strong></td><td>Brent／WTI／Dubai 為基準，升貼水反映品質、地點、航程、供需</td></tr>
+</table>
+</div>
+<div class="guide-card">
+<h4>五分鐘判斷流程</h4>
+<p>如果你只有五分鐘看油市：</p>
+<ol>
+<li><strong>看期貨曲線</strong>：近月對次近月 (M1–M2)。三天內從正數縮到快零 → 市場預期庫存回補或政策要動。突然拉很陡 → 現貨稀缺感很強</li>
+<li><strong>看裂解價差</strong>：柴油＞汽油 → 工業與物流在撐；汽油＞柴油 → 旅遊旺季；航煤在拉 → 跨境動能回來</li>
+<li><strong>看運價</strong>：中東到亞洲、大西洋航線的 VLCC。運價先動 → 曲線跟著動 → 庫存最後動</li>
+<li><strong>看組合型庫存</strong>（每週一次）：原油＋汽油＋柴油＋煉廠開工率＋出口。單看原油庫存很容易被誤導</li>
+</ol>
+</div>
+<div class="guide-card">
+<h4>需求端怎麼看？</h4>
+<p>把油的用途拆成三段，和景氣疊在一起看：</p>
+<table class="guide-table">
+<tr><th>油品</th><th>對應需求</th><th>判斷意義</th></tr>
+<tr><td><strong>汽油</strong></td><td>通勤與休閒</td><td>消費動能</td></tr>
+<tr><td><strong>柴油</strong></td><td>工業、卡車、航運</td><td>多數時候領風向（工廠物流一放慢，柴油裂解價差就疲軟）</td></tr>
+<tr><td><strong>航煤</strong></td><td>航空與跨境旅遊</td><td>疫後復甦有時候會變主角</td></tr>
+</table>
+<p>判斷訣竅：不要只看一個國家的用油數字，要看「哪一塊在擠哪一塊」。如 2007–2008 年，新興市場需求暴衝，歐美先被擠掉一段需求，油價衝到天花板。</p>
+</div>
+<div class="guide-card">
+<h4>供給端三個層次</h4>
+<table class="guide-table">
+<tr><th>層次</th><th>特色</th><th>觀察重點</th></tr>
+<tr><td><strong>OPEC+</strong></td><td>有可動用產能、配額與話術，守一個財政舒服但不扼殺需求的價格區間</td><td>看動作不看嘴巴；官方售價 (OSP) 的調整是下季流向的先行訊號</td></tr>
+<tr><td><strong>美國頁岩油</strong></td><td>供應彈性快但成本重；股東要現金流，不盲目增產</td><td>活躍鑽機數（Baker Hughes 每週公佈）、DUC（已鑽未完井）→ DUC 低位 = 短期增量能力變少</td></tr>
+<tr><td><strong>長週期大案子</strong></td><td>巴西遠海、圭亞那、加拿大油砂、挪威北海，投資到出油 5–7 年</td><td>全球上游資本開支 → 如果只投維持生產最低限度，未來幾年供給天花板被拉低</td></tr>
+</table>
+</div>
+<div class="guide-card">
+<h4>價格戰怎麼判斷？</h4>
+<p>核心在搶份額＋話語權。誰能用更低的邊際現金成本撐久一點，誰就能逼對手先縮手。</p>
+<p><strong>確認是真的在打的三個訊號同時成立</strong>：</p>
+<ol>
+<li>曲線連續幾天往正價差走</li>
+<li>出口與官方售價同時動（出港量放大、OSP 下調、折價擴大）</li>
+<li>運價走弱但煉廠趁便宜拉貨、庫存連續上升</li>
+</ol>
+<p><strong>收手的三種情況</strong>：打的人金流吃不消 ＋ 戰略目標達成 ＋ 外部環境翻多</p>
+<div class="guide-warn">如果只動一個點，很可能是打嘴砲。不要看新聞說誰先讓出份額，份額是打完才會清楚的結果。</div>
+</div>
+<div class="guide-card">
+<h4>各國能源戰略底牌</h4>
+<table class="guide-table">
+<tr><th>國家</th><th>底牌</th><th>觀察重點</th></tr>
+<tr><td><strong>美國</strong></td><td>頁岩彈性＋SPR＋制裁工具＋美元結算影響力，管理國內汽油價</td><td>DUC 下降＋鑽機數不同步 → 政策（含 SPR）節奏更重要</td></tr>
+<tr><td><strong>沙烏地</strong></td><td>波動可控＋中期可預算（財政赤字嚴重）</td><td>「先放訊息 → 觀察曲線 → 再決定延長或退場」；OSP 對亞洲／歐洲的調整</td></tr>
+<tr><td><strong>俄羅斯</strong></td><td>現金流要穩、地緣話語權要留</td><td>折價＋改航線＋影子船隊；出口節奏與航線運價是否一致</td></tr>
+<tr><td><strong>中國</strong></td><td>能源安全（來源分散、長約鎖量）＋能源效率（大煉化一體化）</td><td>加工量與進口量節拍、配額鬆緊、航煤復甦帶動裂解價差</td></tr>
+<tr><td><strong>歐盟</strong></td><td>高度依賴柴油，煉廠關停恢復慢</td><td>柴油裂解價差 = 政策調節窗；冬天在安全＋轉型＋競爭力間取捨</td></tr>
+<tr><td><strong>印度</strong></td><td>低價買、煉成高價賣，亞洲成品油樞紐</td><td>影響亞洲裂解價差和 VLCC 航線</td></tr>
+</table>
+</div>
+<div class="guide-card">
+<h4>經典案例與框架總結</h4>
+<table class="guide-table">
+<tr><th>事件</th><th>關鍵教訓</th></tr>
+<tr><td>1973 第一次石油危機</td><td>關鍵是制度改變（產油國搶回定價權）＋美元體系震動，整個中樞往上挪</td></tr>
+<tr><td>1979 伊朗革命</td><td>供給減少只是一回事，真正推波的是「全球需求旺＋貨幣寬鬆」</td></tr>
+<tr><td>1990 海灣戰爭</td><td>其他產油國配合增產，油價很快回到戰前。短期事件沒帶動全球供需變動，通常只影響幾個月</td></tr>
+<tr><td>2007–2008</td><td>供給卡住、需求衝很快，景氣一轉彎油價就摔。需求把油推到破壞點，反饋通膨，經濟踩煞車</td></tr>
+</table>
+<p><strong>總結：長線看增速，短線看稀缺。</strong></p>
+<div class="guide-warn">常見錯誤：① 單看原油庫存就下結論 ② 把美元指數當油價唯一決定因子 ③ 忽略維修季（春秋煉廠維修讓裂解價差失真）④ 把新聞情緒看太重而忽略曲線的事實</div>
+</div>`;
+
   // ── Course structure ──
   const COURSE = [
-    { phase:'I', title:'建立基礎', sub:'Foundation', chapters:[
-      {id:'mindset',num:1,title:'投資心法',desc:'建立正確的投資思維框架',content:mindset},
-      {id:'intro',num:2,title:'投資入門',desc:'認識投資商品與基本分析',content:intro},
-      {id:'risk',num:3,title:'風險管理',desc:'保護資本的核心原則',content:riskCombined},
+    { phase:'I', title:'覺醒', sub:'The Awakening', chapters:[
+      {id:'overview',num:1,title:'投資全景圖',desc:'資本市場的上帝視角——市場玩家、資產類別與資金輪動',content: beginnerStart + introConceptPart},
+      {id:'first-trade',num:2,title:'第一筆交易',desc:'下單類型、報價解讀、台股規則與 ETF 入門',content: introPracticalPart + twStock},
+      {id:'survival',num:3,title:'不要虧大錢',desc:'維持率、追繳斷頭、部位控制與新手常犯錯誤',content: risk},
     ]},
-    { phase:'II', title:'認識市場', sub:'Markets', chapters:[
-      {id:'tw-stock',num:4,title:'台灣股票',desc:'交易規則、費用與融資融券',content:twStock},
-      {id:'us-stock',num:5,title:'美國股票',desc:'交易時段、保證金與稅務',content:usStock},
-      {id:'indicators',num:6,title:'市場指標',desc:'VIX、信用利差與市場情緒',content:indicators},
+    { phase:'II', title:'認識戰場', sub:'The Arena', chapters:[
+      {id:'us-stock',num:4,title:'美國股票',desc:'交易時段、保證金與稅務',content: usStock},
+      {id:'indicators',num:5,title:'讀懂市場情緒',desc:'VIX、信用利差與總經指標判讀',content: indicators},
+      {id:'oil-rate',num:6,title:'油價與利率',desc:'原油分析框架與各國能源戰略',content: oilRateFramework},
     ]},
-    { phase:'III', title:'進階商品', sub:'Instruments', chapters:[
-      {id:'tw-futures',num:7,title:'台灣期貨',desc:'合約規格與保證金制度',content:twFuturesCombined},
-      {id:'us-futures',num:8,title:'美國期貨',desc:'CME 合約與國際期貨',content:usFuturesCombined},
-      {id:'options',num:9,title:'選擇權',desc:'希臘字母與常見策略',content:optionsCombined},
-      {id:'crypto',num:10,title:'加密貨幣',desc:'現貨、合約與清算機制',content:cryptoCombined},
+    { phase:'III', title:'武器庫', sub:'The Arsenal', chapters:[
+      {id:'tw-futures',num:7,title:'台灣期貨',desc:'合約規格與保證金制度',content: twFuturesCombined},
+      {id:'us-futures',num:8,title:'美國期貨',desc:'CME 合約與國際期貨',content: usFuturesCombined},
+      {id:'options',num:9,title:'選擇權',desc:'希臘字母與常見策略',content: optionsCombined},
+      {id:'crypto',num:10,title:'加密貨幣',desc:'現貨、合約與清算機制',content: cryptoCombined},
     ]},
-    { phase:'IV', title:'建立系統', sub:'Your System', chapters:[
-      {id:'ta',num:11,title:'技術分析',desc:'K線、指標與型態辨識',content:ta},
+    { phase:'IV', title:'鍛造判斷力', sub:'The Forge', chapters:[
+      {id:'mindset',num:11,title:'投資心法',desc:'市場定價邏輯與投資人思維模式',content: mindset},
+      {id:'ta',num:12,title:'技術分析',desc:'K線、指標與型態辨識',content: ta},
+      {id:'research-bias',num:13,title:'投研盲點',desc:'時間軸、估值漂移與情境分析',content: researchBias},
+      {id:'industry-analysis',num:14,title:'行業分析',desc:'第一性原理與雙重切入思維',content: industryAnalysis},
+      {id:'system',num:15,title:'建立交易系統',desc:'風報比、凱利公式、交易心理與系統化交易',content: riskExtra},
     ]},
   ];
   const allCh = COURSE.flatMap(p=>p.chapters);
   const g = S.guide;
+  // migrate old chapter IDs to new ones
+  const _idMap = {'intro':'overview','tw-stock':'first-trade','risk':'survival','beginner-start':'overview','oil-rate':'oil-rate'};
+  if (!allCh.some(c=>c.id===g.active)) g.active = _idMap[g.active] || allCh[0].id;
+  g.completed = g.completed.filter(id => allCh.some(c=>c.id===id));
   const done = id => g.completed.includes(id);
   const statusIcon = id => done(id) ? '<svg viewBox="0 0 24 24" width="14" height="14" fill="var(--green)" stroke="none"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>' : '<span class="ch-dot"></span>';
 
   el.innerHTML = `<div class="guide-wrap">
   <div class="course-header">
     <div class="course-header-left"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg><span class="course-title">投資者養成課程</span></div>
-    <div class="course-progress"><div class="course-pbar"><div class="course-pfill" id="gp-fill" style="width:${g.completed.length/11*100}%"></div></div><span class="course-ptext" id="gp-text">${g.completed.length} / 11</span></div>
+    <div class="course-progress"><div class="course-pbar"><div class="course-pfill" id="gp-fill" style="width:${g.completed.length/allCh.length*100}%"></div></div><span class="course-ptext" id="gp-text">${g.completed.length} / ${allCh.length}</span></div>
   </div>
   <div class="course-layout">
     <nav class="course-nav" id="course-nav">${COURSE.map(p=>`<div class="course-phase${p.chapters.some(c=>c.id===g.active)?' expanded':''}">
@@ -2869,7 +3307,7 @@ function renderGuide() {
     <div class="course-body" id="course-body">${allCh.map(c=>`<div class="course-ch" id="ch-${c.id}"${c.id!==g.active?' style="display:none"':''}>
       <div class="ch-head"><span class="ch-badge">Ch.${c.num}</span><div class="ch-head-text"><h3>${c.title}</h3><p class="ch-desc">${c.desc}</p></div><button class="ch-done-btn${done(c.id)?' completed':''}" data-ch="${c.id}">${done(c.id)?'已完成 ✓':'標記完成'}</button></div>
       ${c.content}
-      <div class="ch-footer"><div class="ch-footer-left">${c.num>1?`<button class="ch-nav-btn ch-prev" data-target="${allCh[c.num-2].id}"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>上一章：${allCh[c.num-2].title}</button>`:''}</div><div class="ch-footer-right">${c.num<11?`<button class="ch-nav-btn ch-next" data-target="${allCh[c.num].id}">下一章：${allCh[c.num].title}<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></button>`:`<span class="ch-complete-msg">完成所有課程！</span>`}</div></div>
+      <div class="ch-footer"><div class="ch-footer-left">${c.num>1?`<button class="ch-nav-btn ch-prev" data-target="${allCh[c.num-2].id}"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>上一章：${allCh[c.num-2].title}</button>`:''}</div><div class="ch-footer-right">${c.num<allCh.length?`<button class="ch-nav-btn ch-next" data-target="${allCh[c.num].id}">下一章：${allCh[c.num].title}<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></button>`:`<span class="ch-complete-msg">完成所有課程！</span>`}</div></div>
     </div>`).join('')}</div>
   </div></div>`;
 
@@ -2887,8 +3325,8 @@ function renderGuide() {
   }
   function updateProgress() {
     const fill = $('#gp-fill'), txt = $('#gp-text');
-    if (fill) fill.style.width = `${g.completed.length/11*100}%`;
-    if (txt) txt.textContent = `${g.completed.length} / 11`;
+    if (fill) fill.style.width = `${g.completed.length/allCh.length*100}%`;
+    if (txt) txt.textContent = `${g.completed.length} / ${allCh.length}`;
     $$('.ch-status', el).forEach(s => {
       const li = s.closest('.ch-item');
       if (li) s.innerHTML = done(li.dataset.ch) ? statusIcon(li.dataset.ch) : '<span class="ch-dot"></span>';
@@ -2924,6 +3362,7 @@ function _restoreIndicesFromCache() {
   }
   if (ok > 0) {
     _updateBasis(cached);
+    _updateTwnEstimate(cached);
     _updateTickerTime(cached);
     _renderSentimentStrip();
     if ($('#f-entry')) fillFromTicker('f-entry');
@@ -3947,6 +4386,7 @@ async function handleFetchIndices(updateForms) {
       autoFillMarginPrice();
     }
     _updateBasis(results);
+    _updateTwnEstimate(results);
     _updateTickerTime(results);
     _renderSentimentStrip();
     _fetchFearGreed();
