@@ -23,7 +23,10 @@ const riskLvl = (v, s, c, d) => v >= s ? 'safe' : v >= c ? 'caution' : v >= d ? 
 const WARN_SVG = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L1 21h22L12 2zm0 3.5L19.5 19h-15L12 5.5zM11 10v4h2v-4h-2zm0 6v2h2v-2h-2z"/></svg>';
 const OK_SVG = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>';
 const PLACEHOLDER = '<div class="results-placeholder"><p>輸入參數即可即時計算</p></div>';
-function _scrollToResults(el) { if(el && window.innerWidth < 768) setTimeout(()=>el.scrollIntoView({block:'start',behavior:'smooth'}),50); }
+let _userTyping = false, _typingTimer = null;
+document.addEventListener('focusin', e => { if(e.target.matches('input,select,textarea')) { _userTyping = true; clearTimeout(_typingTimer); } });
+document.addEventListener('focusout', e => { if(e.target.matches('input,select,textarea')) { _typingTimer = setTimeout(()=>{ _userTyping = false; }, 300); } });
+function _scrollToResults(el) { if(el && window.innerWidth < 768 && !_userTyping) setTimeout(()=>el.scrollIntoView({block:'start',behavior:'smooth'}),50); }
 
 // ── Section helper for input panel UI ──
 const _secIcon = {
@@ -3022,7 +3025,7 @@ function renderGuide() {
 
   const beginnerStart = `<div class="guide-card">
 <h4>結論先行：新手的優先順序</h4>
-<p>資深投資人 Moon 分享了給新手的建議：從白紙到獨當一面，優先順序是——</p>
+<p>從白紙到獨當一面，優先順序是——</p>
 <ol>
 <li><strong>金融／資本市場整體結構與邏輯</strong>（上帝視角）</li>
 <li><strong>定性／定量分析</strong>（基本面＋估值）</li>
@@ -3057,7 +3060,7 @@ function renderGuide() {
 
   const researchBias = `<div class="guide-card">
 <h4>投資研究的結構性盲點</h4>
-<p>前 JP Morgan 買方分析師 Vincent 觀察到：研究能力的差距多半跟技巧無關，而是<strong>思維邊界的差距</strong>。常見的三大結構性盲點：</p>
+<p>研究能力的差距多半跟技巧無關，而是<strong>思維邊界的差距</strong>。常見的三大結構性盲點：</p>
 <ol>
 <li><strong>時間軸匹配</strong>：投資期長決定你該關心哪些變數</li>
 <li><strong>權重與降噪</strong>：碰到新消息，能否分出訊號與噪音</li>
