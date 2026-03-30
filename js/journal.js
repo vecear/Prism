@@ -3534,7 +3534,7 @@ function openTradeForm(id, prefill) {
   function setupSymbolAutocomplete() {
     const symInput = $('#jf-symbol'), acList = $('#jf-sym-ac');
     if (!symInput || !acList) return;
-    let acItems = [], acFocus = -1, skipBlur = false;
+    let acItems = [], acFocus = -1;
 
     function searchSymbols(query) {
       const market = $('#jf-market2')?.value || 'tw';
@@ -3572,7 +3572,7 @@ function openTradeForm(id, prefill) {
 
     symInput.addEventListener('input', acSearch);
     symInput.addEventListener('focus', () => { if (acItems.length > 0) acList.classList.add('open'); });
-    symInput.addEventListener('blur', () => { if (!skipBlur) setTimeout(() => acList.classList.remove('open'), 150); skipBlur = false; });
+    symInput.addEventListener('blur', () => { setTimeout(() => acList.classList.remove('open'), 150); });
     symInput.addEventListener('keydown', e => {
       if (!acList.classList.contains('open') || !acItems.length) return;
       if (e.key === 'ArrowDown') { e.preventDefault(); acFocus = Math.min(acFocus + 1, acItems.length - 1); acUpdateFocus(); }
@@ -3580,8 +3580,8 @@ function openTradeForm(id, prefill) {
       else if (e.key === 'Enter' && acFocus >= 0) { e.preventDefault(); acPick(acFocus); }
       else if (e.key === 'Escape') { e.stopPropagation(); acList.classList.remove('open'); symInput.blur(); }
     });
-    acList.addEventListener('mousedown', e => {
-      skipBlur = true;
+    acList.addEventListener('pointerdown', e => {
+      e.preventDefault();
       const item = e.target.closest('.sym-ac-item');
       if (item) acPick(parseInt(item.dataset.i));
     });

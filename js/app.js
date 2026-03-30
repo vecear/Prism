@@ -770,7 +770,7 @@ function setupAutocomplete(inputId, listId, onSelect, market) {
   const input = $(`#${inputId}`);
   const list = $(`#${listId}`);
   if (!input || !list) return;
-  let items = [], focusIdx = -1, skipBlur = false;
+  let items = [], focusIdx = -1;
 
   const search = debounce(async () => {
     const q = input.value.trim();
@@ -794,7 +794,7 @@ function setupAutocomplete(inputId, listId, onSelect, market) {
 
   input.addEventListener('input', search);
   input.addEventListener('focus', () => { if (items.length > 0) list.classList.add('open'); });
-  input.addEventListener('blur', () => { if (!skipBlur) setTimeout(() => list.classList.remove('open'), 150); skipBlur = false; });
+  input.addEventListener('blur', () => { setTimeout(() => list.classList.remove('open'), 150); });
 
   input.addEventListener('keydown', e => {
     if (!list.classList.contains('open') || items.length === 0) return;
@@ -804,8 +804,8 @@ function setupAutocomplete(inputId, listId, onSelect, market) {
     else if (e.key === 'Escape') { list.classList.remove('open'); }
   });
 
-  list.addEventListener('mousedown', e => {
-    skipBlur = true;
+  list.addEventListener('pointerdown', e => {
+    e.preventDefault();
     const item = e.target.closest('.sym-ac-item');
     if (item) pick(parseInt(item.dataset.i));
   });
@@ -1502,6 +1502,7 @@ function _initTickerDrag(container) {
     dragEl = chip;
   }, { passive: true, ...sig });
 
+  let _tickerRafPending = false;
   container.addEventListener('touchmove', e => {
     if (!dragEl) return;
     const t = e.touches[0];
@@ -1514,15 +1515,21 @@ function _initTickerDrag(container) {
     }
     if (isDragging) {
       e.preventDefault();
-      const el = document.elementFromPoint(t.clientX, t.clientY)?.closest('.ticker-chip');
-      if (el && el !== dragEl) {
-        const group = el.closest('.ticker-group');
-        if (!group || group !== dragEl.closest('.ticker-group')) return;
-        const rect = el.getBoundingClientRect();
-        const mid = rect.left + rect.width / 2;
-        if (t.clientX < mid) group.insertBefore(dragEl, el);
-        else group.insertBefore(dragEl, el.nextSibling);
-      }
+      if (_tickerRafPending) return;
+      const cx = t.clientX, cy = t.clientY;
+      _tickerRafPending = true;
+      requestAnimationFrame(() => {
+        _tickerRafPending = false;
+        const el = document.elementFromPoint(cx, cy)?.closest('.ticker-chip');
+        if (el && el !== dragEl) {
+          const group = el.closest('.ticker-group');
+          if (!group || group !== dragEl.closest('.ticker-group')) return;
+          const rect = el.getBoundingClientRect();
+          const mid = rect.left + rect.width / 2;
+          if (cx < mid) group.insertBefore(dragEl, el);
+          else group.insertBefore(dragEl, el.nextSibling);
+        }
+      });
     }
   }, { passive: false, ...sig });
 
@@ -1719,6 +1726,7 @@ function _initSentimentDrag(container) {
     dragEl = gauge;
   }, { passive: true, ...sig });
 
+  let _sentRafPending = false;
   container.addEventListener('touchmove', e => {
     if (!dragEl) return;
     const t = e.touches[0];
@@ -1731,13 +1739,19 @@ function _initSentimentDrag(container) {
     }
     if (isDragging) {
       e.preventDefault();
-      const el = document.elementFromPoint(t.clientX, t.clientY)?.closest('.sent-gauge');
-      if (el && el !== dragEl) {
-        const rect = el.getBoundingClientRect();
-        const mid = rect.left + rect.width / 2;
-        if (t.clientX < mid) container.insertBefore(dragEl, el);
-        else container.insertBefore(dragEl, el.nextSibling);
-      }
+      if (_sentRafPending) return;
+      const cx = t.clientX, cy = t.clientY;
+      _sentRafPending = true;
+      requestAnimationFrame(() => {
+        _sentRafPending = false;
+        const el = document.elementFromPoint(cx, cy)?.closest('.sent-gauge');
+        if (el && el !== dragEl) {
+          const rect = el.getBoundingClientRect();
+          const mid = rect.left + rect.width / 2;
+          if (cx < mid) container.insertBefore(dragEl, el);
+          else container.insertBefore(dragEl, el.nextSibling);
+        }
+      });
     }
   }, { passive: false, ...sig });
 
@@ -6695,3 +6709,27 @@ window._getCalcParamsForRecord = function(tab) {
                      S.options.side;
   return params;
 };
+
+// ================================================================
+//  VIRTUAL VIEWPORT KEYBOARD DETECTION
+// ================================================================
+(function() {
+  if (!window.visualViewport) return;
+  const html = document.documentElement;
+  let _rafId = 0;
+  function onResize() {
+    if (_rafId) return;
+    _rafId = requestAnimationFrame(() => {
+      _rafId = 0;
+      const h = visualViewport.height;
+      html.style.setProperty('--vvh', h + 'px');
+      if (Math.abs(h - window.innerHeight) > 150) {
+        html.setAttribute('data-keyboard', 'open');
+      } else {
+        html.removeAttribute('data-keyboard');
+      }
+    });
+  }
+  html.style.setProperty('--vvh', visualViewport.height + 'px');
+  visualViewport.addEventListener('resize', onResize);
+})();
