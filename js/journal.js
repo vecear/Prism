@@ -336,52 +336,222 @@ function exportCSV() {
   if(window._showToast)window._showToast(`已匯出 ${getFilteredTrades().length} 筆交易`);
 }
 
-// ── CSV Import ──
+// ── CSV Import (Enhanced: broker format support) ──
+const BROKER_COL_ALIASES = {
+  date: ['date','成交日期','交易日期','交割日期','日期','買賣日期','Date'],
+  symbol: ['symbol','股票代號','證券代號','代號','商品代號','代碼','股票代碼','Symbol','Stock'],
+  name: ['name','股票名稱','證券名稱','商品名稱','名稱','Name'],
+  direction: ['direction','買賣別','買賣','交易別','買/賣','買賣區分','Side','Type'],
+  quantity: ['quantity','成交股數','成交數量','股數','數量','成交量','Qty','Quantity','Shares'],
+  entryPrice: ['entryPrice','成交價格','成交均價','價格','均價','成交價','Price','Avg Price'],
+  fee: ['fee','手續費','Fee','Commission'],
+  tax: ['tax','交易稅','證交稅','稅額','Tax'],
+  market: ['market','市場','Market'],
+  type: ['type','商品類別','Type'],
+  exitPrice: ['exitPrice'],
+  contractMul: ['contractMul','契約乘數'],
+  stopLoss: ['stopLoss'], takeProfit: ['takeProfit'],
+  account: ['account','帳號','券商','Account'],
+  rating: ['rating'], tags: ['tags','標籤'],
+  notes: ['notes','備註','Notes'], status: ['status','狀態'],
+  pricingStage: ['pricingStage'],
+  _amount: ['淨收付金額','淨額','成交金額','金額','Amount','Net'],
+};
+
+function _resolveColMap(headerCells) {
+  const map = {};
+  for (const cell of headerCells) {
+    const h = cell.trim().replace(/^["']|["']$/g, '');
+    for (const [field, aliases] of Object.entries(BROKER_COL_ALIASES)) {
+      if (aliases.some(a => h === a || h.includes(a))) { map[field] = headerCells.indexOf(cell); break; }
+    }
+  }
+  return map;
+}
+
+function _parseBrokerDate(raw) {
+  if (!raw) return '';
+  let s = raw.trim().replace(/\s+/g, ' ');
+  // 民國年: 113/01/15 or 1130115
+  const rocSlash = s.match(/^(\d{2,3})\/(\d{1,2})\/(\d{1,2})$/);
+  if (rocSlash) { const y = parseInt(rocSlash[1]) + 1911; return `${y}-${rocSlash[2].padStart(2,'0')}-${rocSlash[3].padStart(2,'0')}`; }
+  const rocCompact = s.match(/^(\d{3})(\d{2})(\d{2})$/);
+  if (rocCompact) { const y = parseInt(rocCompact[1]) + 1911; return `${y}-${rocCompact[2]}-${rocCompact[3]}`; }
+  // YYYYMMDD
+  const compact = s.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (compact) return `${compact[1]}-${compact[2]}-${compact[3]}`;
+  // YYYY/MM/DD or YYYY-MM-DD
+  const std = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+  if (std) return `${std[1]}-${std[2].padStart(2,'0')}-${std[3].padStart(2,'0')}`;
+  // MM/DD/YYYY
+  const us = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (us) return `${us[3]}-${us[1].padStart(2,'0')}-${us[2].padStart(2,'0')}`;
+  return s;
+}
+
+function _parseBrokerDirection(raw) {
+  if (!raw) return 'long';
+  const s = raw.trim();
+  if (/^(賣|賣出|融券賣出|sell|short|S)$/i.test(s)) return 'short';
+  return 'long';
+}
+
+function _parseBrokerQty(raw) {
+  if (!raw) return '';
+  const n = parseFloat(raw.replace(/,/g, ''));
+  return isNaN(n) ? '' : Math.abs(n);
+}
+
+function _parseBrokerNum(raw) {
+  if (!raw) return '';
+  const n = parseFloat(raw.replace(/,/g, ''));
+  return isNaN(n) ? '' : n;
+}
+
+function _parseRowToTrade(vals, colMap) {
+  const g = field => {
+    const idx = colMap[field];
+    return idx != null ? (vals[idx] || '').trim() : '';
+  };
+  const dir = _parseBrokerDirection(g('direction'));
+  const qty = _parseBrokerQty(g('quantity'));
+  const price = _parseBrokerNum(g('entryPrice'));
+  // If no price column but has amount + qty, derive price
+  let derivedPrice = price;
+  if (!price && g('_amount') && qty) {
+    const amt = Math.abs(_parseBrokerNum(g('_amount')));
+    if (amt && qty) derivedPrice = Math.round(amt / qty * 100) / 100;
+  }
+  return {
+    date: _parseBrokerDate(g('date')) || localISOString(),
+    market: g('market') || 'tw', type: g('type') || 'stock',
+    symbol: g('symbol').replace(/\s/g, ''), name: g('name'),
+    direction: dir, status: g('status') || 'closed',
+    entryPrice: derivedPrice, exitPrice: g('exitPrice') ? _parseBrokerNum(g('exitPrice')) : '',
+    quantity: qty, contractMul: g('contractMul') ? _parseBrokerNum(g('contractMul')) : '',
+    stopLoss: '', takeProfit: '',
+    fee: _parseBrokerNum(g('fee')) || '', tax: _parseBrokerNum(g('tax')) || '',
+    account: g('account'), rating: parseInt(g('rating')) || 0,
+    tags: g('tags') ? g('tags').split(';').map(s => s.trim()).filter(Boolean) : [],
+    notes: g('notes'), pricingStage: g('pricingStage') || '',
+  };
+}
+
 function importCSV() {
   const input = document.createElement('input');
   input.type = 'file';
-  input.accept = '.csv';
+  input.accept = '.csv,.txt';
   input.addEventListener('change', async () => {
     const file = input.files[0];
     if (!file) return;
     const text = await file.text();
     const lines = text.split(/\r?\n/).filter(l => l.trim());
     if (lines.length < 2) { if(window._showToast)window._showToast('CSV 檔案格式錯誤'); return; }
-    const header = parseCSVLine(lines[0]);
-    const colMap = {};
-    header.forEach((h, i) => colMap[h.trim()] = i);
-    const required = ['symbol', 'entryPrice'];
-    if (!required.every(r => r in colMap)) { if(window._showToast)window._showToast('CSV 缺少必要欄位: symbol, entryPrice'); return; }
-    let count = 0, errors = 0;
-    const total = lines.length - 1;
-    if(window._showToast)window._showToast(`匯入中… 0/${total}`);
+    const headerCells = parseCSVLine(lines[0]);
+    const colMap = _resolveColMap(headerCells);
+    // Must have at least symbol or (symbol-like) + price
+    if (colMap.symbol == null) {
+      if(window._showToast)window._showToast('無法辨識 CSV 欄位，找不到股票代號欄位');
+      return;
+    }
+    // Parse all rows
+    const parsed = [];
     for (let i = 1; i < lines.length; i++) {
       const vals = parseCSVLine(lines[i]);
-      if (!vals.length) continue;
-      const g = col => (colMap[col] != null ? vals[colMap[col]]?.trim() : '') || '';
-      const data = {
-        date: g('date') || localISOString(),
-        market: g('market') || 'tw', type: g('type') || 'stock',
-        symbol: g('symbol'), name: g('name'),
-        direction: g('direction') || 'long', status: g('status') || 'closed',
-        entryPrice: g('entryPrice'), exitPrice: g('exitPrice'),
-        quantity: g('quantity'), contractMul: g('contractMul'),
-        stopLoss: g('stopLoss'), takeProfit: g('takeProfit'),
-        fee: g('fee'), tax: g('tax'), account: g('account'),
-        rating: parseInt(g('rating')) || 0,
-        tags: g('tags') ? g('tags').split(';').map(s => s.trim()).filter(Boolean) : [],
-        notes: g('notes'),
-        pricingStage: g('pricingStage') || '',
-      };
-      try { await api('/trades', { method: 'POST', body: JSON.stringify(data) }); count++; }
-      catch (e) { console.error('Import row error:', e); errors++; }
-      if (count % 10 === 0 && window._showToast) window._showToast(`匯入中… ${count}/${total}`);
+      if (!vals.length || vals.every(v => !v.trim())) continue;
+      const t = _parseRowToTrade(vals, colMap);
+      if (t.symbol) parsed.push(t);
     }
-    if(window._showToast)window._showToast(`匯入完成：${count} 筆成功${errors ? `，${errors} 筆失敗` : ''}`);
-    await loadTrades();
-    renderJournal();
+    if (!parsed.length) { if(window._showToast)window._showToast('沒有可匯入的資料'); return; }
+    _showImportPreview(parsed, headerCells, colMap);
   });
   input.click();
+}
+
+function _showImportPreview(parsed, headerCells, colMap) {
+  let overlay = $('#j-import-overlay');
+  if (!overlay) { overlay = document.createElement('div'); overlay.id = 'j-import-overlay'; overlay.className = 'j-modal-overlay'; document.body.appendChild(overlay); }
+  let modal = $('#j-import-modal');
+  if (!modal) { modal = document.createElement('div'); modal.id = 'j-import-modal'; modal.className = 'j-modal'; modal.style.maxWidth = '900px'; document.body.appendChild(modal); }
+
+  const mapped = Object.entries(colMap).filter(([k]) => !k.startsWith('_')).map(([field, idx]) => `<span class="j-imp-chip">${headerCells[idx].trim()} → ${field}</span>`).join(' ');
+  const preview = parsed.slice(0, 8);
+  const previewCols = ['date','symbol','name','direction','entryPrice','quantity','fee','tax'];
+  const colLabels = {date:'日期',symbol:'代號',name:'名稱',direction:'方向',entryPrice:'價格',quantity:'數量',fee:'手續費',tax:'稅'};
+  const dirLabel = d => d === 'long' ? '買' : '賣';
+  const fmtV = (col, v) => {
+    if (col === 'direction') return `<span style="color:var(--${v === 'long' ? 'green' : 'red'})">${dirLabel(v)}</span>`;
+    if (['entryPrice','fee','tax'].includes(col) && v !== '') return Number(v).toLocaleString();
+    if (col === 'quantity' && v !== '') return Number(v).toLocaleString();
+    return esc(String(v));
+  };
+
+  modal.innerHTML = `
+    <div class="j-modal-header"><h3>匯入預覽</h3><button class="j-modal-close" id="j-imp-close">&times;</button></div>
+    <div class="j-modal-body">
+      <div class="j-imp-info">
+        <div style="margin-bottom:8px"><strong>${parsed.length}</strong> 筆交易</div>
+        <div class="j-imp-mapping">${mapped}</div>
+      </div>
+      <div class="j-imp-table-wrap">
+        <table class="j-imp-table">
+          <thead><tr>${previewCols.map(c=>`<th>${colLabels[c]}</th>`).join('')}</tr></thead>
+          <tbody>
+            ${preview.map(t => `<tr>${previewCols.map(c => `<td>${fmtV(c, t[c])}</td>`).join('')}</tr>`).join('')}
+            ${parsed.length > 8 ? `<tr><td colspan="${previewCols.length}" style="text-align:center;color:var(--t3)">…還有 ${parsed.length - 8} 筆</td></tr>` : ''}
+          </tbody>
+        </table>
+      </div>
+      <div class="j-imp-opts">
+        <label class="j-imp-opt"><input type="checkbox" id="j-imp-dedup" checked> 跳過已存在的交易（同日期+代號+價格+數量）</label>
+      </div>
+    </div>
+    <div class="j-modal-footer">
+      <button class="j-btn" id="j-imp-cancel">取消</button>
+      <button class="j-btn-primary" id="j-imp-confirm">匯入 ${parsed.length} 筆</button>
+    </div>`;
+
+  overlay.classList.add('open');
+  modal.classList.add('open');
+
+  const close = () => { overlay.classList.remove('open'); modal.classList.remove('open'); };
+  const escH = e => { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', escH); } };
+  document.addEventListener('keydown', escH);
+  $('#j-imp-close').onclick = close;
+  $('#j-imp-cancel').onclick = close;
+  overlay.onclick = e => { if (e.target === overlay) close(); };
+
+  $('#j-imp-confirm').onclick = async () => {
+    const dedup = $('#j-imp-dedup')?.checked;
+    close();
+    let count = 0, skipped = 0, errors = 0;
+    const total = parsed.length;
+    if(window._showToast)window._showToast(`匯入中… 0/${total}`);
+
+    // Build dedup set from existing trades
+    const dedupSet = new Set();
+    if (dedup) {
+      for (const t of trades) {
+        dedupSet.add(`${(t.date||'').slice(0,10)}|${t.symbol}|${t.entryPrice}|${t.quantity}`);
+      }
+    }
+
+    for (const t of parsed) {
+      if (dedup) {
+        const key = `${(t.date||'').slice(0,10)}|${t.symbol}|${t.entryPrice}|${t.quantity}`;
+        if (dedupSet.has(key)) { skipped++; continue; }
+      }
+      try { await api('/trades', { method: 'POST', body: JSON.stringify(t) }); count++; }
+      catch (e) { console.error('[Journal] Import row error:', e); errors++; }
+      if (count % 10 === 0 && window._showToast) window._showToast(`匯入中… ${count}/${total}`);
+    }
+    let msg = `匯入完成：${count} 筆成功`;
+    if (skipped) msg += `，${skipped} 筆重複跳過`;
+    if (errors) msg += `，${errors} 筆失敗`;
+    if(window._showToast)window._showToast(msg);
+    await loadTrades();
+    renderJournal();
+  };
 }
 
 function parseCSVLine(line) {
