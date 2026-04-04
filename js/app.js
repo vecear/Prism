@@ -390,6 +390,31 @@ const PriceService = {
     };
   },
 
+  // ── GEX / DIX (Squeezemetrics) ──
+  async fetchGex() {
+    const url = 'https://squeezemetrics.com/monitor/static/DIX.csv?_t=' + Date.now();
+    const r = await this._proxyFetch(url, 8000);
+    const text = await r.text();
+    const lines = text.trim().split('\n').slice(1); // skip header: date,price,dix,gex
+    const valid = lines.filter(l => { const cols = l.split(','); return cols.length >= 4 && !isNaN(parseFloat(cols[3])); });
+    if (valid.length === 0) throw new Error('No GEX data');
+    const latest = valid[valid.length - 1].split(',');
+    const prev = valid.length >= 2 ? valid[valid.length - 2].split(',') : null;
+    const gex = parseFloat(latest[3]);
+    const prevGex = prev ? parseFloat(prev[3]) : null;
+    return {
+      gex,
+      gexBn: gex / 1e9,
+      dix: parseFloat(latest[2]),
+      price: parseFloat(latest[1]),
+      prevGex,
+      change: prevGex != null ? gex - prevGex : null,
+      changeBn: prevGex != null ? (gex - prevGex) / 1e9 : null,
+      date: latest[0],
+      prevDate: prev ? prev[0] : null,
+    };
+  },
+
   // ── Fear & Greed Index (CNN) ──
   async fetchFearGreed() {
     const url = 'https://production.dataviz.cnn.io/index/fearandgreed/graphdata';
@@ -682,6 +707,12 @@ const _quoteCache = {
     return (c && Date.now() - c.time < 3600000) ? c.data : null;
   },
   setCreditSpread(data) { this._load().creditSpread = { data, time: Date.now() }; this._save(); },
+  // GEX cache (1 hour TTL — Squeezemetrics daily data)
+  getGex() {
+    const c = this._load().gex;
+    return (c && Date.now() - c.time < 3600000) ? c.data : null;
+  },
+  setGex(data) { this._load().gex = { data, time: Date.now() }; this._save(); },
 };
 
 // ── Smart TAIFEX session check (skip fetches outside trading hours) ──
@@ -912,6 +943,7 @@ const DEFAULT_SETTINGS = {
   showVixRatio: true,
   showCreditSpread: true,
   showTreasury: true,
+  showGex: true,
   defaultMarket: 'tw',
   twSource: 'twse',        // 'yahoo' | 'twse' | 'tpex'
   usSource: 'yahoo',       // 'yahoo' | 'finnhub'
@@ -1675,6 +1707,15 @@ function _creditSpreadLevel(spread) {
   return { label: '極度樂觀', cls: 'sent-low', color: 'var(--green)' };
 }
 
+// GEX (Gamma Exposure) — billions USD
+function _gexLevel(bn) {
+  if (bn >= 5) return { label: '強正 Gamma', cls: 'sent-low', color: 'var(--green)' };
+  if (bn >= 2) return { label: '正 Gamma', cls: 'sent-normal', color: 'var(--accent)' };
+  if (bn >= 0) return { label: '弱正 Gamma', cls: 'sent-elevated', color: 'var(--yellow)' };
+  if (bn >= -3) return { label: '負 Gamma', cls: 'sent-high', color: 'var(--orange)' };
+  return { label: '深負 Gamma', cls: 'sent-extreme', color: 'var(--red)' };
+}
+
 // 10-Year Treasury Yield level
 function _tnxLevel(val) {
   if (val >= 5) return { label: '極高利率', cls: 'sent-extreme', color: 'var(--red)' };
@@ -1684,7 +1725,7 @@ function _tnxLevel(val) {
   return { label: '極低利率', cls: 'sent-low', color: 'var(--green)' };
 }
 
-const _SENT_DEFAULT_ORDER = ['vix', 'vvix', 'vix3m', 'vixRatio', 'credit', 'treasury', 'fg'];
+const _SENT_DEFAULT_ORDER = ['vix', 'vvix', 'vix3m', 'vixRatio', 'gex', 'credit', 'treasury', 'fg'];
 
 function _saveSentimentOrder() {
   const gauges = document.querySelectorAll('.sent-gauge[data-sent]');
@@ -1791,6 +1832,7 @@ function _renderSentimentStrip() {
   const vix3mQ = _quoteCache.getIndex('vix3m');
   const tnxQ = _quoteCache.getIndex('tnx');
   const csData = _quoteCache.getCreditSpread();
+  const gexData = _quoteCache.getGex();
 
   const showVix = vixVal && CFG.showVix !== false;
   const showVvix = vvixQ?.price && CFG.showVvix !== false;
@@ -1799,8 +1841,9 @@ function _renderSentimentStrip() {
   const showVixRatio = vixVal && vix3mQ?.price && CFG.showVixRatio !== false;
   const showCredit = csData && CFG.showCreditSpread !== false;
   const showTreasury = tnxQ?.price && CFG.showTreasury !== false;
+  const showGex = gexData && CFG.showGex !== false;
 
-  if (!showVix && !showVvix && !showFg && !showVixTerm && !showVixRatio && !showCredit && !showTreasury) {
+  if (!showVix && !showVvix && !showFg && !showVixTerm && !showVixRatio && !showCredit && !showTreasury && !showGex) {
     strip.innerHTML = '';
     return;
   }
@@ -1864,6 +1907,16 @@ function _renderSentimentStrip() {
     gauges.credit = _pill('credit', 'OAS', csData.spread.toFixed(2) + '%', lv, _chg(csData.change, 2, true), tip, 'https://fred.stlouisfed.org/series/BAMLH0A0HYM2');
   }
 
+  if (showGex) {
+    const bn = gexData.gexBn;
+    const lv = _gexLevel(bn);
+    const gexCache = _quoteCache._load().gex;
+    const gexFetchStr = gexCache?.time ? new Date(gexCache.time).toLocaleTimeString('zh-TW', tFmt) : '';
+    const sign = bn >= 0 ? '+' : '';
+    const tip = `GEX (Gamma Exposure)\nGamma 曝險: ${sign}${bn.toFixed(2)}B\nDIX (Dark Index): ${(gexData.dix * 100).toFixed(2)}%\nS&P 500: ${gexData.price.toFixed(2)}\n前值: ${gexData.prevGex != null ? (gexData.prevGex / 1e9).toFixed(2) + 'B' : '—'} (${gexData.prevDate || ''})\n資料日期: ${gexData.date}\n正 Gamma = MM 賣漲買跌 → 穩定\n負 Gamma = MM 追漲殺跌 → 放大波動\n本地抓取時間：${gexFetchStr}`;
+    gauges.gex = _pill('gex', 'GEX', sign + bn.toFixed(2) + 'B', lv, _chg(gexData.changeBn, 2, false), tip, 'https://squeezemetrics.com/monitor/dix');
+  }
+
   if (showTreasury) {
     const lv = _tnxLevel(tnxQ.price);
     const tip = `美國 10 年期公債殖利率\n殖利率急降 = 市場預期經濟衰退\n${_sentTip('tnx', tnxQ)}`;
@@ -1910,6 +1963,16 @@ async function _fetchCreditSpread() {
     _quoteCache.setCreditSpread(cs);
     _renderSentimentStrip();
   } catch (e) { console.debug('[Prism] Credit Spread fetch failed:', e.message); }
+}
+
+async function _fetchGex() {
+  if (CFG.showGex === false) return;
+  if (_quoteCache.getGex()) { _renderSentimentStrip(); return; }
+  try {
+    const gex = await PriceService.fetchGex();
+    _quoteCache.setGex(gex);
+    _renderSentimentStrip();
+  } catch (e) { console.debug('[Prism] GEX fetch failed:', e.message); }
 }
 
 // ================================================================
@@ -2653,6 +2716,25 @@ function renderGuide() {
 <div class="guide-warn">2020 年 3 月和 2022 年市場大跌時，VIX/VIX3M 比值都曾超過 1.2，代表極度恐慌。</div>
 </div>
 <div class="guide-card">
+<h4>GEX（Gamma Exposure）</h4>
+<p>GEX 衡量選擇權造市商（Market Makers）的<strong>Gamma 曝險</strong>總額（美元計），反映造市商的避險行為對市場波動的影響。</p>
+<table class="guide-table">
+<tr><th>GEX 範圍</th><th>市場狀態</th><th>說明</th></tr>
+<tr><td>≥ +5B</td><td>強正 Gamma</td><td>造市商大量「賣漲買跌」→ 市場波動被壓縮，趨於穩定</td></tr>
+<tr><td>+2B ~ +5B</td><td>正 Gamma</td><td>正常避險環境，波動溫和</td></tr>
+<tr><td>0 ~ +2B</td><td>弱正 Gamma</td><td>避險力道減弱，留意轉負可能</td></tr>
+<tr><td>-3B ~ 0</td><td>負 Gamma</td><td>造市商被迫「追漲殺跌」→ 市場波動被放大</td></tr>
+<tr><td>< -3B</td><td>深負 Gamma</td><td>極端波動環境，盤中劇烈震盪（如 2020/3、2022 熊市）</td></tr>
+</table>
+<p><strong>判讀重點</strong>：</p>
+<ul>
+<li><strong>正 Gamma</strong>：造市商持有正 Gamma → 股價漲時賣、跌時買 → 自然形成<strong>波動阻尼</strong>，市場傾向區間盤整</li>
+<li><strong>負 Gamma</strong>：造市商持有負 Gamma → 股價漲時被迫追買、跌時被迫追賣 → <strong>放大波動</strong>，容易出現閃崩或暴漲</li>
+<li>GEX 從正轉負是重要<strong>警訊</strong>，代表市場結構從穩定轉為不穩定</li>
+</ul>
+<div class="guide-tip">GEX 搭配 VIX 一起看：VIX 飆升 + GEX 深負 = 最危險的組合（恐慌 + 結構性放大波動）。GEX 由 <a href="https://squeezemetrics.com/monitor/dix" target="_blank" rel="noopener">Squeezemetrics</a> 提供，每日收盤後更新。</div>
+</div>
+<div class="guide-card">
 <h4>信用利差 OAS（ICE BofA US High Yield）</h4>
 <p>信用利差 = 公司債殖利率 − 美國公債殖利率。反映市場對<strong>企業違約風險</strong>的定價。</p>
 <table class="guide-table">
@@ -2709,9 +2791,9 @@ function renderGuide() {
 <p>機構投資者會同時檢視這些指標來判斷市場反彈是短期反彈還是新一輪行情：</p>
 <table class="guide-table">
 <tr><th>情境</th><th>指標訊號</th><th>判斷</th></tr>
-<tr><td>短期情緒調整</td><td>VIX 小幅上升 + 信用利差穩定 + 殖利率不變</td><td>市場只是消化利空，底部可能已近</td></tr>
-<tr><td>中期風險事件</td><td>VIX3M 逆價差 + 信用利差小幅擴大</td><td>短期壓力但長期影響有限，等待恐慌消退</td></tr>
-<tr><td>系統性風險</td><td>VIX 長短期同步飆升 + 信用利差急擴 + 殖利率急降</td><td>市場在定價衰退 / 金融危機，需大幅減倉避險</td></tr>
+<tr><td>短期情緒調整</td><td>VIX 小幅上升 + GEX 正值 + 信用利差穩定</td><td>市場只是消化利空，底部可能已近</td></tr>
+<tr><td>中期風險事件</td><td>VIX3M ��價差 + GEX 轉負 + 信用利差小��擴大</td><td>短期壓力但長期影響有限，等待恐慌消退</td></tr>
+<tr><td>系統性風險</td><td>VIX 長短期同步飆升 + GEX 深負 + 信用利差急擴 + 殖利��急降</td><td>市場在定價衰退 / 金融危機，需大幅減倉避險</td></tr>
 </table>
 <div class="guide-tip">市場底部往往不像底部 — 當壞消息仍頻繁出現，但價格開始穩定時，通常就是重新定價風險的信號。觀察這些指標是否同步改善，比預測底部更可靠。</div>
 </div>`;
@@ -3749,6 +3831,7 @@ function renderSettings() {
               <label class="stg-cb"><input type="checkbox" id="stg-show-fg" ${CFG.showFearGreed !== false ? 'checked' : ''}>恐懼與貪婪</label>
               <label class="stg-cb"><input type="checkbox" id="stg-show-vixterm" ${CFG.showVixTerm !== false ? 'checked' : ''}>VIX3M</label>
               <label class="stg-cb"><input type="checkbox" id="stg-show-vixratio" ${CFG.showVixRatio !== false ? 'checked' : ''}>VIX 期限結構</label>
+              <label class="stg-cb"><input type="checkbox" id="stg-show-gex" ${CFG.showGex !== false ? 'checked' : ''}>GEX</label>
               <label class="stg-cb"><input type="checkbox" id="stg-show-credit" ${CFG.showCreditSpread !== false ? 'checked' : ''}>信用利差 OAS</label>
               <label class="stg-cb"><input type="checkbox" id="stg-show-treasury" ${CFG.showTreasury !== false ? 'checked' : ''}>10Y 公債殖利率</label>
             </div>
@@ -4055,6 +4138,7 @@ function renderSettings() {
     CFG.showFearGreed = $('#stg-show-fg')?.checked ?? true;
     CFG.showVixTerm = $('#stg-show-vixterm')?.checked ?? true;
     CFG.showVixRatio = $('#stg-show-vixratio')?.checked ?? true;
+    CFG.showGex = $('#stg-show-gex')?.checked ?? true;
     CFG.showCreditSpread = $('#stg-show-credit')?.checked ?? true;
     CFG.showTreasury = $('#stg-show-treasury')?.checked ?? true;
     const mtv = parseInt($('#stg-mobile-ticker')?.value);
@@ -4399,6 +4483,7 @@ function applySettings() {
       // Restore F&G / Credit Spread from cache, or fetch if stale
       if (!_quoteCache.getFearGreed()) _fetchFearGreed();
       if (!_quoteCache.getCreditSpread()) _fetchCreditSpread();
+      if (!_quoteCache.getGex()) _fetchGex();
     }
   }
 
@@ -4440,6 +4525,7 @@ async function handleFetchIndices(updateForms) {
     _renderSentimentStrip();
     _fetchFearGreed();
     _fetchCreditSpread();
+    _fetchGex();
     if (updateForms && window._showToast) window._showToast(`報價已更新（${ok} 成功${fail ? `，${fail} 失敗` : ''}）`);
   } catch (e) { console.warn('[Prism] Index fetch error:', e.message); }
   btn.classList.remove('loading');

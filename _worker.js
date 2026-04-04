@@ -189,7 +189,7 @@ async function getUser(request, env) {
 }
 
 // ── CORS Proxy (migrated from functions/api/proxy.js) ──
-const PROXY_ALLOWED = ['mis.twse.com.tw','mis.taifex.com.tw','query1.finance.yahoo.com','query2.finance.yahoo.com','finnhub.io','www.taifex.com.tw','openapi.taifex.com.tw','openapi.twse.com.tw','www.tpex.org.tw','www.sec.gov','api.nasdaq.com','production.dataviz.cnn.io','api.binance.com','fred.stlouisfed.org'];
+const PROXY_ALLOWED = ['mis.twse.com.tw','mis.taifex.com.tw','query1.finance.yahoo.com','query2.finance.yahoo.com','finnhub.io','www.taifex.com.tw','openapi.taifex.com.tw','openapi.twse.com.tw','www.tpex.org.tw','www.sec.gov','api.nasdaq.com','production.dataviz.cnn.io','api.binance.com','fred.stlouisfed.org','squeezemetrics.com'];
 
 async function handleProxy(request) {
   const url = new URL(request.url);
