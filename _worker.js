@@ -224,30 +224,24 @@ async function handleProxy(request) {
 
 // ── FRED Data Proxy (dedicated route to avoid Cloudflare-to-Cloudflare 520 errors) ──
 const FRED_ALLOWED_SERIES = ['BAMLH0A0HYM2', 'T5YIE'];
-async function handleFred(request) {
+async function handleFred(request, env) {
   const url = new URL(request.url);
   const series = url.searchParams.get('series');
   if (!series || !FRED_ALLOWED_SERIES.includes(series)) return jsonErr(400, 'Invalid or missing series parameter');
-  const cosd = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
-  const fredUrl = `https://fred.stlouisfed.org/graph/fredgraph.csv?id=${series}&cosd=${cosd}`;
+  const fredKey = typeof env !== 'undefined' && env.FRED_API_KEY ? env.FRED_API_KEY : '';
+  if (!fredKey) return jsonErr(503, 'FRED_API_KEY not configured');
   try {
-    const resp = await fetch(fredUrl, {
-      method: 'GET',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-        'Accept': 'text/csv,text/plain,*/*',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Connection': 'keep-alive',
-        'Sec-Fetch-Dest': 'document',
-        'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-Site': 'none',
-      },
-      redirect: 'follow',
-    });
-    if (!resp.ok) throw new Error(`FRED HTTP ${resp.status} ${resp.statusText}`);
-    const text = await resp.text();
-    return new Response(text, {
+    const apiUrl = `https://api.stlouisfed.org/fred/series/observations?series_id=${series}&api_key=${fredKey}&file_type=json&sort_order=desc&limit=10`;
+    const resp = await fetch(apiUrl);
+    if (!resp.ok) throw new Error(`FRED API HTTP ${resp.status}`);
+    const d = await resp.json();
+    const obs = (d.observations || []).filter(o => o.value && o.value !== '.');
+    if (obs.length === 0) throw new Error('No observations');
+    // Convert to CSV format for frontend compatibility
+    const header = `observation_date,${series}`;
+    const rows = obs.reverse().map(o => `${o.date},${o.value}`);
+    const csv = [header, ...rows].join('\n');
+    return new Response(csv, {
       headers: { 'Content-Type': 'text/csv', 'Cache-Control': 'public, max-age=3600' },
     });
   } catch (e) { console.error('[FRED Error]', e.message || e); return jsonErr(502, `FRED fetch failed: ${e.message || 'unknown'}`); }
@@ -599,7 +593,7 @@ export default {
       try {
         // Proxy doesn't need DB
         if (path === '/api/proxy') { resp = await handleProxy(request); }
-        else if (path === '/api/fred') { resp = await handleFred(request); }
+        else if (path === '/api/fred') { resp = await handleFred(request, env); }
 
         // Check DB binding
         else if (!env.DB) { resp = jsonErr(500, 'D1 database binding not configured. Please add DB binding in Cloudflare Pages dashboard.'); }
