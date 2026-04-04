@@ -232,19 +232,25 @@ async function handleFred(request) {
   const fredUrl = `https://fred.stlouisfed.org/graph/fredgraph.csv?id=${series}&cosd=${cosd}`;
   try {
     const resp = await fetch(fredUrl, {
+      method: 'GET',
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
         'Accept': 'text/csv,text/plain,*/*',
         'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
       },
-      cf: { cacheTtl: 3600, cacheEverything: true },
+      redirect: 'follow',
     });
-    if (!resp.ok) throw new Error(`FRED HTTP ${resp.status}`);
+    if (!resp.ok) throw new Error(`FRED HTTP ${resp.status} ${resp.statusText}`);
     const text = await resp.text();
     return new Response(text, {
       headers: { 'Content-Type': 'text/csv', 'Cache-Control': 'public, max-age=3600' },
     });
-  } catch (e) { console.error('[FRED Error]', e); return jsonErr(502, 'FRED fetch failed'); }
+  } catch (e) { console.error('[FRED Error]', e.message || e); return jsonErr(502, `FRED fetch failed: ${e.message || 'unknown'}`); }
 }
 
 // ── Simple In-Memory Rate Limiter (per-worker instance) ──
