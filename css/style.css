@@ -348,9 +348,9 @@ body{font-family:var(--sans);background:var(--bg0);color:var(--t1);line-height:1
 .ticker-fill-btn:hover{color:var(--accent);box-shadow:var(--ring-accent);background:var(--accent-d)}
 
 /* ========== Sentiment Strip ========== */
-.sentiment-strip{display:flex;align-items:center;gap:4px;padding:4px 8px;box-shadow:var(--ring);border-bottom:none;overflow-x:auto;overflow-y:hidden;white-space:nowrap;scrollbar-width:none;-webkit-overflow-scrolling:touch;min-height:28px;position:relative}
+.sentiment-strip{display:flex;align-items:center;gap:4px;padding:4px 8px;box-shadow:var(--ring);border-bottom:none;flex-wrap:wrap;min-height:28px;position:relative}
 .sentiment-strip:empty{box-shadow:none;min-height:0;padding:0}
-.sentiment-strip::after{content:'';position:absolute;right:0;top:0;bottom:0;width:20px;background:linear-gradient(to right,transparent,var(--bg0));pointer-events:none;opacity:0;transition:opacity .2s}
+.sentiment-strip::after{content:'';position:absolute;right:0;top:0;bottom:0;width:20px;background:linear-gradient(to right,transparent,var(--bg0));pointer-events:none;opacity:0;transition:opacity .2s;z-index:1}
 @media(max-width:768px){.sentiment-strip::after{opacity:1}}
 .sentiment-strip::-webkit-scrollbar{display:none}
 .sent-gauge{display:inline-flex;align-items:baseline;gap:4px;padding:3px 8px;background:var(--bg1);border:none;box-shadow:var(--ring);border-radius:var(--pill-r);text-decoration:none;color:inherit;cursor:pointer;transition:box-shadow var(--dur);flex-shrink:0;white-space:nowrap}
