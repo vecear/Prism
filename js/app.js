@@ -371,9 +371,9 @@ const PriceService = {
 
   // ── FRED Credit Spread (ICE BofA US HY OAS) ──
   async fetchCreditSpread() {
-    // FRED CSV 不需 API key，取最近 10 筆（排除假日/缺值）
-    const url = 'https://fred.stlouisfed.org/graph/fredgraph.csv?id=BAMLH0A0HYM2&cosd=' + new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
-    const r = await this._proxyFetch(url, 8000);
+    // 使用專用 /api/fred route 避免 Cloudflare-to-Cloudflare 520 錯誤
+    const url = `${API_BASE}/api/fred?series=BAMLH0A0HYM2`;
+    const r = await this._fetchTimeout(url, 8000);
     const text = await r.text();
     const lines = text.trim().split('\n').slice(1); // skip header
     // 過濾掉缺值 "."
@@ -419,8 +419,8 @@ const PriceService = {
 
   // ── 5Y Breakeven Inflation Rate (FRED T5YIE) ──
   async fetchBreakeven() {
-    const url = 'https://fred.stlouisfed.org/graph/fredgraph.csv?id=T5YIE&cosd=' + new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
-    const r = await this._proxyFetch(url, 8000);
+    const url = `${API_BASE}/api/fred?series=T5YIE`;
+    const r = await this._fetchTimeout(url, 8000);
     const text = await r.text();
     const lines = text.trim().split('\n').slice(1);
     const valid = lines.filter(l => { const v = l.split(',')[1]; return v && v !== '.' && !isNaN(parseFloat(v)); });

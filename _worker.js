@@ -222,6 +222,31 @@ async function handleProxy(request) {
   } catch (e) { console.error('[Proxy Error]', e); return jsonErr(502, 'Proxy fetch failed'); }
 }
 
+// ── FRED Data Proxy (dedicated route to avoid Cloudflare-to-Cloudflare 520 errors) ──
+const FRED_ALLOWED_SERIES = ['BAMLH0A0HYM2', 'T5YIE'];
+async function handleFred(request) {
+  const url = new URL(request.url);
+  const series = url.searchParams.get('series');
+  if (!series || !FRED_ALLOWED_SERIES.includes(series)) return jsonErr(400, 'Invalid or missing series parameter');
+  const cosd = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+  const fredUrl = `https://fred.stlouisfed.org/graph/fredgraph.csv?id=${series}&cosd=${cosd}`;
+  try {
+    const resp = await fetch(fredUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        'Accept': 'text/csv,text/plain,*/*',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+      cf: { cacheTtl: 3600, cacheEverything: true },
+    });
+    if (!resp.ok) throw new Error(`FRED HTTP ${resp.status}`);
+    const text = await resp.text();
+    return new Response(text, {
+      headers: { 'Content-Type': 'text/csv', 'Cache-Control': 'public, max-age=3600' },
+    });
+  } catch (e) { console.error('[FRED Error]', e); return jsonErr(502, 'FRED fetch failed'); }
+}
+
 // ── Simple In-Memory Rate Limiter (per-worker instance) ──
 const _rateLimits = new Map();
 function checkRateLimit(key, maxRequests, windowMs) {
@@ -568,6 +593,7 @@ export default {
       try {
         // Proxy doesn't need DB
         if (path === '/api/proxy') { resp = await handleProxy(request); }
+        else if (path === '/api/fred') { resp = await handleFred(request); }
 
         // Check DB binding
         else if (!env.DB) { resp = jsonErr(500, 'D1 database binding not configured. Please add DB binding in Cloudflare Pages dashboard.'); }
