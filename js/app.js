@@ -163,7 +163,7 @@ const PriceService = {
 
   // ── Yahoo Finance ──
   yahoo: {
-    INDEX_MAP: { taiex: '^TWII', es: 'ES=F', nq: 'NQ=F', ym: 'YM=F', sox: '^SOX', nkd: 'NKD=F', kospi: '^KS11', shanghai: '000001.SS', hsi: '^HSI', vix: '^VIX', vvix: '^VVIX', vix3m: '^VIX3M', tnx: '^TNX', btc: 'BTC-USD', eth: 'ETH-USD', sol: 'SOL-USD' },
+    INDEX_MAP: { taiex: '^TWII', es: 'ES=F', nq: 'NQ=F', ym: 'YM=F', sox: '^SOX', nkd: 'NKD=F', kospi: '^KS11', shanghai: '000001.SS', hsi: '^HSI', vix: '^VIX', vvix: '^VVIX', vix1d: '^VIX1D', vix3m: '^VIX3M', tnx: '^TNX', brent: 'BZ=F', btc: 'BTC-USD', eth: 'ETH-USD', sol: 'SOL-USD' },
     async fetchQuote(symbol) {
       const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=1d`;
       const r = await PriceService._proxyFetch(url);
@@ -336,7 +336,9 @@ const PriceService = {
     // Fetch sentiment indicators (not in INDEX_DEFS / ticker)
     if (CFG.showVix) keys.push('vix');
     if (CFG.showVvix) keys.push('vvix');
+    if (CFG.showVix1d) keys.push('vix1d');
     if (CFG.showVixTerm || CFG.showVixRatio) keys.push('vix', 'vix3m');
+    if (CFG.showBrent) keys.push('brent');
     if (CFG.showTreasury) keys.push('tnx');
     // dedupe
     const seen = new Set();
@@ -415,7 +417,28 @@ const PriceService = {
     };
   },
 
-  // ── Fear & Greed Index (CNN) ──
+  // ── 5Y Breakeven Inflation Rate (FRED T5YIE) ──
+  async fetchBreakeven() {
+    const url = 'https://fred.stlouisfed.org/graph/fredgraph.csv?id=T5YIE&cosd=' + new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+    const r = await this._proxyFetch(url, 8000);
+    const text = await r.text();
+    const lines = text.trim().split('\n').slice(1);
+    const valid = lines.filter(l => { const v = l.split(',')[1]; return v && v !== '.' && !isNaN(parseFloat(v)); });
+    if (valid.length === 0) throw new Error('No breakeven data');
+    const latest = valid[valid.length - 1].split(',');
+    const prev = valid.length >= 2 ? valid[valid.length - 2].split(',') : null;
+    const rate = parseFloat(latest[1]);
+    const prevRate = prev ? parseFloat(prev[1]) : null;
+    return {
+      rate,
+      prevRate,
+      change: prevRate != null ? rate - prevRate : null,
+      date: latest[0],
+      prevDate: prev ? prev[0] : null,
+    };
+  },
+
+  // ── Fear & Greed Index (CNN) + Market Breadth ──
   async fetchFearGreed() {
     const url = 'https://production.dataviz.cnn.io/index/fearandgreed/graphdata';
     try {
@@ -429,7 +452,9 @@ const PriceService = {
       if (!fg) throw new Error('No F&G data');
       const score = Math.round(fg.score);
       const prev = fg.previous_close ? Math.round(fg.previous_close) : null;
-      return { score, previousClose: prev, timestamp: fg.timestamp };
+      // Extract Market Breadth (stock_price_breadth) sub-index
+      const breadth = d?.stock_price_breadth;
+      return { score, previousClose: prev, timestamp: fg.timestamp, breadth: breadth || null };
     } catch (e) {
       throw new Error('F&G 無法取得');
     }
@@ -713,6 +738,18 @@ const _quoteCache = {
     return (c && Date.now() - c.time < 3600000) ? c.data : null;
   },
   setGex(data) { this._load().gex = { data, time: Date.now() }; this._save(); },
+  // Breakeven Inflation cache (1 hour TTL — FRED daily data)
+  getBreakeven() {
+    const c = this._load().breakeven;
+    return (c && Date.now() - c.time < 3600000) ? c.data : null;
+  },
+  setBreakeven(data) { this._load().breakeven = { data, time: Date.now() }; this._save(); },
+  // Market Breadth cache (30 min TTL — CNN Fear & Greed sub-index)
+  getBreadth() {
+    const c = this._load().breadth;
+    return (c && Date.now() - c.time < 1800000) ? c.data : null;
+  },
+  setBreadth(data) { this._load().breadth = { data, time: Date.now() }; this._save(); },
 };
 
 // ── Smart TAIFEX session check (skip fetches outside trading hours) ──
@@ -938,12 +975,16 @@ const DEFAULT_SETTINGS = {
   indices: { taiex: true, txf: true, twn: true, es: true, nq: true, ym: true, sox: true, nkd: true, kospi: true, shanghai: true, hsi: true, btc: true, eth: true, sol: true },
   showVix: true,
   showVvix: true,
+  showVix1d: true,
   showFearGreed: true,
   showVixTerm: true,
   showVixRatio: true,
+  showGex: true,
+  showBrent: true,
+  showBreakeven: true,
   showCreditSpread: true,
   showTreasury: true,
-  showGex: true,
+  showBreadth: true,
   defaultMarket: 'tw',
   twSource: 'twse',        // 'yahoo' | 'twse' | 'tpex'
   usSource: 'yahoo',       // 'yahoo' | 'finnhub'
@@ -1716,6 +1757,42 @@ function _gexLevel(bn) {
   return { label: '深負 Gamma', cls: 'sent-extreme', color: 'var(--red)' };
 }
 
+// VIX1D (single-day implied volatility)
+function _vix1dLevel(v) {
+  if (v <= 15) return { label: '低波動', cls: 'sent-low', color: 'var(--green)' };
+  if (v <= 25) return { label: '正常', cls: 'sent-normal', color: 'var(--accent)' };
+  if (v <= 35) return { label: '偏高', cls: 'sent-elevated', color: 'var(--yellow)' };
+  if (v <= 50) return { label: '高波動', cls: 'sent-high', color: 'var(--orange)' };
+  return { label: '極度恐慌', cls: 'sent-extreme', color: 'var(--red)' };
+}
+
+// Brent Crude Oil price level
+function _brentLevel(v) {
+  if (v <= 60) return { label: '低油價', cls: 'sent-low', color: 'var(--green)' };
+  if (v <= 80) return { label: '正常', cls: 'sent-normal', color: 'var(--accent)' };
+  if (v <= 100) return { label: '偏高', cls: 'sent-elevated', color: 'var(--yellow)' };
+  if (v <= 125) return { label: '高油價', cls: 'sent-high', color: 'var(--orange)' };
+  return { label: '極端', cls: 'sent-extreme', color: 'var(--red)' };
+}
+
+// 5Y Breakeven Inflation Rate level
+function _breakevenLevel(v) {
+  if (v <= 2.0) return { label: '極低', cls: 'sent-low', color: 'var(--green)' };
+  if (v <= 2.5) return { label: '正常', cls: 'sent-normal', color: 'var(--accent)' };
+  if (v <= 3.0) return { label: '偏高', cls: 'sent-elevated', color: 'var(--yellow)' };
+  if (v <= 3.5) return { label: '警戒', cls: 'sent-high', color: 'var(--orange)' };
+  return { label: '脫錨', cls: 'sent-extreme', color: 'var(--red)' };
+}
+
+// Market Breadth (CNN stock_price_breadth) level
+function _breadthLevel(score) {
+  if (score <= 15) return { label: '世代級底部', cls: 'sent-extreme', color: 'var(--red)' };
+  if (score <= 30) return { label: '深度修正', cls: 'sent-high', color: 'var(--orange)' };
+  if (score <= 50) return { label: '中度修正', cls: 'sent-elevated', color: 'var(--yellow)' };
+  if (score <= 70) return { label: '正常', cls: 'sent-normal', color: 'var(--accent)' };
+  return { label: '健康', cls: 'sent-low', color: 'var(--green)' };
+}
+
 // 10-Year Treasury Yield level
 function _tnxLevel(val) {
   if (val >= 5) return { label: '極高利率', cls: 'sent-extreme', color: 'var(--red)' };
@@ -1725,7 +1802,7 @@ function _tnxLevel(val) {
   return { label: '極低利率', cls: 'sent-low', color: 'var(--green)' };
 }
 
-const _SENT_DEFAULT_ORDER = ['vix', 'vvix', 'vix3m', 'vixRatio', 'gex', 'credit', 'treasury', 'fg'];
+const _SENT_DEFAULT_ORDER = ['vix', 'vvix', 'vix1d', 'vix3m', 'vixRatio', 'gex', 'brent', 'breakeven', 'credit', 'treasury', 'breadth', 'fg'];
 
 function _saveSentimentOrder() {
   const gauges = document.querySelectorAll('.sent-gauge[data-sent]');
@@ -1829,21 +1906,29 @@ function _renderSentimentStrip() {
 
   // New sentiment data
   const vvixQ = _quoteCache.getIndex('vvix');
+  const vix1dQ = _quoteCache.getIndex('vix1d');
   const vix3mQ = _quoteCache.getIndex('vix3m');
   const tnxQ = _quoteCache.getIndex('tnx');
+  const brentQ = _quoteCache.getIndex('brent');
   const csData = _quoteCache.getCreditSpread();
   const gexData = _quoteCache.getGex();
+  const beData = _quoteCache.getBreakeven();
+  const breadthData = _quoteCache.getBreadth();
 
   const showVix = vixVal && CFG.showVix !== false;
   const showVvix = vvixQ?.price && CFG.showVvix !== false;
+  const showVix1d = vix1dQ?.price && CFG.showVix1d !== false;
   const showFg = fgData && CFG.showFearGreed !== false;
   const showVixTerm = vixVal && vix3mQ?.price && CFG.showVixTerm !== false;
   const showVixRatio = vixVal && vix3mQ?.price && CFG.showVixRatio !== false;
   const showCredit = csData && CFG.showCreditSpread !== false;
   const showTreasury = tnxQ?.price && CFG.showTreasury !== false;
   const showGex = gexData && CFG.showGex !== false;
+  const showBrent = brentQ?.price && CFG.showBrent !== false;
+  const showBreakeven = beData && CFG.showBreakeven !== false;
+  const showBreadth = breadthData && CFG.showBreadth !== false;
 
-  if (!showVix && !showVvix && !showFg && !showVixTerm && !showVixRatio && !showCredit && !showTreasury && !showGex) {
+  if (!showVix && !showVvix && !showVix1d && !showFg && !showVixTerm && !showVixRatio && !showCredit && !showTreasury && !showGex && !showBrent && !showBreakeven && !showBreadth) {
     strip.innerHTML = '';
     return;
   }
@@ -1882,6 +1967,13 @@ function _renderSentimentStrip() {
     gauges.vvix = _pill('vvix', 'VVIX', vvixVal.toFixed(2), lv, _chg(vvixQ.change, 2, true), tip, 'https://www.tradingview.com/chart/?symbol=CBOE%3AVVIX');
   }
 
+  if (showVix1d) {
+    const vix1dVal = vix1dQ.price;
+    const lv = _vix1dLevel(vix1dVal);
+    const tip = `VIX1D（單日波動率）: ${vix1dVal.toFixed(2)}\n衡量 S&P 500 當日選擇權的隱含波動率\n用於過濾 0DTE 噪音，與 VIX 對比判斷恐慌是短線踩踏還是真實恐慌\n${_sentTip('vix1d', vix1dQ)}`;
+    gauges.vix1d = _pill('vix1d', 'VIX1D', vix1dVal.toFixed(2), lv, _chg(vix1dQ.change, 2, true), tip, 'https://www.tradingview.com/chart/?symbol=CBOE%3AVIX1D');
+  }
+
   if (showVixTerm) {
     const vix3mVal = vix3mQ.price;
     const lv = _vixLevel(vix3mVal);
@@ -1917,10 +2009,36 @@ function _renderSentimentStrip() {
     gauges.gex = _pill('gex', 'GEX', sign + bn.toFixed(2) + 'B', lv, _chg(gexData.changeBn, 2, false), tip, 'https://squeezemetrics.com/monitor/dix');
   }
 
+  if (showBrent) {
+    const brentVal = brentQ.price;
+    const lv = _brentLevel(brentVal);
+    const tip = `布蘭特原油 (Brent Crude): $${brentVal.toFixed(2)}\n油價持續時間比絕對價格更重要\n>$100 持續 4-6 週需警戒\n>$125 是局勢根本改變的臨界點\n${_sentTip('brent', brentQ)}`;
+    gauges.brent = _pill('brent', '布蘭特', brentVal.toFixed(2), lv, _chg(brentQ.change, 2, true), tip, 'https://www.tradingview.com/chart/?symbol=NYMEX%3ABZ1!');
+  }
+
+  if (showBreakeven) {
+    const lv = _breakevenLevel(beData.rate);
+    const beCache = _quoteCache._load().breakeven;
+    const beFetchStr = beCache?.time ? new Date(beCache.time).toLocaleTimeString('zh-TW', tFmt) : '';
+    const tip = `5 年期通膨預期 (Breakeven Rate)\n通膨預期: ${beData.rate.toFixed(2)}%\n前值: ${beData.prevRate != null ? beData.prevRate.toFixed(2) + '%' : '—'} (${beData.prevDate || ''})\n資料日期: ${beData.date}\n>3.0% 市場開始不安\n>3.5% 通膨預期脫錨警報\n本地抓取時間：${beFetchStr}`;
+    gauges.breakeven = _pill('breakeven', '5Y BEI', beData.rate.toFixed(2) + '%', lv, _chg(beData.change, 2, true), tip, 'https://fred.stlouisfed.org/series/T5YIE');
+  }
+
   if (showTreasury) {
     const lv = _tnxLevel(tnxQ.price);
     const tip = `美國 10 年期公債殖利率\n殖利率急降 = 市場預期經濟衰退\n${_sentTip('tnx', tnxQ)}`;
     gauges.treasury = _pill('treasury', '10Y', tnxQ.price.toFixed(3) + '%', lv, _chg(tnxQ.change, 3, true), tip, 'https://www.tradingview.com/chart/?symbol=TVC%3AUS10Y');
+  }
+
+  if (showBreadth) {
+    const bScore = Math.round(breadthData.score);
+    const lv = _breadthLevel(bScore);
+    const bCache = _quoteCache._load().breadth;
+    const bFetchStr = bCache?.time ? new Date(bCache.time).toLocaleTimeString('zh-TW', tFmt) : '';
+    const bSrcStr = breadthData.timestamp ? new Date(breadthData.timestamp).toLocaleTimeString('zh-TW', tFmt) : '';
+    const bTimeTip = bSrcStr ? `來源報價時間：${bSrcStr}\n本地抓取時間：${bFetchStr}` : (bFetchStr ? `本地抓取時間：${bFetchStr}` : '');
+    const tip = `市場寬度 (Stock Price Breadth)\n分數: ${bScore}/100 (${breadthData.rating || ''})\n衡量 S&P 500 成分股的漲跌幅度分佈\n分數低 = 多數個股走弱，拋售擴散\n分數高 = 多數個股走強，上漲健康\n${bTimeTip}`;
+    gauges.breadth = _pill('breadth', '寬度', String(bScore), lv, '', tip, 'https://edition.cnn.com/markets/fear-and-greed');
   }
 
   if (showFg) {
@@ -1946,10 +2064,14 @@ function _renderSentimentStrip() {
 }
 
 async function _fetchFearGreed() {
-  if (CFG.showFearGreed === false) return;
+  if (CFG.showFearGreed === false && CFG.showBreadth === false) return;
   try {
     const fg = await PriceService.fetchFearGreed();
-    _quoteCache.setFearGreed(fg);
+    if (CFG.showFearGreed !== false) _quoteCache.setFearGreed(fg);
+    // Store breadth data from the same CNN response
+    if (fg.breadth && CFG.showBreadth !== false) {
+      _quoteCache.setBreadth({ score: fg.breadth.score, rating: fg.breadth.rating, timestamp: fg.breadth.timestamp });
+    }
     _renderSentimentStrip();
   } catch (e) { console.debug('[Prism] Fear & Greed fetch failed:', e.message); }
 }
@@ -1973,6 +2095,16 @@ async function _fetchGex() {
     _quoteCache.setGex(gex);
     _renderSentimentStrip();
   } catch (e) { console.debug('[Prism] GEX fetch failed:', e.message); }
+}
+
+async function _fetchBreakeven() {
+  if (CFG.showBreakeven === false) return;
+  if (_quoteCache.getBreakeven()) { _renderSentimentStrip(); return; }
+  try {
+    const be = await PriceService.fetchBreakeven();
+    _quoteCache.setBreakeven(be);
+    _renderSentimentStrip();
+  } catch (e) { console.debug('[Prism] Breakeven fetch failed:', e.message); }
 }
 
 // ================================================================
@@ -2699,6 +2831,25 @@ function renderGuide() {
 <div class="guide-tip">VVIX 與 VIX 搭配判讀：若 VIX 低但 VVIX 高，代表市場表面平靜但暗流湧動，機構正在為波動性大幅變化做準備。</div>
 </div>
 <div class="guide-card">
+<h4>VIX1D（單日波動率）</h4>
+<p>VIX1D 衡量 S&P 500 <strong>當日到期（0DTE）選擇權</strong>的隱含波動率。隨著 0DTE 選擇權交易量爆增，VIX1D 成為過濾短線噪音的重要工具。</p>
+<table class="guide-table">
+<tr><th>VIX1D 範圍</th><th>市場狀態</th><th>說明</th></tr>
+<tr><td>≤ 15</td><td>低波動</td><td>當日市場極度平靜</td></tr>
+<tr><td>15 – 25</td><td>正常</td><td>當日常態波動範圍</td></tr>
+<tr><td>25 – 35</td><td>偏高</td><td>當日出現較大波動</td></tr>
+<tr><td>35 – 50</td><td>高波動</td><td>當日劇烈震盪</td></tr>
+<tr><td>> 50</td><td>極度恐慌</td><td>當日極端恐慌事件</td></tr>
+</table>
+<p><strong>判讀重點</strong>：</p>
+<ul>
+<li>VIX1D 飆升但 VIX 沒跟上 → 可能只是<strong>短線踩踏</strong>（0DTE 交易者恐慌），不是真正的系統性恐慌</li>
+<li>VIX1D 和 VIX <strong>同步飆升</strong> → 市場恐慌是真實的，不只是當日噪音</li>
+<li>VIX1D 長期高於 VIX → 市場每天都在經歷超額波動，結構性不穩定</li>
+</ul>
+<div class="guide-tip">VIX1D 是 2023 年才推出的新指數，專門捕捉 0DTE 交易帶來的短期波動。它與 VIX 的差距越大，代表短期和中期波動的脫節越嚴重。</div>
+</div>
+<div class="guide-card">
 <h4>VIX3M（VIX / VIX3M 期限結構）</h4>
 <p>比較短期波動率（VIX，30 天）和中期波動率（VIX3M，3 個月）的比值，判斷市場恐慌是短期還是長期。</p>
 <table class="guide-table">
@@ -2733,6 +2884,44 @@ function renderGuide() {
 <li>GEX 從正轉負是重要<strong>警訊</strong>，代表市場結構從穩定轉為不穩定</li>
 </ul>
 <div class="guide-tip">GEX 搭配 VIX 一起看：VIX 飆升 + GEX 深負 = 最危險的組合（恐慌 + 結構性放大波動）。GEX 由 <a href="https://squeezemetrics.com/monitor/dix" target="_blank" rel="noopener">Squeezemetrics</a> 提供，每日收盤後更新。</div>
+</div>
+<div class="guide-card">
+<h4>布蘭特原油 (Brent Crude)</h4>
+<p>布蘭特原油是全球原油定價的<strong>基準指標</strong>，油價急漲會推升通膨預期、壓縮企業利潤、影響央行政策方向。</p>
+<table class="guide-table">
+<tr><th>油價範圍</th><th>市場狀態</th><th>說明</th></tr>
+<tr><td>≤ $60</td><td>低油價</td><td>需求疲弱或供應過剩，有利消費者但能源股承壓</td></tr>
+<tr><td>$60 – $80</td><td>正常</td><td>均衡區間，對經濟影響中性</td></tr>
+<tr><td>$80 – $100</td><td>偏高</td><td>開始推升通膨預期，運輸和製造業成本壓力增加</td></tr>
+<tr><td>$100 – $125</td><td>高油價</td><td>通膨壓力顯著，央行可能被迫維持或提高利率</td></tr>
+<tr><td>> $125</td><td>極端</td><td>歷史極端水準，對經濟造成重大衝擊（如 2022 年俄烏戰爭）</td></tr>
+</table>
+<p><strong>判讀重點</strong>：</p>
+<ul>
+<li>油價<strong>持續時間</strong>比絕對價格更重要 — $90 持續 3 個月比 $110 閃一下更有殺傷力</li>
+<li>油價 > $100 持續 4-6 週 → 開始認真評估通膨和衰退風險</li>
+<li>油價 > $125 → 通常代表地緣政治局勢根本改變，需重新評估整體資產配置</li>
+</ul>
+<div class="guide-tip">油價上漲 → 通膨升高 → 央行升息 → 成長股承壓。這條傳導鏈是理解油價對股市影響的關鍵。</div>
+</div>
+<div class="guide-card">
+<h4>5 年通膨預期 (5Y Breakeven Rate)</h4>
+<p>5 年期通膨預期（Breakeven Inflation Rate）= 5 年期名目公債殖利率 − 5 年期 TIPS 殖利率。反映市場對<strong>未來 5 年年均通膨率</strong>的定價。</p>
+<table class="guide-table">
+<tr><th>預期通膨</th><th>市場狀態</th><th>說明</th></tr>
+<tr><td>≤ 2.0%</td><td>極低</td><td>市場預期通膨受控，有利寬鬆政策</td></tr>
+<tr><td>2.0% – 2.5%</td><td>正常</td><td>接近 Fed 的 2% 目標，健康區間</td></tr>
+<tr><td>2.5% – 3.0%</td><td>偏高</td><td>通膨預期升溫，市場開始不安</td></tr>
+<tr><td>3.0% – 3.5%</td><td>警戒</td><td>市場擔憂通膨失控，Fed 可能被迫鷹派</td></tr>
+<tr><td>> 3.5%</td><td>脫錨</td><td>通膨預期脫錨警報，歷史上極少見（2022 年曾觸及 3.6%）</td></tr>
+</table>
+<p><strong>判讀重點</strong>：</p>
+<ul>
+<li>通膨預期 > 3.0% → 市場開始定價「Fed 控制不住通膨」，對股債同時不利</li>
+<li>通膨預期 > 3.5% → 歷史級警報，意味著市場不再相信央行能錨定通膨</li>
+<li>搭配油價一起看：油價飆升 + 通膨預期上升 = 最危險的組合</li>
+</ul>
+<div class="guide-tip">「通膨預期脫錨」是央行最恐懼的情境 — 一旦大眾和市場都預期高通膨，就會自我實現（要求加薪 → 成本推升 → 價格上漲 → 再要求加薪）。資料來源：<a href="https://fred.stlouisfed.org/series/T5YIE" target="_blank" rel="noopener">FRED T5YIE</a>。</div>
 </div>
 <div class="guide-card">
 <h4>信用利差 OAS（ICE BofA US High Yield）</h4>
@@ -2771,6 +2960,25 @@ function renderGuide() {
 <li>殖利率<strong>快速上升</strong> → 市場預期通膨或升息，高估值股票（科技股）首當其衝</li>
 </ul>
 <div class="guide-warn">殖利率急降通常伴隨「資金避風港效應」（Flight to Safety）— 投資人拋售風險資產、搶購公債，推動殖利率下行。</div>
+</div>
+<div class="guide-card">
+<h4>市場寬度 (Stock Price Breadth)</h4>
+<p>市場寬度衡量 S&P 500 成分股中<strong>上漲和下跌股票的比例與幅度</strong>，是 CNN Fear & Greed 指數的子指標之一。</p>
+<table class="guide-table">
+<tr><th>分數範圍</th><th>市場狀態</th><th>說明</th></tr>
+<tr><td>≤ 15</td><td>世代級底部</td><td>幾乎所有個股都在下跌，極端拋售（歷史底部訊號）</td></tr>
+<tr><td>15 – 30</td><td>深度修正</td><td>多數個股走弱，市場拋售擴散</td></tr>
+<tr><td>30 – 50</td><td>中度修正</td><td>部分板塊走弱，但非全面性下跌</td></tr>
+<tr><td>50 – 70</td><td>正常</td><td>漲跌分布均衡，市場結構健康</td></tr>
+<tr><td>> 70</td><td>健康</td><td>多數個股同步上漲，上漲動能廣泛</td></tr>
+</table>
+<p><strong>判讀重點</strong>：</p>
+<ul>
+<li>指數上漲但寬度收窄 → <strong>少數大型股拉抬</strong>（如 AI 概念股），上漲不健康，易回調</li>
+<li>指數下跌且寬度崩塌 → <strong>全面性拋售</strong>，市場處於恐慌狀態</li>
+<li>寬度從極低開始回升 → 歷史上是<strong>底部確認</strong>的重要訊號</li>
+</ul>
+<div class="guide-tip">2023-2024 年「Magnificent 7」主導行情時，S&P 500 創新高但市場寬度偏低，代表上漲集中在少數個股。健康的牛市應該伴隨廣泛的市場參與。</div>
 </div>
 <div class="guide-card">
 <h4>恐懼與貪婪指數（CNN Fear & Greed）</h4>
@@ -3828,12 +4036,16 @@ function renderSettings() {
               <span class="stg-cb-region-label">指標</span>
               <label class="stg-cb"><input type="checkbox" id="stg-show-vix" ${CFG.showVix !== false ? 'checked' : ''}>VIX</label>
               <label class="stg-cb"><input type="checkbox" id="stg-show-vvix" ${CFG.showVvix !== false ? 'checked' : ''}>VVIX</label>
+              <label class="stg-cb"><input type="checkbox" id="stg-show-vix1d" ${CFG.showVix1d !== false ? 'checked' : ''}>VIX1D</label>
               <label class="stg-cb"><input type="checkbox" id="stg-show-fg" ${CFG.showFearGreed !== false ? 'checked' : ''}>恐懼與貪婪</label>
               <label class="stg-cb"><input type="checkbox" id="stg-show-vixterm" ${CFG.showVixTerm !== false ? 'checked' : ''}>VIX3M</label>
               <label class="stg-cb"><input type="checkbox" id="stg-show-vixratio" ${CFG.showVixRatio !== false ? 'checked' : ''}>VIX 期限結構</label>
               <label class="stg-cb"><input type="checkbox" id="stg-show-gex" ${CFG.showGex !== false ? 'checked' : ''}>GEX</label>
+              <label class="stg-cb"><input type="checkbox" id="stg-show-brent" ${CFG.showBrent !== false ? 'checked' : ''}>布蘭特原油</label>
+              <label class="stg-cb"><input type="checkbox" id="stg-show-breakeven" ${CFG.showBreakeven !== false ? 'checked' : ''}>5Y 通膨預期</label>
               <label class="stg-cb"><input type="checkbox" id="stg-show-credit" ${CFG.showCreditSpread !== false ? 'checked' : ''}>信用利差 OAS</label>
               <label class="stg-cb"><input type="checkbox" id="stg-show-treasury" ${CFG.showTreasury !== false ? 'checked' : ''}>10Y 公債殖利率</label>
+              <label class="stg-cb"><input type="checkbox" id="stg-show-breadth" ${CFG.showBreadth !== false ? 'checked' : ''}>市場寬度</label>
             </div>
           </div>
           <div class="stg-row">
@@ -4135,12 +4347,16 @@ function renderSettings() {
     $$('[data-idx]', body).forEach(cb => { CFG.indices[cb.dataset.idx] = cb.checked; });
     CFG.showVix = $('#stg-show-vix')?.checked ?? true;
     CFG.showVvix = $('#stg-show-vvix')?.checked ?? true;
+    CFG.showVix1d = $('#stg-show-vix1d')?.checked ?? true;
     CFG.showFearGreed = $('#stg-show-fg')?.checked ?? true;
     CFG.showVixTerm = $('#stg-show-vixterm')?.checked ?? true;
     CFG.showVixRatio = $('#stg-show-vixratio')?.checked ?? true;
     CFG.showGex = $('#stg-show-gex')?.checked ?? true;
+    CFG.showBrent = $('#stg-show-brent')?.checked ?? true;
+    CFG.showBreakeven = $('#stg-show-breakeven')?.checked ?? true;
     CFG.showCreditSpread = $('#stg-show-credit')?.checked ?? true;
     CFG.showTreasury = $('#stg-show-treasury')?.checked ?? true;
+    CFG.showBreadth = $('#stg-show-breadth')?.checked ?? true;
     const mtv = parseInt($('#stg-mobile-ticker')?.value);
     CFG.mobileTickerCount = isNaN(mtv) ? 3 : mtv;
     saveSettings(CFG);
@@ -4484,6 +4700,7 @@ function applySettings() {
       if (!_quoteCache.getFearGreed()) _fetchFearGreed();
       if (!_quoteCache.getCreditSpread()) _fetchCreditSpread();
       if (!_quoteCache.getGex()) _fetchGex();
+      if (!_quoteCache.getBreakeven()) _fetchBreakeven();
     }
   }
 
@@ -4526,6 +4743,7 @@ async function handleFetchIndices(updateForms) {
     _fetchFearGreed();
     _fetchCreditSpread();
     _fetchGex();
+    _fetchBreakeven();
     if (updateForms && window._showToast) window._showToast(`報價已更新（${ok} 成功${fail ? `，${fail} 失敗` : ''}）`);
   } catch (e) { console.warn('[Prism] Index fetch error:', e.message); }
   btn.classList.remove('loading');
