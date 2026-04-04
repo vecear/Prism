@@ -210,9 +210,10 @@ async function handleProxy(request) {
       fetchOpts.body = await request.text();
       if (fetchOpts.body.length > 65536) return jsonErr(400, 'Request body too large');
     }
-    fetchOpts.headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
-    fetchOpts.headers['Accept'] = 'application/json, text/plain, */*';
-    const resp = await fetch(target, fetchOpts);
+    fetchOpts.headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+    fetchOpts.headers['Accept'] = 'text/html,application/xhtml+xml,application/xml;q=0.9,application/json,text/plain,*/*;q=0.8';
+    fetchOpts.headers['Accept-Language'] = 'en-US,en;q=0.9';
+    const resp = await fetch(target, { ...fetchOpts, redirect: 'follow' });
     const body = await resp.arrayBuffer();
     return new Response(body, {
       status: resp.status,
