@@ -2037,7 +2037,7 @@ function _renderSentimentStrip() {
     const bFetchStr = bCache?.time ? new Date(bCache.time).toLocaleTimeString('zh-TW', tFmt) : '';
     const bSrcStr = breadthData.timestamp ? new Date(breadthData.timestamp).toLocaleTimeString('zh-TW', tFmt) : '';
     const bTimeTip = bSrcStr ? `來源報價時間：${bSrcStr}\n本地抓取時間：${bFetchStr}` : (bFetchStr ? `本地抓取時間：${bFetchStr}` : '');
-    const tip = `市場寬度 (Stock Price Breadth)\n分數: ${bScore}/100 (${breadthData.rating || ''})\n衡量 S&P 500 成分股的漲跌幅度分佈\n分數低 = 多數個股走弱，拋售擴散\n分數高 = 多數個股走強，上漲健康\n${bTimeTip}`;
+    const tip = `市場寬度 (Stock Price Breadth)\n分數: ${bScore}/100 (${breadthData.rating || ''})\n衡量 NYSE 創新高 vs 創新低的股票數量比例\n分數低 = 創新低股票遠多於創新高，拋售擴散\n分數高 = 創新高股票佔優勢，上漲健康\n${bTimeTip}`;
     gauges.breadth = _pill('breadth', '寬度', String(bScore), lv, '', tip, 'https://edition.cnn.com/markets/fear-and-greed');
   }
 
@@ -2963,7 +2963,7 @@ function renderGuide() {
 </div>
 <div class="guide-card">
 <h4>市場寬度 (Stock Price Breadth)</h4>
-<p>市場寬度衡量 S&P 500 成分股中<strong>上漲和下跌股票的比例與幅度</strong>，是 CNN Fear & Greed 指數的子指標之一。</p>
+<p>市場寬度衡量 NYSE 中<strong>創新高 vs 創新低的股票數量比例</strong>，是 CNN Fear & Greed 指數的子指標之一。創新低股票遠多於創新高時，代表拋售正在全面擴散。</p>
 <table class="guide-table">
 <tr><th>分數範圍</th><th>市場狀態</th><th>說明</th></tr>
 <tr><td>≤ 15</td><td>世代級底部</td><td>幾乎所有個股都在下跌，極端拋售（歷史底部訊號）</td></tr>
