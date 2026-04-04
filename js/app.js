@@ -2053,13 +2053,24 @@ function _renderSentimentStrip() {
     gauges.fg = _pill('fg', 'F&G', String(fgData.score), lv, _chg(chg, 0, false), fgTip, 'https://edition.cnn.com/markets/fear-and-greed');
   }
 
-  // Apply saved order
-  const order = CFG.sentimentOrder || _SENT_DEFAULT_ORDER;
-  const ordered = order.filter(k => gauges[k]);
-  // Append any new keys not in saved order
-  Object.keys(gauges).forEach(k => { if (!ordered.includes(k)) ordered.push(k); });
+  // Group gauges by category
+  const _SENT_GROUPS = [
+    { id: 'vol', label: '波動率', keys: ['vix', 'vvix', 'vix1d', 'vix3m', 'vixRatio', 'gex'] },
+    { id: 'macro', label: '總經', keys: ['brent', 'breakeven', 'credit', 'treasury'] },
+    { id: 'mood', label: '情緒', keys: ['breadth', 'fg'] },
+  ];
+  let html = '';
+  for (const g of _SENT_GROUPS) {
+    const pills = g.keys.filter(k => gauges[k]).map(k => gauges[k]);
+    if (pills.length === 0) continue;
+    html += `<div class="sent-group"><span class="sent-group-label">${g.label}</span>${pills.join('')}</div>`;
+  }
+  // Append any ungrouped gauges
+  const grouped = new Set(_SENT_GROUPS.flatMap(g => g.keys));
+  const ungrouped = Object.keys(gauges).filter(k => !grouped.has(k) && gauges[k]);
+  if (ungrouped.length) html += ungrouped.map(k => gauges[k]).join('');
 
-  strip.innerHTML = ordered.map(k => gauges[k]).join('');
+  strip.innerHTML = html;
   _initSentimentDrag(strip);
 }
 
