@@ -163,7 +163,7 @@ const PriceService = {
 
   // ── Yahoo Finance ──
   yahoo: {
-    INDEX_MAP: { taiex: '^TWII', es: 'ES=F', nq: 'NQ=F', ym: 'YM=F', sox: '^SOX', nkd: 'NKD=F', kospi: '^KS11', shanghai: '000001.SS', hsi: '^HSI', vix: '^VIX', vix3m: '^VIX3M', tnx: '^TNX', btc: 'BTC-USD', eth: 'ETH-USD', sol: 'SOL-USD' },
+    INDEX_MAP: { taiex: '^TWII', es: 'ES=F', nq: 'NQ=F', ym: 'YM=F', sox: '^SOX', nkd: 'NKD=F', kospi: '^KS11', shanghai: '000001.SS', hsi: '^HSI', vix: '^VIX', vvix: '^VVIX', vix3m: '^VIX3M', tnx: '^TNX', btc: 'BTC-USD', eth: 'ETH-USD', sol: 'SOL-USD' },
     async fetchQuote(symbol) {
       const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=1d`;
       const r = await PriceService._proxyFetch(url);
@@ -335,6 +335,7 @@ const PriceService = {
     const keys = Object.keys(CFG.indices).filter(k => CFG.indices[k]);
     // Fetch sentiment indicators (not in INDEX_DEFS / ticker)
     if (CFG.showVix) keys.push('vix');
+    if (CFG.showVvix) keys.push('vvix');
     if (CFG.showVixTerm || CFG.showVixRatio) keys.push('vix', 'vix3m');
     if (CFG.showTreasury) keys.push('tnx');
     // dedupe
@@ -905,6 +906,7 @@ const DEFAULT_SETTINGS = {
   refreshInterval: 10,
   indices: { taiex: true, txf: true, twn: true, es: true, nq: true, ym: true, sox: true, nkd: true, kospi: true, shanghai: true, hsi: true, btc: true, eth: true, sol: true },
   showVix: true,
+  showVvix: true,
   showFearGreed: true,
   showVixTerm: true,
   showVixRatio: true,
@@ -1638,6 +1640,14 @@ function _vixLevel(v) {
   return { label: '極度恐慌', cls: 'sent-extreme', color: 'var(--red)' };
 }
 
+function _vvixLevel(v) {
+  if (v <= 80) return { label: '低波動', cls: 'sent-low', color: 'var(--green)' };
+  if (v <= 100) return { label: '正常', cls: 'sent-normal', color: 'var(--accent)' };
+  if (v <= 120) return { label: '偏高', cls: 'sent-elevated', color: 'var(--yellow)' };
+  if (v <= 140) return { label: '高波動', cls: 'sent-high', color: 'var(--orange)' };
+  return { label: '極度恐慌', cls: 'sent-extreme', color: 'var(--red)' };
+}
+
 function _fgLevel(score) {
   if (score <= 25) return { label: '極度恐懼', cls: 'sent-extreme', color: 'var(--red)' };
   if (score <= 44) return { label: '恐懼', cls: 'sent-high', color: 'var(--orange)' };
@@ -1674,7 +1684,7 @@ function _tnxLevel(val) {
   return { label: '極低利率', cls: 'sent-low', color: 'var(--green)' };
 }
 
-const _SENT_DEFAULT_ORDER = ['vix', 'vix3m', 'vixRatio', 'credit', 'treasury', 'fg'];
+const _SENT_DEFAULT_ORDER = ['vix', 'vvix', 'vix3m', 'vixRatio', 'credit', 'treasury', 'fg'];
 
 function _saveSentimentOrder() {
   const gauges = document.querySelectorAll('.sent-gauge[data-sent]');
@@ -1777,18 +1787,20 @@ function _renderSentimentStrip() {
   const fgData = _quoteCache.getFearGreed();
 
   // New sentiment data
+  const vvixQ = _quoteCache.getIndex('vvix');
   const vix3mQ = _quoteCache.getIndex('vix3m');
   const tnxQ = _quoteCache.getIndex('tnx');
   const csData = _quoteCache.getCreditSpread();
 
   const showVix = vixVal && CFG.showVix !== false;
+  const showVvix = vvixQ?.price && CFG.showVvix !== false;
   const showFg = fgData && CFG.showFearGreed !== false;
   const showVixTerm = vixVal && vix3mQ?.price && CFG.showVixTerm !== false;
   const showVixRatio = vixVal && vix3mQ?.price && CFG.showVixRatio !== false;
   const showCredit = csData && CFG.showCreditSpread !== false;
   const showTreasury = tnxQ?.price && CFG.showTreasury !== false;
 
-  if (!showVix && !showFg && !showVixTerm && !showVixRatio && !showCredit && !showTreasury) {
+  if (!showVix && !showVvix && !showFg && !showVixTerm && !showVixRatio && !showCredit && !showTreasury) {
     strip.innerHTML = '';
     return;
   }
@@ -1818,6 +1830,13 @@ function _renderSentimentStrip() {
   if (showVix) {
     const lv = _vixLevel(vixVal);
     gauges.vix = _pill('vix', 'VIX', vixVal.toFixed(2), lv, _chg(vixQ.change, 2, true), _sentTip('vix', vixQ), 'https://www.tradingview.com/chart/?symbol=CBOE%3AVIX');
+  }
+
+  if (showVvix) {
+    const vvixVal = vvixQ.price;
+    const lv = _vvixLevel(vvixVal);
+    const tip = `VVIX（VIX 的波動率）: ${vvixVal.toFixed(2)}\nVVIX 衡量 VIX 選擇權的隱含波動率\nVVIX 飆升 = 市場預期 VIX 即將大幅波動\n${_sentTip('vvix', vvixQ)}`;
+    gauges.vvix = _pill('vvix', 'VVIX', vvixVal.toFixed(2), lv, _chg(vvixQ.change, 2, true), tip, 'https://www.tradingview.com/chart/?symbol=CBOE%3AVVIX');
   }
 
   if (showVixTerm) {
@@ -2601,6 +2620,20 @@ function renderGuide() {
 </table>
 <p><strong>判讀重點</strong>：VIX 上升時用紅色顯示（代表恐慌增加），下降時用綠色（恐慌緩解）。注意 VIX 的方向比絕對值更重要。</p>
 <div class="guide-tip">VIX 是「均值回歸」的指標 — 極端高值終會回落。歷史上 VIX 飆升往往是短期底部的訊號，但不代表不會再跌。</div>
+</div>
+<div class="guide-card">
+<h4>VVIX（VIX 的波動率）</h4>
+<p>VVIX（CBOE VIX of VIX）衡量 VIX 選擇權的<strong>隱含波動率</strong>，可視為「恐慌指數的恐慌指數」。VVIX 高代表市場預期 VIX 即將劇烈波動。</p>
+<table class="guide-table">
+<tr><th>VVIX 範圍</th><th>市場狀態</th><th>說明</th></tr>
+<tr><td>≤ 80</td><td>低波動</td><td>VIX 預期穩定，市場平靜</td></tr>
+<tr><td>80 – 100</td><td>正常</td><td>VIX 常態波動範圍</td></tr>
+<tr><td>100 – 120</td><td>偏高</td><td>市場預期 VIX 可能出現較大變動</td></tr>
+<tr><td>120 – 140</td><td>高波動</td><td>VIX 選擇權市場活躍，預期大幅震盪</td></tr>
+<tr><td>> 140</td><td>極度恐慌</td><td>市場預期 VIX 將劇烈飆升（如 2020 年曾達 200+）</td></tr>
+</table>
+<p><strong>判讀重點</strong>：VVIX 常被當作「預警指標」— 在 VIX 本身尚未大幅上升前，VVIX 可能已先行飆升，暗示機構正大量買入 VIX 選擇權避險。</p>
+<div class="guide-tip">VVIX 與 VIX 搭配判讀：若 VIX 低但 VVIX 高，代表市場表面平靜但暗流湧動，機構正在為波動性大幅變化做準備。</div>
 </div>
 <div class="guide-card">
 <h4>VIX3M（VIX / VIX3M 期限結構）</h4>
@@ -3712,6 +3745,7 @@ function renderSettings() {
             <div class="stg-cb-region" style="margin-top:4px;padding-top:6px;border-top:1px dashed var(--bdr)">
               <span class="stg-cb-region-label">指標</span>
               <label class="stg-cb"><input type="checkbox" id="stg-show-vix" ${CFG.showVix !== false ? 'checked' : ''}>VIX</label>
+              <label class="stg-cb"><input type="checkbox" id="stg-show-vvix" ${CFG.showVvix !== false ? 'checked' : ''}>VVIX</label>
               <label class="stg-cb"><input type="checkbox" id="stg-show-fg" ${CFG.showFearGreed !== false ? 'checked' : ''}>恐懼與貪婪</label>
               <label class="stg-cb"><input type="checkbox" id="stg-show-vixterm" ${CFG.showVixTerm !== false ? 'checked' : ''}>VIX3M</label>
               <label class="stg-cb"><input type="checkbox" id="stg-show-vixratio" ${CFG.showVixRatio !== false ? 'checked' : ''}>VIX 期限結構</label>
@@ -4017,6 +4051,7 @@ function renderSettings() {
     CFG.priceDecCryptoTrim = $('#stg-dec-crypto-trim')?.checked ?? true;
     $$('[data-idx]', body).forEach(cb => { CFG.indices[cb.dataset.idx] = cb.checked; });
     CFG.showVix = $('#stg-show-vix')?.checked ?? true;
+    CFG.showVvix = $('#stg-show-vvix')?.checked ?? true;
     CFG.showFearGreed = $('#stg-show-fg')?.checked ?? true;
     CFG.showVixTerm = $('#stg-show-vixterm')?.checked ?? true;
     CFG.showVixRatio = $('#stg-show-vixratio')?.checked ?? true;
