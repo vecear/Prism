@@ -1268,71 +1268,120 @@ function getChecklistItems() {
 // ================================================================
 function renderHeaderAuth() {
   const el = $('#header-auth');
-  if (!el) return;
+  const slot = $('#sidebar-user-slot');
   if (authToken && currentUser) {
-    el.innerHTML = `<div class="ha-user">
-      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-      <span>${esc(currentUser.username)}</span>
-    </div>`;
+    const initial = (currentUser.username || '?').charAt(0).toUpperCase();
+    if (el) {
+      el.innerHTML = `<button class="btn btn-ghost btn-sm" id="ha-userbtn" title="帳戶">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        <span>${esc(currentUser.username)}</span>
+      </button>`;
+    }
+    if (slot) {
+      slot.innerHTML = `<div class="sidebar-user-card">
+        <div class="sidebar-user-avatar">${esc(initial)}</div>
+        <div class="sidebar-user-info">
+          <div class="name">${esc(currentUser.username)}</div>
+          <div class="status">已同步</div>
+        </div>
+        <button id="ha-logout" title="登出">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </button>
+      </div>`;
+      $('#ha-logout')?.addEventListener('click', () => {
+        if (!confirm('確定要登出嗎？')) return;
+        handleLogout();
+      });
+    }
   } else {
-    el.innerHTML = '';
+    if (el) {
+      el.innerHTML = `<button class="btn btn-primary btn-sm" id="ha-loginbtn">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+        <span>登入</span>
+      </button>`;
+      $('#ha-loginbtn')?.addEventListener('click', () => showLoginModal?.());
+    }
+    if (slot) {
+      slot.innerHTML = `<button class="btn btn-soft btn-sm btn-full" id="sb-loginbtn" style="margin-top:8px">登入 / 註冊</button>`;
+      $('#sb-loginbtn')?.addEventListener('click', () => showLoginModal?.());
+    }
   }
 }
 
-// ── Login Modal (global, shown on page load or header click) ──
+// ── Login Modal (center card · warm gradient bubbles) ──
 function showLoginModal() {
-  // Remove existing
   $('#j-global-modal-overlay')?.remove();
-  $('#j-global-modal')?.remove();
 
   const overlay = document.createElement('div');
   overlay.id = 'j-global-modal-overlay';
-  overlay.className = 'j-modal-overlay open';
-  const modal = document.createElement('div');
-  modal.id = 'j-global-modal';
-  modal.className = 'j-modal open';
-  modal.style.width = '380px';
-  modal.style.maxWidth = '92vw';
-
-  modal.innerHTML = `
-    <div class="j-modal-header">
-      <h3>登入 Prism</h3>
-      <button class="j-modal-close" id="jg-close">&times;</button>
-    </div>
-    <div class="j-modal-body">
-      <div class="j-login-tabs" style="margin-bottom:14px">
-        <button class="j-lt-btn active" data-mode="login">登入</button>
-        <button class="j-lt-btn" data-mode="register">註冊</button>
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:420px;padding:0;overflow:visible">
+      <div class="login-wrap" style="min-height:auto;padding:40px 30px;border-radius:14px">
+        <button class="modal-close" id="jg-close" aria-label="關閉">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+        <div class="login-card">
+          <div class="brand-row">
+            <svg width="36" height="36" viewBox="0 0 28 28" fill="none" style="flex-shrink:0">
+              <polygon points="14,3 25,25 3,25" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" style="color:var(--accent)"/>
+              <line x1="14" y1="3" x2="9" y2="25" stroke="currentColor" stroke-width="1.2" opacity=".35" style="color:var(--accent)"/>
+              <line x1="14" y1="3" x2="19" y2="25" stroke="currentColor" stroke-width="1.2" opacity=".35" style="color:var(--accent)"/>
+            </svg>
+            <div>
+              <div class="brand-name">Prism</div>
+              <div class="brand-sub">TRADING RISK TOOLKIT</div>
+            </div>
+          </div>
+          <div class="welcome-title" id="jg-title">歡迎回來</div>
+          <div class="welcome-sub" id="jg-sub">登入以同步交易紀錄、設定與範本。</div>
+          <div style="display:inline-flex;background:var(--bg2);padding:3px;border-radius:8px;margin-bottom:14px">
+            <button class="seg-item active" data-mode="login" id="jt-login">登入</button>
+            <button class="seg-item" data-mode="register" id="jt-register">註冊</button>
+          </div>
+          <div class="form-stack">
+            <div class="field field-lg field-sans">
+              <div class="field-label">帳號</div>
+              <div class="field-wrap"><input type="text" id="jg-user" placeholder="使用者名稱" maxlength="20" autocomplete="username"></div>
+            </div>
+            <div class="field field-lg">
+              <div class="field-label">密碼</div>
+              <div class="field-wrap"><input type="password" id="jg-pass" placeholder="••••••••••" autocomplete="current-password"></div>
+            </div>
+            <div id="jg-error" style="color:var(--red);font-size:12px;min-height:14px"></div>
+            <button class="btn btn-primary btn-lg btn-full" id="jg-submit">登入</button>
+            <div class="divider"><span>或</span></div>
+            <button class="btn btn-ghost btn-full" id="jg-guest">先不登入 · 以訪客模式使用</button>
+          </div>
+          <div class="foot">
+            本工具僅供學習與參考，實際交易規則以券商 / 期貨商公告為準。<br>
+            JWT 加密 · PBKDF2 密碼雜湊 · 跨裝置同步
+          </div>
+        </div>
       </div>
-      <div class="j-fg" style="margin-bottom:10px"><label>使用者名稱</label><input type="text" id="jg-user" placeholder="使用者名稱" maxlength="20" autocomplete="username"></div>
-      <div class="j-fg" style="margin-bottom:10px"><label>密碼</label><input type="password" id="jg-pass" placeholder="密碼" autocomplete="current-password"></div>
-      <div class="j-login-error" id="jg-error"></div>
-    </div>
-    <div class="j-modal-footer">
-      <button class="j-btn-cancel" id="jg-cancel">取消</button>
-      <button class="j-btn-save" id="jg-submit">登入</button>
     </div>
   `;
-
   document.body.appendChild(overlay);
-  document.body.appendChild(modal);
   $('#jg-user')?.focus();
-
   let mode = 'login';
-  $$('.j-lt-btn', modal).forEach(b => b.addEventListener('click', () => {
-    $$('.j-lt-btn', modal).forEach(x => x.classList.remove('active'));
-    b.classList.add('active');
-    mode = b.dataset.mode;
-    $('#jg-submit').textContent = mode === 'login' ? '登入' : '註冊';
+  const setMode = (m) => {
+    mode = m;
+    $('#jt-login').classList.toggle('active', m === 'login');
+    $('#jt-register').classList.toggle('active', m === 'register');
+    $('#jg-submit').textContent = m === 'login' ? '登入' : '建立新帳號';
+    $('#jg-title').textContent = m === 'login' ? '歡迎回來' : '建立 Prism 帳號';
+    $('#jg-sub').textContent = m === 'login' ? '登入以同步交易紀錄、設定與範本。' : '只需使用者名稱與密碼，稍後可補資料。';
     $('#jg-error').textContent = '';
-  }));
+  };
+  $('#jt-login').addEventListener('click', () => setMode('login'));
+  $('#jt-register').addEventListener('click', () => setMode('register'));
 
-  const close = () => { overlay.remove(); modal.remove(); document.removeEventListener('keydown', loginEsc); };
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', loginEsc); };
   const loginEsc = (e) => { if (e.key === 'Escape') close(); };
   document.addEventListener('keydown', loginEsc);
-  overlay.addEventListener('click', close);
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
   $('#jg-close').addEventListener('click', close);
-  $('#jg-cancel').addEventListener('click', close);
+  $('#jg-guest')?.addEventListener('click', close);
 
   const submit = async () => {
     const username = $('#jg-user')?.value.trim();
@@ -1383,6 +1432,7 @@ function handleLogout() {
 // ================================================================
 
 // Exposed globally so app.js calc functions can call it
+window.openTradeForm = (id, prefill) => openTradeForm(id, prefill);
 window.PrismJournal = {
   isLoggedIn: () => !!(authToken && currentUser),
   showLogin: showLoginModal,

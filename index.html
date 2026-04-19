@@ -15,9 +15,9 @@
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <!-- iOS Web App -->
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="Prism">
-  <meta name="theme-color" content="#0e1117">
+  <meta name="theme-color" content="#faf7f0">
   <link rel="manifest" href="manifest.json">
   <!-- Preconnect for external APIs -->
   <link rel="preconnect" href="https://mis.twse.com.tw" crossorigin>
@@ -27,243 +27,303 @@
   <link rel="dns-prefetch" href="https://www.taifex.com.tw">
   <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Sans+TC:wght@400;700&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=20260323a">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;600;700&family=Instrument+Serif&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css?v=20260419b">
 </head>
 <body>
-  <a href="#main-content" class="skip-link">跳至主要內容</a>
   <div id="app">
-    <!-- Header -->
-    <header class="site-header">
-      <div class="logo">
-        <svg class="logo-icon" viewBox="0 0 28 28" fill="none" aria-hidden="true">
-          <polygon points="14,2 26,26 2,26" fill="none" stroke="url(#prism-g)" stroke-width="2.5" stroke-linejoin="round"/>
-          <line x1="14" y1="2" x2="8" y2="26" stroke="#00b4d8" stroke-width="1.5" opacity=".5"/>
-          <line x1="14" y1="2" x2="20" y2="26" stroke="#ffd600" stroke-width="1.5" opacity=".5"/>
-          <defs><linearGradient id="prism-g" x1="0" y1="0" x2="28" y2="28"><stop offset="0%" stop-color="#00b4d8"/><stop offset="50%" stop-color="#ffd600"/><stop offset="100%" stop-color="#ff1744"/></linearGradient></defs>
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-brand">
+        <svg width="22" height="22" viewBox="0 0 28 28" fill="none" style="flex-shrink:0">
+          <polygon points="14,3 25,25 3,25" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" style="color:var(--accent)"/>
+          <line x1="14" y1="3" x2="9" y2="25" stroke="currentColor" stroke-width="1.2" opacity=".35" style="color:var(--accent)"/>
+          <line x1="14" y1="3" x2="19" y2="25" stroke="currentColor" stroke-width="1.2" opacity=".35" style="color:var(--accent)"/>
         </svg>
-        <h1>Prism</h1>
+        <div>
+          <div class="brand-name">Prism</div>
+          <div class="brand-sub">TRADING RISK</div>
+        </div>
       </div>
-      <div class="header-right">
-        <div id="header-auth"></div>
-        <button class="header-icon-btn" id="btn-fetch-indices" title="更新報價" aria-label="更新報價">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 4v6h6"/><path d="M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
-        </button>
-        <button class="header-icon-btn main-tab" data-tab="guide" title="說明 (6 / ?)" aria-label="說明">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-        </button>
-        <button class="header-icon-btn main-tab" data-tab="settings" title="設定 (7)" aria-label="設定">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
-        </button>
-        <button class="header-icon-btn" id="btn-hard-reload" title="重新載入頁面（清除快取）" aria-label="重新載入頁面">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64A9 9 0 1 1 5.64 6.64"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
-        </button>
+      <div class="sidebar-group-label">主選單</div>
+      <button class="sidebar-item main-tab active" data-tab="journal">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/><line x1="12" y1="12" x2="12" y2="18"/></svg>
+        <span class="label">交易紀錄</span>
+        <span class="count" id="sb-journal-count" hidden></span>
+      </button>
+      <button class="sidebar-item main-tab" data-tab="margin">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-7"/></svg>
+        <span class="label">股票融資券</span>
+      </button>
+      <button class="sidebar-item main-tab" data-tab="futures">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 3v18"/></svg>
+        <span class="label">期貨保證金</span>
+      </button>
+      <button class="sidebar-item main-tab" data-tab="options">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3v18M3 12h18"/></svg>
+        <span class="label">選擇權</span>
+      </button>
+      <button class="sidebar-item main-tab" data-tab="crypto">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 2h5l3.5 7-6 13-6-13z"/><path d="M6.5 9h11"/></svg>
+        <span class="label">加密貨幣</span>
+      </button>
+
+      <div class="sidebar-spacer"></div>
+      <div class="sidebar-group-label">系統</div>
+      <button class="sidebar-item main-tab" data-tab="settings">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+        <span class="label">設定</span>
+      </button>
+      <button class="sidebar-item main-tab" data-tab="guide">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        <span class="label">說明</span>
+      </button>
+
+      <div id="sidebar-user-slot"></div>
+    </aside>
+
+    <!-- Main column -->
+    <div class="main-col">
+      <!-- Topbar -->
+      <header class="topbar" id="topbar">
+        <div class="topbar-title">
+          <h1 id="topbar-title">交易紀錄</h1>
+          <div class="topbar-subtitle" id="topbar-subtitle">—</div>
+        </div>
+        <div class="topbar-actions" id="topbar-actions">
+          <button class="icon-btn icon-btn-ghost" id="btn-fetch-indices" title="更新報價" aria-label="更新報價">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 4v6h6"/><path d="M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
+          </button>
+          <button class="icon-btn icon-btn-ghost" id="btn-hard-reload" title="重新載入頁面" aria-label="重新載入頁面">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64A9 9 0 1 1 5.64 6.64"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
+          </button>
+          <div id="header-auth"></div>
+        </div>
+      </header>
+
+      <!-- Ticker + sentiment strip -->
+      <div class="ticker-bar">
+        <div class="ticker-strip" id="ticker-inputs"></div>
+        <div class="sentiment-strip" id="sentiment-strip"></div>
+        <div class="ticker-bar-actions">
+          <span class="ticker-time" id="ticker-time"></span>
+          <button class="ticker-toggle" id="btn-ticker-toggle" aria-label="展開報價">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+        </div>
       </div>
-    </header>
+      <div class="ticker-expand-panel" id="ticker-expand-panel"></div>
 
+      <!-- Main content -->
+      <main class="main-content">
 
-    <!-- Market Ticker Strip -->
-    <div class="ticker-bar" aria-label="市場行情">
-      <div class="ticker-strip" id="ticker-inputs"></div>
-      <div class="ticker-bar-actions">
-        <button class="ticker-toggle" id="btn-ticker-toggle" aria-label="展開報價">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-        </button>
-        <span class="ticker-time" id="ticker-time"></span>
-      </div>
-    </div>
-
-    <!-- Sentiment Strip -->
-    <div class="sentiment-strip" id="sentiment-strip"></div>
-
-    <!-- Main Tabs -->
-    <nav class="main-tabs" role="tablist" aria-label="主要功能">
-      <button class="main-tab active" data-tab="journal" role="tab" aria-selected="true" aria-controls="tab-journal" title="交易紀錄 (1)">
-        <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/><line x1="12" y1="12" x2="12" y2="18"/></svg>
-        <span class="tab-label">紀錄</span>
-      </button>
-      <button class="main-tab" data-tab="margin" role="tab" aria-selected="false" aria-controls="tab-margin" title="股票計算器 (2)">
-        <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 17l10-10M12 7l10 10"/><path d="M5 3v4M19 17v4"/><circle cx="5" cy="7" r="1.5" fill="currentColor" stroke="none"/><circle cx="19" cy="17" r="1.5" fill="currentColor" stroke="none"/></svg>
-        <span class="tab-label">股票</span>
-      </button>
-      <button class="main-tab" data-tab="futures" role="tab" aria-selected="false" aria-controls="tab-futures" title="期貨計算器 (3)">
-        <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 3v18"/><path d="M14 14l3-3m0 0l3 3m-3-3v6"/></svg>
-        <span class="tab-label">期貨</span>
-      </button>
-      <button class="main-tab" data-tab="options" role="tab" aria-selected="false" aria-controls="tab-options" title="選擇權計算器 (4)">
-        <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3v18M3 12h18"/><path d="M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"/></svg>
-        <span class="tab-label">選擇權</span>
-      </button>
-      <button class="main-tab" data-tab="crypto" role="tab" aria-selected="false" aria-controls="tab-crypto" title="加密貨幣計算器 (5)">
-        <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 2h5l3.5 7-6 13-6-13z"/><path d="M6.5 9h11"/><path d="M8.5 2l3.5 7M15.5 2l-3.5 7"/></svg>
-        <span class="tab-label">加密</span>
-      </button>
-    </nav>
-
-    <!-- Tab Contents -->
-    <main class="main-content" id="main-content">
-
-      <!-- MARGIN TAB -->
-      <section id="tab-margin" class="tab-content" role="tabpanel" aria-labelledby="tab-margin">
-        <div class="calc-layout">
-          <div class="calc-left">
-            <div class="controls-bar">
-              <div class="toggle-group" data-group="margin-market">
-                <button class="toggle-btn active" data-value="tw">台灣</button>
-                <button class="toggle-btn" data-value="us">美國</button>
+        <!-- MARGIN TAB -->
+        <section id="tab-margin" class="tab-content">
+          <div class="calc-layout">
+            <div class="calc-left">
+              <div class="calc-header">
+                <h2>股票風險計算</h2>
+                <span class="tag tag-accent" id="margin-region-tag">台灣</span>
               </div>
-              <div class="toggle-group direction-toggle" data-group="margin-direction">
-                <button class="toggle-btn active" data-value="cash">現股</button>
-                <button class="toggle-btn" data-value="long">融資 Long</button>
-                <button class="toggle-btn" data-value="short">融券 Short</button>
+              <div class="controls-bar">
+                <div class="toggle-group" data-group="margin-market">
+                  <button class="toggle-btn active" data-value="tw">台灣市場</button>
+                  <button class="toggle-btn" data-value="us">美國市場</button>
+                </div>
+                <div class="toggle-group direction-toggle" data-group="margin-direction">
+                  <button class="toggle-btn active" data-value="cash">現股</button>
+                  <button class="toggle-btn" data-value="long">融資 Long</button>
+                  <button class="toggle-btn" data-value="short">融券 Short</button>
+                </div>
               </div>
-            </div>
-            <div class="input-panel card">
               <div id="margin-inputs"></div>
             </div>
-          </div>
-          <div class="result-panel">
-            <div id="margin-results"></div>
-          </div>
-        </div>
-      </section>
-
-      <!-- FUTURES TAB -->
-      <section id="tab-futures" class="tab-content" role="tabpanel">
-        <div class="calc-layout">
-          <div class="calc-left">
-            <div class="controls-bar">
-              <div class="toggle-group" data-group="futures-market">
-                <button class="toggle-btn active" data-value="tw">台灣</button>
-                <button class="toggle-btn" data-value="us">美國</button>
-              </div>
-              <div class="toggle-group direction-toggle" data-group="futures-direction">
-                <button class="toggle-btn active" data-value="long">做多 Buy</button>
-                <button class="toggle-btn" data-value="short">做空 Sell</button>
-              </div>
-              <div class="toggle-group" data-group="futures-product">
-                <button class="toggle-btn active" data-value="index">指數</button>
-                <button class="toggle-btn" data-value="stock">個股期</button>
-              </div>
+            <div class="result-panel">
+              <div id="margin-results"></div>
             </div>
-            <div class="input-panel card">
+          </div>
+        </section>
+
+        <!-- FUTURES TAB -->
+        <section id="tab-futures" class="tab-content">
+          <div class="calc-layout">
+            <div class="calc-left">
+              <div class="calc-header">
+                <h2>期貨保證金計算</h2>
+                <span class="tag tag-accent" id="futures-region-tag">台灣 · 指數</span>
+              </div>
+              <div class="controls-bar">
+                <div class="toggle-group" data-group="futures-market">
+                  <button class="toggle-btn active" data-value="tw">台灣</button>
+                  <button class="toggle-btn" data-value="us">美國</button>
+                </div>
+                <div class="toggle-group direction-toggle" data-group="futures-direction">
+                  <button class="toggle-btn active" data-value="long">做多 Buy</button>
+                  <button class="toggle-btn" data-value="short">做空 Sell</button>
+                </div>
+                <div class="toggle-group" data-group="futures-product">
+                  <button class="toggle-btn active" data-value="index">指數</button>
+                  <button class="toggle-btn" data-value="stock">個股期</button>
+                </div>
+              </div>
               <div id="futures-inputs"></div>
             </div>
-          </div>
-          <div class="result-panel">
-            <div id="futures-results"></div>
-          </div>
-        </div>
-      </section>
-
-      <!-- OPTIONS TAB -->
-      <section id="tab-options" class="tab-content" role="tabpanel">
-        <div class="calc-layout">
-          <div class="calc-left">
-            <div class="controls-bar">
-              <div class="toggle-group" data-group="options-market">
-                <button class="toggle-btn active" data-value="tw">台灣</button>
-                <button class="toggle-btn" data-value="us">美國</button>
-              </div>
-              <div class="toggle-group direction-toggle" data-group="options-side">
-                <button class="toggle-btn active" data-value="buyer">買方 Buyer</button>
-                <button class="toggle-btn" data-value="seller">賣方 Seller</button>
-              </div>
-              <div class="toggle-group" data-group="options-product">
-                <button class="toggle-btn active" data-value="index">指數</button>
-                <button class="toggle-btn" data-value="stock">個股</button>
-              </div>
+            <div class="result-panel">
+              <div id="futures-results"></div>
             </div>
-            <div class="input-panel card">
+          </div>
+        </section>
+
+        <!-- OPTIONS TAB -->
+        <section id="tab-options" class="tab-content">
+          <div class="calc-layout">
+            <div class="calc-left">
+              <div class="calc-header">
+                <h2>選擇權計算</h2>
+                <span class="tag tag-accent" id="options-region-tag">買方 · Call</span>
+              </div>
+              <div class="controls-bar">
+                <div class="toggle-group" data-group="options-market">
+                  <button class="toggle-btn active" data-value="tw">台指選</button>
+                  <button class="toggle-btn" data-value="us">SPX/SPY</button>
+                </div>
+                <div class="toggle-group direction-toggle" data-group="options-side">
+                  <button class="toggle-btn active" data-value="buyer">買方 Buyer</button>
+                  <button class="toggle-btn" data-value="seller">賣方 Seller</button>
+                </div>
+                <div class="toggle-group" data-group="options-product">
+                  <button class="toggle-btn active" data-value="index">指數</button>
+                  <button class="toggle-btn" data-value="stock">個股</button>
+                </div>
+              </div>
               <div id="options-inputs"></div>
             </div>
-          </div>
-          <div class="result-panel">
-            <div id="options-results"></div>
-          </div>
-        </div>
-      </section>
-
-      <!-- CRYPTO TAB -->
-      <section id="tab-crypto" class="tab-content" role="tabpanel">
-        <div class="calc-layout">
-          <div class="calc-left">
-            <div class="controls-bar">
-              <div class="toggle-group direction-toggle" data-group="crypto-mode">
-                <button class="toggle-btn active" data-value="spot">現貨 Spot</button>
-                <button class="toggle-btn" data-value="perp">合約 Perp</button>
-              </div>
-              <div class="toggle-group direction-toggle" data-group="crypto-direction">
-                <button class="toggle-btn active" data-value="long">做多 Long</button>
-                <button class="toggle-btn" data-value="short">做空 Short</button>
-              </div>
+            <div class="result-panel">
+              <div id="options-results"></div>
             </div>
-            <div class="input-panel card">
+          </div>
+        </section>
+
+        <!-- CRYPTO TAB -->
+        <section id="tab-crypto" class="tab-content">
+          <div class="calc-layout">
+            <div class="calc-left">
+              <div class="calc-header">
+                <h2>加密貨幣合約</h2>
+                <span class="tag tag-amber" id="crypto-region-tag">BTC</span>
+              </div>
+              <div class="controls-bar">
+                <div class="toggle-group direction-toggle" data-group="crypto-mode">
+                  <button class="toggle-btn active" data-value="spot">現貨 Spot</button>
+                  <button class="toggle-btn" data-value="perp">合約 Perp</button>
+                </div>
+                <div class="toggle-group direction-toggle" data-group="crypto-direction">
+                  <button class="toggle-btn active" data-value="long">做多</button>
+                  <button class="toggle-btn" data-value="short">做空</button>
+                </div>
+              </div>
               <div id="crypto-inputs"></div>
             </div>
+            <div class="result-panel">
+              <div id="crypto-results"></div>
+            </div>
           </div>
-          <div class="result-panel">
-            <div id="crypto-results"></div>
-          </div>
-        </div>
-      </section>
+        </section>
 
-      <!-- JOURNAL TAB -->
-      <section id="tab-journal" class="tab-content active" role="tabpanel">
-        <div id="journal-root"></div>
-      </section>
+        <!-- JOURNAL TAB -->
+        <section id="tab-journal" class="tab-content active">
+          <div id="journal-root"></div>
+        </section>
 
-      <!-- GUIDE TAB -->
-      <section id="tab-guide" class="tab-content" role="tabpanel">
-        <div id="guide-content"></div>
-      </section>
+        <!-- GUIDE TAB -->
+        <section id="tab-guide" class="tab-content">
+          <div id="guide-content"></div>
+        </section>
 
-      <!-- SETTINGS TAB -->
-      <section id="tab-settings" class="tab-content" role="tabpanel">
-        <div class="settings-body" id="settings-body"></div>
-      </section>
+        <!-- SETTINGS TAB -->
+        <section id="tab-settings" class="tab-content">
+          <div class="settings-body" id="settings-body"></div>
+        </section>
 
-    </main>
-
+      </main>
+    </div>
   </div>
+
+  <!-- Mobile FAB: show only on journal tab -->
+  <button class="fab" id="mobile-fab" aria-label="新增交易" style="display:none">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+  </button>
+
+  <!-- Mobile bottom tab bar -->
+  <nav class="mobile-tabbar" id="mobile-tabbar">
+    <button class="mtab main-tab active" data-tab="journal">
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/><line x1="12" y1="12" x2="12" y2="18"/></svg>
+      <span class="label">紀錄</span>
+    </button>
+    <button class="mtab main-tab" data-tab="margin">
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-7"/></svg>
+      <span class="label">股票</span>
+    </button>
+    <button class="mtab main-tab" data-tab="futures">
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 3v18"/></svg>
+      <span class="label">期貨</span>
+    </button>
+    <button class="mtab main-tab" data-tab="options">
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3v18M3 12h18"/></svg>
+      <span class="label">選擇權</span>
+    </button>
+    <button class="mtab main-tab" data-tab="crypto">
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 2h5l3.5 7-6 13-6-13z"/><path d="M6.5 9h11"/></svg>
+      <span class="label">加密</span>
+    </button>
+  </nav>
+
   <script>
-  // Apply theme & color mode early to prevent flash
-  (function(){try{var s=JSON.parse(localStorage.getItem('tg-settings'));if(s&&s.theme&&s.theme!=='dark')document.documentElement.setAttribute('data-theme',s.theme);if(s&&s.colorMode==='red-up'){var TC={dark:{g:'#00c853',gd:'rgba(0,200,83,.08)',r:'#ff1744',rd:'rgba(255,23,68,.08)'},light:{g:'#16a34a',gd:'rgba(22,163,74,.06)',r:'#dc2626',rd:'rgba(220,38,38,.06)'},midnight:{g:'#22c55e',gd:'rgba(34,197,94,.08)',r:'#ef4444',rd:'rgba(239,68,68,.08)'},emerald:{g:'#34d399',gd:'rgba(52,211,153,.10)',r:'#f43f5e',rd:'rgba(244,63,94,.10)'},warm:{g:'#22c55e',gd:'rgba(34,197,94,.10)',r:'#ef4444',rd:'rgba(239,68,68,.10)'}};var t=TC[s.theme||'dark']||TC.dark;var e=document.documentElement.style;e.setProperty('--green',t.r);e.setProperty('--green-d',t.rd);e.setProperty('--red',t.g);e.setProperty('--red-d',t.gd);}}catch{}})();
-  // Generate apple-touch-icon PNG from canvas (iOS requires PNG) — deferred
+  // Apply theme early to prevent flash
+  (function(){
+    try {
+      var s = JSON.parse(localStorage.getItem('tg-settings'));
+      var theme = (s && s.theme) || 'paper';
+      // Migrate old theme keys
+      if (theme === 'warm' || theme === 'light') theme = 'paper';
+      document.documentElement.setAttribute('data-theme', theme);
+      if (s && s.colorMode === 'red-up') {
+        // Swap green/red variables for 紅漲綠跌
+        var e = document.documentElement.style;
+        var cs = getComputedStyle(document.documentElement);
+        var g = cs.getPropertyValue('--green').trim();
+        var r = cs.getPropertyValue('--red').trim();
+        var gs = cs.getPropertyValue('--green-soft').trim();
+        var rs = cs.getPropertyValue('--red-soft').trim();
+        e.setProperty('--green', r); e.setProperty('--red', g);
+        e.setProperty('--green-soft', rs); e.setProperty('--red-soft', gs);
+      }
+    } catch (e) {}
+  })();
+
+  // Generate apple-touch-icon PNG — deferred
   (function(){
     var gen = function() {
-    var s = [180];
-    s.forEach(function(sz){
+      var sz = 180;
       var c = document.createElement('canvas'); c.width = sz; c.height = sz;
       var x = c.getContext('2d'), r = sz * 0.1875;
-      // Rounded rect background
       x.beginPath(); x.moveTo(r,0); x.lineTo(sz-r,0); x.quadraticCurveTo(sz,0,sz,r);
       x.lineTo(sz,sz-r); x.quadraticCurveTo(sz,sz,sz-r,sz); x.lineTo(r,sz);
       x.quadraticCurveTo(0,sz,0,sz-r); x.lineTo(0,r); x.quadraticCurveTo(0,0,r,0);
-      x.closePath(); x.fillStyle='#0e1117'; x.fill();
-      // Triangle
+      x.closePath(); x.fillStyle='#faf7f0'; x.fill();
       var cx=sz/2, top=sz*0.14, bot=sz*0.86, left=sz*0.14, right=sz*0.86;
-      var g = x.createLinearGradient(0,0,sz,sz);
-      g.addColorStop(0,'#00b4d8'); g.addColorStop(0.5,'#ffd600'); g.addColorStop(1,'#ff1744');
-      x.strokeStyle=g; x.lineWidth=sz*0.062; x.lineJoin='round';
+      x.strokeStyle='#c2410c'; x.lineWidth=sz*0.062; x.lineJoin='round';
       x.beginPath(); x.moveTo(cx,top); x.lineTo(right,bot); x.lineTo(left,bot); x.closePath(); x.stroke();
-      // Refraction lines
-      x.globalAlpha=0.4;
-      x.strokeStyle='#00b4d8'; x.lineWidth=sz*0.03;
+      x.globalAlpha=0.35;
       x.beginPath(); x.moveTo(cx,top); x.lineTo(sz*0.31,bot); x.stroke();
-      x.strokeStyle='#ffd600';
       x.beginPath(); x.moveTo(cx,top); x.lineTo(sz*0.69,bot); x.stroke();
-      x.globalAlpha=1;
-      // Inject as link
       var url = c.toDataURL('image/png');
-      if(sz === 180){ var l=document.createElement('link'); l.rel='apple-touch-icon'; l.href=url; document.head.appendChild(l); }
-    });
+      var l=document.createElement('link'); l.rel='apple-touch-icon'; l.href=url; document.head.appendChild(l);
     };
     if ('requestIdleCallback' in window) { requestIdleCallback(gen); } else { setTimeout(gen, 100); }
   })();
-  </script>
-  <script>
-  // Register Service Worker for PWA offline support (skip on localhost for dev hot-reload)
+
+  // Register Service Worker (skip on localhost for dev hot-reload)
   if ('serviceWorker' in navigator) {
     if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
       navigator.serviceWorker.getRegistrations().then(function(regs) {
@@ -274,7 +334,7 @@
     }
   }
   </script>
-  <script src="js/app.js?v=20260326a" defer></script>
-  <script src="js/journal.js?v=20260317j" defer></script>
+  <script src="js/app.js?v=20260419b" defer></script>
+  <script src="js/journal.js?v=20260419b" defer></script>
 </body>
 </html>

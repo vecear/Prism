@@ -969,7 +969,7 @@ function wrapNumberInputs(container) {
 
 // ── Settings (persisted in localStorage) ──
 const DEFAULT_SETTINGS = {
-  theme: 'dark',               // 'dark' | 'light' | 'midnight' | 'emerald' | 'warm'
+  theme: 'paper',              // 'paper' | 'ivory' | 'paperDense' | 'dark' | 'midnight' | 'emerald'
   autoFetch: true,
   refreshInterval: 10,
   indices: { taiex: true, txf: true, twn: true, es: true, nq: true, ym: true, sox: true, nkd: true, kospi: true, shanghai: true, hsi: true, btc: true, eth: true, sol: true },
@@ -3724,6 +3724,26 @@ function _restoreIndicesFromCache() {
 // ================================================================
 //  INIT
 // ================================================================
+// ── Topbar title map + activateTab helper ──
+const TAB_META = {
+  journal:  { title: '交易紀錄',    subtitle: '記錄、統計與每日日記' },
+  margin:   { title: '股票風險計算', subtitle: '融資 / 融券 · 維持率與成本' },
+  futures:  { title: '期貨保證金',   subtitle: 'RI · 追繳 / 砍倉點位對照' },
+  options:  { title: '選擇權計算',   subtitle: '損益圖 · 兩平點 · Greeks' },
+  crypto:   { title: '加密貨幣合約', subtitle: '強平價 · 槓桿損益情境' },
+  settings: { title: '設定',        subtitle: '外觀 · 字體 · 漲跌顏色 · 同步' },
+  guide:    { title: '說明',        subtitle: '計算公式、用法與常見問題' },
+};
+function _updateTopbar(tabKey) {
+  const meta = TAB_META[tabKey] || {};
+  const tEl = $('#topbar-title'); const sEl = $('#topbar-subtitle');
+  if (tEl) tEl.textContent = meta.title || '';
+  if (sEl) sEl.textContent = meta.subtitle || '';
+}
+function _syncTabActive(tabKey) {
+  $$('.main-tab').forEach(x => x.classList.toggle('active', x.dataset.tab === tabKey));
+}
+
 function init() {
   buildTickerBar();
   _initTickerToggle();
@@ -3744,18 +3764,33 @@ function init() {
     if (prevTab) _tabScrollPos[prevTab] = window.scrollY;
     // Track last content tab for toggle-back
     if (!isOverlay) _prevContentTab = clicked;
-    $$('.main-tab').forEach(x => x.classList.remove('active'));
-    b.classList.add('active');
+    _syncTabActive(clicked);
     $$('.tab-content').forEach(x => x.classList.remove('active'));
-    $(`#tab-${b.dataset.tab}`)?.classList.add('active');
-    S.activeTab = b.dataset.tab; _saveState();
+    $(`#tab-${clicked}`)?.classList.add('active');
+    S.activeTab = clicked; _saveState();
+    _updateTopbar(clicked);
     // Restore scroll position or go to top (smooth for returning tabs)
-    const savedPos = _tabScrollPos[b.dataset.tab] || 0;
+    const savedPos = _tabScrollPos[clicked] || 0;
     window.scrollTo({top: savedPos, behavior: savedPos > 0 ? 'smooth' : 'instant'});
-    if (b.dataset.tab === 'guide') renderGuide();
-    if (b.dataset.tab === 'settings') { if (!window._stgRendered) { renderSettings(); window._stgRendered = true; } }
-    if (b.dataset.tab === 'journal' && window.PrismJournal?._refreshOnTabSwitch) window.PrismJournal._refreshOnTabSwitch();
+    if (clicked === 'guide') renderGuide();
+    if (clicked === 'settings') { if (!window._stgRendered) { renderSettings(); window._stgRendered = true; } }
+    if (clicked === 'journal' && window.PrismJournal?._refreshOnTabSwitch) window.PrismJournal._refreshOnTabSwitch();
+    // Show FAB only on journal tab (mobile)
+    const fab = $('#mobile-fab');
+    if (fab) fab.style.display = (clicked === 'journal' && window.innerWidth <= 768) ? 'flex' : 'none';
   }));
+  // Initial FAB visibility
+  const _initFab = () => {
+    const fab = $('#mobile-fab');
+    if (!fab) return;
+    fab.style.display = (S.activeTab === 'journal' && window.innerWidth <= 768) ? 'flex' : 'none';
+  };
+  _initFab();
+  window.addEventListener('resize', _initFab);
+  $('#mobile-fab')?.addEventListener('click', () => {
+    if (window.openTradeForm) window.openTradeForm(null);
+    else if (window.PrismJournal && !window.PrismJournal.isLoggedIn()) window.PrismJournal.showLogin();
+  });
 
   // Toggle groups
   $$('.toggle-group').forEach(g => {
@@ -3837,16 +3872,15 @@ function init() {
   _syncToggles();
 
   // Restore active tab
-  if (S.activeTab && S.activeTab !== 'journal') {
-    const tabBtn = $(`.main-tab[data-tab="${S.activeTab}"]`);
-    if (tabBtn) {
-      $$('.main-tab').forEach(x => x.classList.remove('active'));
-      tabBtn.classList.add('active');
-      $$('.tab-content').forEach(x => x.classList.remove('active'));
-      $(`#tab-${S.activeTab}`)?.classList.add('active');
-      if (S.activeTab === 'guide') renderGuide();
-      if (S.activeTab === 'settings') { if (!window._stgRendered) { renderSettings(); window._stgRendered = true; } }
-    }
+  if (S.activeTab) {
+    _syncTabActive(S.activeTab);
+    $$('.tab-content').forEach(x => x.classList.remove('active'));
+    $(`#tab-${S.activeTab}`)?.classList.add('active');
+    _updateTopbar(S.activeTab);
+    if (S.activeTab === 'guide') renderGuide();
+    if (S.activeTab === 'settings') { if (!window._stgRendered) { renderSettings(); window._stgRendered = true; } }
+  } else {
+    _updateTopbar('journal');
   }
 
   // Render forms
@@ -3955,7 +3989,7 @@ function renderSettings() {
         <button class="stg-save-btn" id="stg-login">登入 / 註冊</button>
       </div>`;
 
-  const curTheme = CFG.theme || 'dark';
+  const curTheme = CFG.theme || 'paper';
   const _chevron = `<svg class="stg-group-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>`;
   const _twDBInfo = (() => { const t = StockDB.getTime('tw'); const n = StockDB.getList('tw').length; return n ? `${n} 檔 · ${new Date(t).toLocaleDateString('zh-TW')}` : '尚未下載'; })();
   const _futDBInfo = (() => { const t = StockDB.getTaifexFuturesTime(); const n = StockDB.getTaifexFutures().length; return n ? `${n} 檔 · ${new Date(t).toLocaleDateString('zh-TW')}` : '尚未下載'; })();
@@ -3967,11 +4001,12 @@ function renderSettings() {
       <h4><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>外觀與偏好</h4>
       <div class="stg-s-body">
         <div class="stg-theme-grid">
-          <button type="button" class="stg-theme-btn ${curTheme==='dark'?'active':''}" data-theme="dark"><div class="stg-theme-swatch" data-sw="dark"></div><span class="stg-theme-label">深色</span></button>
-          <button type="button" class="stg-theme-btn ${curTheme==='light'?'active':''}" data-theme="light"><div class="stg-theme-swatch" data-sw="light"></div><span class="stg-theme-label">淺色</span></button>
+          <button type="button" class="stg-theme-btn ${curTheme==='paper'?'active':''}" data-theme="paper"><div class="stg-theme-swatch" data-sw="paper"></div><span class="stg-theme-label">暖米白</span></button>
+          <button type="button" class="stg-theme-btn ${curTheme==='ivory'?'active':''}" data-theme="ivory"><div class="stg-theme-swatch" data-sw="ivory"></div><span class="stg-theme-label">奶油象牙</span></button>
+          <button type="button" class="stg-theme-btn ${curTheme==='paperDense'?'active':''}" data-theme="paperDense"><div class="stg-theme-swatch" data-sw="paperDense"></div><span class="stg-theme-label">緊湊紙感</span></button>
+          <button type="button" class="stg-theme-btn ${curTheme==='dark'?'active':''}" data-theme="dark"><div class="stg-theme-swatch" data-sw="dark"></div><span class="stg-theme-label">經典深色</span></button>
           <button type="button" class="stg-theme-btn ${curTheme==='midnight'?'active':''}" data-theme="midnight"><div class="stg-theme-swatch" data-sw="midnight"></div><span class="stg-theme-label">午夜藍</span></button>
           <button type="button" class="stg-theme-btn ${curTheme==='emerald'?'active':''}" data-theme="emerald"><div class="stg-theme-swatch" data-sw="emerald"></div><span class="stg-theme-label">翡翠綠</span></button>
-          <button type="button" class="stg-theme-btn ${curTheme==='warm'?'active':''}" data-theme="warm"><div class="stg-theme-swatch" data-sw="warm"></div><span class="stg-theme-label">琥珀</span></button>
         </div>
         <div class="stg-row" style="margin-top:10px">
           <label>預設市場</label>
@@ -4432,28 +4467,31 @@ function renderSettings() {
 }
 
 function applyTheme(theme) {
-  if (!theme || theme === 'dark') {
-    document.documentElement.removeAttribute('data-theme');
-  } else {
-    document.documentElement.setAttribute('data-theme', theme);
-  }
+  const t = theme || 'paper';
+  document.documentElement.setAttribute('data-theme', t);
   // Update meta theme-color to match current theme
-  const themeColors = { dark: '#0e1117', light: '#f0f2f5', midnight: '#0a0f1e', emerald: '#071210', warm: '#141008' };
+  const themeColors = {
+    paper: '#faf7f0', ivory: '#fbf8f1', paperDense: '#f8f5ed',
+    dark: '#0e1117', light: '#f0f2f5', midnight: '#0a1930', emerald: '#071f1b', warm: '#faf7f0',
+  };
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.content = themeColors[theme || 'dark'] || '#0e1117';
+  if (meta) meta.content = themeColors[t] || '#faf7f0';
 }
 
 // Each theme's original green/red values for color mode swap
 const _THEME_COLORS = {
-  dark:     { g: '#00c853', gd: 'rgba(0,200,83,.08)',    r: '#ff1744', rd: 'rgba(255,23,68,.08)' },
-  light:    { g: '#16a34a', gd: 'rgba(22,163,74,.06)',   r: '#dc2626', rd: 'rgba(220,38,38,.06)' },
-  midnight: { g: '#22c55e', gd: 'rgba(34,197,94,.08)',   r: '#ef4444', rd: 'rgba(239,68,68,.08)' },
-  emerald:  { g: '#34d399', gd: 'rgba(52,211,153,.10)',  r: '#f43f5e', rd: 'rgba(244,63,94,.10)' },
-  warm:     { g: '#22c55e', gd: 'rgba(34,197,94,.10)',   r: '#ef4444', rd: 'rgba(239,68,68,.10)' },
+  paper:      { g: '#16a34a', gd: 'rgba(22,163,74,.08)',   r: '#dc2626', rd: 'rgba(220,38,38,.08)' },
+  ivory:      { g: '#15803d', gd: 'rgba(21,128,61,.08)',   r: '#b91c1c', rd: 'rgba(185,28,28,.08)' },
+  paperDense: { g: '#166534', gd: 'rgba(22,101,52,.08)',   r: '#991b1b', rd: 'rgba(153,27,27,.08)' },
+  dark:       { g: '#22c55e', gd: 'rgba(34,197,94,.10)',   r: '#ef4444', rd: 'rgba(239,68,68,.10)' },
+  light:      { g: '#16a34a', gd: 'rgba(22,163,74,.06)',   r: '#dc2626', rd: 'rgba(220,38,38,.06)' },
+  midnight:   { g: '#22c55e', gd: 'rgba(34,197,94,.08)',   r: '#f43f5e', rd: 'rgba(244,63,94,.08)' },
+  emerald:    { g: '#34d399', gd: 'rgba(52,211,153,.10)',  r: '#f43f5e', rd: 'rgba(244,63,94,.10)' },
+  warm:       { g: '#16a34a', gd: 'rgba(22,163,74,.08)',   r: '#dc2626', rd: 'rgba(220,38,38,.08)' },
 };
 function applyColorMode(mode) {
   const el = document.documentElement;
-  const t = _THEME_COLORS[CFG.theme || 'dark'] || _THEME_COLORS.dark;
+  const t = _THEME_COLORS[CFG.theme || 'paper'] || _THEME_COLORS.paper;
   if (mode === 'red-up') {
     el.style.setProperty('--green', t.r);
     el.style.setProperty('--green-d', t.rd);

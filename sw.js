@@ -1,16 +1,14 @@
 // Prism Service Worker — Stale-while-revalidate for static assets, network-first for API
-const CACHE_NAME = 'prism-v27';
+const CACHE_NAME = 'prism-v26';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
-  '/css/style.css?v=20260323a',
-  '/js/app.js?v=20260326a',
-  '/js/journal.js?v=20260317j',
+  '/css/style.css?v=20260419b',
+  '/js/app.js?v=20260419b',
+  '/js/journal.js?v=20260419b',
   '/favicon.svg',
   '/manifest.json',
 ];
-
-const MAX_CACHE_ENTRIES = 80;
 
 self.addEventListener('install', event => {
   event.waitUntil(
@@ -52,15 +50,7 @@ self.addEventListener('fetch', event => {
       const fetchPromise = fetch(event.request).then(response => {
         if (response.ok) {
           const clone = response.clone();
-          caches.open(CACHE_NAME).then(cache => {
-            cache.put(event.request, clone);
-            // Evict old entries if cache grows too large
-            cache.keys().then(keys => {
-              if (keys.length > MAX_CACHE_ENTRIES) {
-                keys.slice(0, keys.length - MAX_CACHE_ENTRIES).forEach(k => cache.delete(k));
-              }
-            });
-          }).catch(() => {});
+          caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone)).catch(() => {});
         }
         return response;
       }).catch(() => cached);
