@@ -1272,10 +1272,14 @@ function renderHeaderAuth() {
   if (authToken && currentUser) {
     const initial = (currentUser.username || '?').charAt(0).toUpperCase();
     if (el) {
-      el.innerHTML = `<button class="btn btn-ghost btn-sm" id="ha-userbtn" title="帳戶">
-        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      el.innerHTML = `<button class="btn btn-ghost btn-sm" id="ha-userbtn" title="登出" aria-label="使用者帳戶 ${esc(currentUser.username)}">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
         <span>${esc(currentUser.username)}</span>
       </button>`;
+      $('#ha-userbtn')?.addEventListener('click', () => {
+        if (!confirm(`要登出 ${currentUser.username} 嗎？`)) return;
+        handleLogout();
+      });
     }
     if (slot) {
       slot.innerHTML = `<div class="sidebar-user-card">
@@ -1310,11 +1314,18 @@ function renderHeaderAuth() {
 
 // ── Login Modal (center card · warm gradient bubbles) ──
 function showLoginModal() {
-  $('#j-global-modal-overlay')?.remove();
+  $('#prism-login-overlay')?.remove();
+
+  const triggerEl = document.activeElement;
+  const prevBodyOverflow = document.body.style.overflow;
+  document.body.style.overflow = 'hidden';
 
   const overlay = document.createElement('div');
-  overlay.id = 'j-global-modal-overlay';
+  overlay.id = 'prism-login-overlay';
   overlay.className = 'modal-overlay';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.setAttribute('aria-labelledby', 'jg-title');
   overlay.innerHTML = `
     <div class="modal" style="max-width:420px;padding:0;overflow:visible">
       <div class="login-wrap" style="min-height:auto;padding:40px 30px;border-radius:14px">
@@ -1376,9 +1387,24 @@ function showLoginModal() {
   $('#jt-login').addEventListener('click', () => setMode('login'));
   $('#jt-register').addEventListener('click', () => setMode('register'));
 
-  const close = () => { overlay.remove(); document.removeEventListener('keydown', loginEsc); };
-  const loginEsc = (e) => { if (e.key === 'Escape') close(); };
-  document.addEventListener('keydown', loginEsc);
+  const close = () => {
+    overlay.remove();
+    document.removeEventListener('keydown', keyHandler);
+    document.body.style.overflow = prevBodyOverflow;
+    if (triggerEl && typeof triggerEl.focus === 'function') triggerEl.focus();
+  };
+  const keyHandler = (e) => {
+    if (e.key === 'Escape') { close(); return; }
+    // Focus trap: keep Tab within modal
+    if (e.key === 'Tab') {
+      const focusables = overlay.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+      if (!focusables.length) return;
+      const first = focusables[0], last = focusables[focusables.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+  };
+  document.addEventListener('keydown', keyHandler);
   overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
   $('#jg-close').addEventListener('click', close);
   $('#jg-guest')?.addEventListener('click', close);
@@ -1386,9 +1412,15 @@ function showLoginModal() {
   const submit = async () => {
     const username = $('#jg-user')?.value.trim();
     const password = $('#jg-pass')?.value;
-    if (!username || !password) { $('#jg-error').textContent = '請填寫使用者名稱和密碼'; return; }
+    if (!username || !password) {
+      $('#jg-error').textContent = '請填寫使用者名稱和密碼';
+      $('#jg-error').setAttribute('role', 'alert');
+      return;
+    }
     const btn = $('#jg-submit');
-    btn.disabled = true; btn.textContent = '處理中...';
+    const origLabel = btn.textContent;
+    btn.disabled = true;
+    btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation:spin 1s linear infinite;margin-right:6px"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>處理中…';
     $('#jg-error').textContent = '';
     try {
       const data = await api(`/auth/${mode}`, { method: 'POST', body: JSON.stringify({ username, password }) });
@@ -1396,6 +1428,11 @@ function showLoginModal() {
       localStorage.setItem(TOKEN_KEY, authToken);
       localStorage.setItem(USER_KEY, JSON.stringify(currentUser));
       renderHeaderAuth();
+      // Show skeleton on journal tab before loadTrades finishes
+      if ($('#tab-journal')?.classList.contains('active')) {
+        const root = $('#journal-root');
+        if (root) root.innerHTML = '<div class="j-skeleton" style="padding:40px;text-align:center;color:var(--t3)">載入交易紀錄中…</div>';
+      }
       close();
       // Refresh settings panel to show account
       window._stgRendered = false;
@@ -1410,7 +1447,7 @@ function showLoginModal() {
       if (window._showToast) window._showToast(`歡迎回來，${username}`);
     } catch (e) {
       $('#jg-error').textContent = e.message;
-      btn.disabled = false; btn.textContent = mode === 'login' ? '登入' : '註冊';
+      btn.disabled = false; btn.textContent = origLabel;
     }
   };
   $('#jg-submit').addEventListener('click', submit);
@@ -1432,7 +1469,6 @@ function handleLogout() {
 // ================================================================
 
 // Exposed globally so app.js calc functions can call it
-window.openTradeForm = (id, prefill) => openTradeForm(id, prefill);
 window.PrismJournal = {
   isLoggedIn: () => !!(authToken && currentUser),
   showLogin: showLoginModal,
@@ -3506,6 +3542,7 @@ function renderStats() {
 // ================================================================
 //  Trade Form Modal
 // ================================================================
+window.openTradeForm = openTradeForm;
 function openTradeForm(id, prefill) {
   editingId = id;
   const t = id ? trades.find(x => x.id === id) : (prefill || newTrade());

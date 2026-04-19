@@ -1,11 +1,11 @@
 // Prism Service Worker — Stale-while-revalidate for static assets, network-first for API
-const CACHE_NAME = 'prism-v27';
+const CACHE_NAME = 'prism-v28';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
-  '/css/style.css?v=20260419c',
-  '/js/app.js?v=20260419c',
-  '/js/journal.js?v=20260419c',
+  '/css/style.css?v=20260419d',
+  '/js/app.js?v=20260419d',
+  '/js/journal.js?v=20260419d',
   '/favicon.svg',
   '/manifest.json',
 ];

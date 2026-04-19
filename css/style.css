@@ -14,11 +14,11 @@
   --line-strong: #d4cbb5;
   --t1: #1c1917;
   --t2: #57534e;
-  --t3: #a8a29e;
+  --t3: #78716c;  /* raised from #a8a29e for WCAG AA on bg0/bg1 (≥4.5:1) */
   --accent: #c2410c;
   --accent-soft: #fed7aa;
   --accent-bg: #fff7ed;
-  --accent-d: rgba(194,65,12,.10);
+  --accent-d: rgba(194,65,12,.22);
   --green: #16a34a;
   --green-soft: #dcfce7;
   --green-d: rgba(22,163,74,.08);
@@ -56,8 +56,8 @@
 html[data-theme="ivory"] {
   --bg0: #fbf8f1; --bg1: #ffffff; --bg2: #f7f3ea; --bg3: #ede5d1;
   --line: #e8e0cd; --bdr: #e8e0cd; --line-strong: #d6ccaf; --bdr2: #d6ccaf;
-  --t1: #292524; --t2: #6b6456; --t3: #a89e8a;
-  --accent: #92400e; --accent-soft: #fde68a; --accent-bg: #fffbeb; --accent-d: rgba(146,64,14,.10);
+  --t1: #292524; --t2: #6b6456; --t3: #837b6a;
+  --accent: #92400e; --accent-soft: #fde68a; --accent-bg: #fffbeb; --accent-d: rgba(146,64,14,.22);
   --green: #15803d; --green-soft: #dcfce7; --red: #b91c1c; --red-soft: #fee2e2;
   --amber: #b45309; --amber-soft: #fef3c7; --blue: #0c4a6e; --blue-soft: #e0f2fe;
 }
@@ -67,7 +67,7 @@ html[data-theme="compact"] {
   --bg0: #f8f5ed; --bg1: #ffffff; --bg2: #f2ede0; --bg3: #e5dec8;
   --line: #e0d8c2; --bdr: #e0d8c2; --line-strong: #c9bfa3; --bdr2: #c9bfa3;
   --t1: #1c1917; --t2: #57534e; --t3: #a8a29e;
-  --accent: #9a3412; --accent-soft: #fed7aa; --accent-bg: #fff7ed; --accent-d: rgba(154,52,18,.10);
+  --accent: #9a3412; --accent-soft: #fed7aa; --accent-bg: #fff7ed; --accent-d: rgba(154,52,18,.22);
   --green: #166534; --green-soft: #dcfce7; --red: #991b1b; --red-soft: #fee2e2;
   --amber: #b45309; --amber-soft: #fef3c7; --blue: #075985; --blue-soft: #e0f2fe;
 }
@@ -76,7 +76,7 @@ html[data-theme="compact"] {
 html[data-theme="dark"] {
   --bg0: #0e1117; --bg1: #161b22; --bg2: #1c2430; --bg3: #283141;
   --line: #24303f; --bdr: #24303f; --line-strong: #3a4a5e; --bdr2: #3a4a5e;
-  --t1: #e6edf3; --t2: #9ba8b8; --t3: #6b7684;
+  --t1: #e6edf3; --t2: #9ba8b8; --t3: #8b96a5;
   --accent: #fb923c; --accent-soft: rgba(251,146,60,.3); --accent-bg: rgba(251,146,60,.15); --accent-d: rgba(251,146,60,.12);
   --green: #22c55e; --green-soft: rgba(34,197,94,.16); --red: #ef4444; --red-soft: rgba(239,68,68,.16);
   --amber: #f59e0b; --amber-soft: rgba(245,158,11,.16); --blue: #60a5fa; --blue-soft: rgba(96,165,250,.15);
@@ -94,7 +94,7 @@ html[data-theme="midnight"] {
 html[data-theme="emerald"] {
   --bg0: #071f1b; --bg1: #0b2a25; --bg2: #0e3a32; --bg3: #134e43;
   --line: #1b4f42; --bdr: #1b4f42; --line-strong: #2f6b5a; --bdr2: #2f6b5a;
-  --t1: #e2f4ee; --t2: #9bb8ae; --t3: #708a82;
+  --t1: #e2f4ee; --t2: #9bb8ae; --t3: #8ea69d;
   --accent: #34d399; --accent-soft: rgba(52,211,153,.3); --accent-bg: rgba(52,211,153,.15); --accent-d: rgba(52,211,153,.12);
   --green: #34d399; --green-soft: rgba(52,211,153,.16); --red: #f43f5e; --red-soft: rgba(244,63,94,.16);
   --amber: #fbbf24; --amber-soft: rgba(251,191,36,.16); --blue: #60a5fa; --blue-soft: rgba(96,165,250,.15);
@@ -116,6 +116,42 @@ a { color: var(--accent); text-decoration: none; }
 input, textarea, select { font-family: inherit; color: inherit; }
 
 ::selection { background: var(--accent-soft); color: var(--t1); }
+html[data-theme="dark"] ::selection,
+html[data-theme="midnight"] ::selection,
+html[data-theme="emerald"] ::selection {
+  background: var(--accent); color: #fff;
+}
+
+/* ── Global focus-visible for keyboard navigation ─────────── */
+:focus { outline: none; }
+button:focus-visible,
+a:focus-visible,
+[role="button"]:focus-visible,
+[tabindex]:focus-visible,
+.sidebar-item:focus-visible,
+.mtab:focus-visible,
+.main-tab:focus-visible,
+.toggle-btn:focus-visible,
+.seg-item:focus-visible,
+.j-vt-btn:focus-visible,
+.quick-chip:focus-visible,
+.stress-chip:focus-visible,
+.lev-chip:focus-visible,
+.product-card:focus-visible,
+.theme-card:focus-visible,
+.fontsize-card:focus-visible,
+.stg-theme-btn:focus-visible,
+.fab:focus-visible,
+.ticker-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: inherit;
+}
+
+/* ── Smooth theme/color transitions on root ──────────────── */
+html, body {
+  transition: background-color 0.2s var(--ease-out), color 0.2s var(--ease-out);
+}
 
 /* ── App shell: sidebar + main ────────────────────────────── */
 #app {
@@ -326,8 +362,20 @@ input, textarea, select { font-family: inherit; color: inherit; }
   background: var(--bg0);
   min-width: 0;
 }
-.tab-content { display: none; }
+.tab-content {
+  display: none;
+  animation: tab-fade 0.18s var(--ease-out);
+}
 .tab-content.active { display: block; }
+@keyframes tab-fade {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .tab-content { animation: none; }
+  @keyframes spin { to { transform: none; } }
+}
 
 /* ── Card ─────────────────────────────────────────────────── */
 .card {
@@ -1448,6 +1496,16 @@ html[data-theme="light"] select {
   .settings-nav h2 { flex-shrink: 0; }
   .settings-nav-item { flex-shrink: 0; }
   .j-summary-grid { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+  .metric.metric-xl .metric-value { font-size: 32px; }
+  .hero-result .hero-cell .cell-value { font-size: 26px; }
+}
+
+/* Tablet range 901-1024: keep sidebar but narrower, calc-layout still 2-col */
+@media (min-width: 901px) and (max-width: 1024px) {
+  :root { --sidebar-w: 180px; }
+  .calc-layout { grid-template-columns: 1fr 1fr; }
+  .j-wizard-body { grid-template-columns: 1fr 320px; }
+  .sidebar-brand .brand-sub { display: none; }
 }
 
 @media (max-width: 768px) {
@@ -1498,6 +1556,12 @@ html[data-theme="light"] select {
   .j-wizard-steps .j-wizard-step span { display: none; }
   .j-wizard-steps .j-wizard-step::before { content: attr(data-n); }
   .j-bar-chart { height: 160px; gap: 10px; }
+  /* Touch targets ≥ 36px on mobile */
+  .j-act-btn, .j-btn.j-btn-sm, .icon-btn { min-width: 36px; min-height: 36px; }
+  .mobile-tabbar .mtab { min-height: 48px; }
+  .mobile-tabbar .mtab .label { font-size: 10.5px; }
+  /* 數量 num-wrap 手機改回全寬 */
+  .num-wrap { max-width: none; }
 }
 
 @media (max-width: 420px) {
@@ -1509,7 +1573,10 @@ html[data-theme="light"] select {
   .input-section { padding: 14px; }
   .metric .metric-value { font-size: 20px; }
   .metric.metric-lg .metric-value { font-size: 26px; }
-  .metric.metric-xl .metric-value { font-size: 32px; }
+  .metric.metric-xl .metric-value { font-size: 28px; }
+  .hero-result .hero-cell .cell-value { font-size: 22px; }
+  .ticker-region { font-size: 10px; }
+  .j-card-meta, .ticker-chip .tc-name, .ticker-chip .tc-chg { font-size: 10px; }
 }
 
 /* ================================================================
@@ -1526,7 +1593,7 @@ html[data-theme="light"] select {
   margin-left: 10px; padding-left: 10px;
 }
 .ticker-region {
-  font-size: 9px; font-weight: 700; letter-spacing: 1px;
+  font-size: 10px; font-weight: 700; letter-spacing: 1px;
   color: var(--t3); padding: 0 8px 0 0; text-transform: uppercase;
   flex-shrink: 0;
 }

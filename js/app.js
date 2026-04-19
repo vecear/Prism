@@ -3775,6 +3775,11 @@ function init() {
     if (clicked === 'guide') renderGuide();
     if (clicked === 'settings') { if (!window._stgRendered) { renderSettings(); window._stgRendered = true; } }
     if (clicked === 'journal' && window.PrismJournal?._refreshOnTabSwitch) window.PrismJournal._refreshOnTabSwitch();
+    // Refresh ticker if stale (>30s) when switching to a calculator tab
+    if (['margin','futures','options','crypto'].includes(clicked)) {
+      const last = _quoteCache.lastIndexTime();
+      if (!last || Date.now() - last > 30000) handleFetchIndices();
+    }
     // Show FAB only on journal tab (mobile)
     const fab = $('#mobile-fab');
     if (fab) fab.style.display = (clicked === 'journal' && window.innerWidth <= 768) ? 'flex' : 'none';
@@ -3786,7 +3791,10 @@ function init() {
     fab.style.display = (S.activeTab === 'journal' && window.innerWidth <= 768) ? 'flex' : 'none';
   };
   _initFab();
-  window.addEventListener('resize', _initFab);
+  let _fabTimer;
+  const _scheduleFab = () => { clearTimeout(_fabTimer); _fabTimer = setTimeout(_initFab, 100); };
+  window.addEventListener('resize', _scheduleFab);
+  window.addEventListener('orientationchange', _scheduleFab);
   $('#mobile-fab')?.addEventListener('click', () => {
     if (window.openTradeForm) window.openTradeForm(null);
     else if (window.PrismJournal && !window.PrismJournal.isLoggedIn()) window.PrismJournal.showLogin();
@@ -4466,13 +4474,16 @@ function renderSettings() {
   $('#stg-reset-defaults')?.addEventListener('click', () => window._resetSettingsToDefaults());
 }
 
+const VALID_THEMES = ['paper', 'ivory', 'paperDense', 'dark', 'midnight', 'emerald'];
+const THEME_MIGRATION = { warm: 'paper', light: 'paper' };
 function applyTheme(theme) {
-  const t = theme || 'paper';
+  let t = theme || 'paper';
+  if (THEME_MIGRATION[t]) t = THEME_MIGRATION[t];
+  if (!VALID_THEMES.includes(t)) t = 'paper';
   document.documentElement.setAttribute('data-theme', t);
-  // Update meta theme-color to match current theme
   const themeColors = {
     paper: '#faf7f0', ivory: '#fbf8f1', paperDense: '#f8f5ed',
-    dark: '#0e1117', light: '#f0f2f5', midnight: '#0a1930', emerald: '#071f1b', warm: '#faf7f0',
+    dark: '#0e1117', midnight: '#0a1930', emerald: '#071f1b',
   };
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) meta.content = themeColors[t] || '#faf7f0';
