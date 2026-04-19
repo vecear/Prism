@@ -71,6 +71,8 @@ const SECURITY_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'DENY',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
+  'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
+  'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https:; font-src 'self';",
 };
 function withCors(response, request) {
   const h = new Headers(response.headers);
@@ -189,7 +191,7 @@ async function getUser(request, env) {
 }
 
 // ── CORS Proxy (migrated from functions/api/proxy.js) ──
-const PROXY_ALLOWED = ['mis.twse.com.tw','mis.taifex.com.tw','query1.finance.yahoo.com','query2.finance.yahoo.com','finnhub.io','www.taifex.com.tw','openapi.taifex.com.tw','openapi.twse.com.tw','www.tpex.org.tw','www.sec.gov','api.nasdaq.com','production.dataviz.cnn.io','api.binance.com','fred.stlouisfed.org','squeezemetrics.com'];
+const PROXY_ALLOWED = ['mis.twse.com.tw','mis.taifex.com.tw','query1.finance.yahoo.com','query2.finance.yahoo.com','finnhub.io','www.taifex.com.tw','openapi.taifex.com.tw','openapi.twse.com.tw','www.tpex.org.tw','www.sec.gov','api.nasdaq.com','production.dataviz.cnn.io','api.binance.com','fred.stlouisfed.org','squeezemetrics.com','api.alternative.me'];
 
 async function handleProxy(request) {
   const url = new URL(request.url);
@@ -213,11 +215,11 @@ async function handleProxy(request) {
     fetchOpts.headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
     fetchOpts.headers['Accept'] = 'text/html,application/xhtml+xml,application/xml;q=0.9,application/json,text/plain,*/*;q=0.8';
     fetchOpts.headers['Accept-Language'] = 'en-US,en;q=0.9';
-    const resp = await fetch(target, { ...fetchOpts, redirect: 'follow' });
+    const resp = await fetch(target, { ...fetchOpts, redirect: 'error' });
     const body = await resp.arrayBuffer();
     return new Response(body, {
       status: resp.status,
-      headers: { 'Content-Type': (() => { const ct = resp.headers.get('Content-Type') || ''; return ct.includes('text/html') ? 'text/plain' : (ct || 'application/json'); })(), 'Cache-Control': 'public, max-age=30' },
+      headers: { 'Content-Type': (() => { const ct = resp.headers.get('Content-Type') || ''; return ct.includes('text/html') ? 'text/plain' : (ct || 'application/json'); })(), 'Cache-Control': 'private, max-age=30' },
     });
   } catch (e) { console.error('[Proxy Error]', e); return jsonErr(502, 'Proxy fetch failed'); }
 }

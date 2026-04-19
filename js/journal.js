@@ -793,7 +793,11 @@ function showSLTPAlert(msg, tradeId) {
   setTimeout(() => { if (toast.parentNode) { toast.classList.remove('show'); setTimeout(() => toast.remove(), 300); } }, 10000);
   // Browser notification
   if (Notification.permission === 'granted') {
-    new Notification('Prism 交易提醒', { body: msg, icon: '/favicon.ico' });
+    new Notification('Prism 交易提醒', { body: msg, icon: '/favicon.svg' });
+  } else if (Notification.permission === 'default') {
+    Notification.requestPermission().then(perm => {
+      if (perm === 'granted') new Notification('Prism 交易提醒', { body: msg, icon: '/favicon.svg' });
+    });
   }
 }
 

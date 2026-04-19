@@ -441,12 +441,11 @@ const PriceService = {
 
   // ── Fear & Greed Index (CNN) + Market Breadth ──
   async fetchFearGreed() {
-    const url = 'https://production.dataviz.cnn.io/index/fearandgreed/graphdata';
+    const CNN_URL = 'https://production.dataviz.cnn.io/index/fearandgreed/graphdata';
+    const proxyUrl = `/api/proxy?url=${encodeURIComponent(CNN_URL)}`;
     try {
-      // CNN API 需要 Referer header 才能通過（瀏覽器自帶 UA 和 Accept）
-      const r = await this._fetchTimeout(url, 8000, {
-        headers: { 'Referer': 'https://edition.cnn.com/' }
-      });
+      // 透過 CORS proxy 存取（production.dataviz.cnn.io 已在 PROXY_ALLOWED 白名單）
+      const r = await this._fetchTimeout(proxyUrl, 8000);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const d = await r.json();
       const fg = d?.fear_and_greed;
