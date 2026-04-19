@@ -823,28 +823,28 @@ html[data-theme="light"] select {
 
 /* ── Calc layout ──────────────────────────────────────────── */
 .calc-layout {
-  padding: 18px 22px 22px;
+  padding: 14px 18px 18px;
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 18px;
+  gap: 14px;
   align-items: start;
 }
 .calc-left, .result-panel {
-  display: flex; flex-direction: column; gap: 12px;
+  display: flex; flex-direction: column; gap: 10px;
   min-width: 0;
 }
 
 .calc-header {
   display: flex; align-items: center; gap: 10px;
-  margin-bottom: 2px;
+  margin-bottom: 0;
 }
 .calc-header h2 {
-  font-size: 20px; font-weight: 700;
+  font-size: 18px; font-weight: 700;
   letter-spacing: -0.3px; margin: 0; color: var(--t1);
 }
 
 .controls-bar {
-  display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
 }
 
 /* Input grid */
@@ -856,21 +856,21 @@ html[data-theme="light"] select {
   background: var(--accent-bg);
   border: 1px solid var(--accent-soft);
   border-radius: var(--r-lg);
-  padding: 22px;
+  padding: 14px 16px;
 }
 .hero-result .hero-label {
   font-size: 11px; color: var(--accent);
   font-weight: 700; letter-spacing: 0.8px;
   text-transform: uppercase;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 .hero-result .hero-grid {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 20px;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
 }
-.hero-result .hero-cell .cell-label { font-size: 11px; color: var(--t3); margin-bottom: 4px; }
+.hero-result .hero-cell .cell-label { font-size: 11px; color: var(--t3); margin-bottom: 3px; }
 .hero-result .hero-cell .cell-value {
-  font-size: 30px; font-weight: 700; font-family: var(--mono);
-  letter-spacing: -0.6px; color: var(--t1); line-height: 1.1;
+  font-size: 22px; font-weight: 700; font-family: var(--mono);
+  letter-spacing: -0.5px; color: var(--t1); line-height: 1.1;
 }
 .hero-result .hero-cell .cell-value.accent { color: var(--accent); }
 .hero-result .hero-cell .cell-value.red { color: var(--red); }
@@ -882,14 +882,14 @@ html[data-theme="light"] select {
   background: var(--bg1);
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
-  padding: 14px 16px;
+  padding: 10px 12px;
   margin-bottom: 0;
 }
-.input-section + .input-section { margin-top: 12px; }
+.input-section + .input-section { margin-top: 8px; }
 .input-section-hdr {
   font-size: 11px; color: var(--t3);
   font-weight: 600; letter-spacing: 0.6px;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
   text-transform: uppercase;
   display: flex; align-items: center; gap: 6px;
 }
@@ -904,8 +904,22 @@ html[data-theme="light"] select {
 .input-section.input-section-adv.collapsed .sec-chevron { transform: rotate(-90deg); }
 .input-section.input-section-adv.collapsed .sec-body { display: none; }
 
+/* Calc form label styling */
+.calc-left label {
+  display: block;
+  font-size: 11px; color: var(--t3);
+  font-weight: 500; margin-bottom: 4px;
+  line-height: 1.3;
+}
+.calc-left .input-section input:not([class]),
+.calc-left .input-section select:not([class]) {
+  height: 34px;
+  font-size: 13px;
+  padding: 0 10px;
+}
+
 /* Preset / quick buttons row */
-.quick-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.quick-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .quick-chip {
   padding: 5px 10px; font-size: 11px; font-weight: 500;
   background: var(--bg2); color: var(--t2);
@@ -957,7 +971,7 @@ html[data-theme="light"] select {
 .cost-table { display: block; }
 .cost-row {
   display: flex; justify-content: space-between; align-items: baseline;
-  padding: 9px 0;
+  padding: 6px 0;
   border-top: 1px solid var(--line);
   font-size: 12px;
 }
@@ -991,7 +1005,7 @@ html[data-theme="light"] select {
 
 /* Placeholder */
 .results-placeholder {
-  padding: 40px 20px;
+  padding: 28px 20px;
   text-align: center;
   color: var(--t3);
   font-size: 13px;
@@ -1686,21 +1700,21 @@ html[data-theme="light"] select {
 
 /* ── Legacy metric cards (.mc / .ml / .mv / .ms) ──────────── */
 .mc {
-  padding: 12px 14px;
+  padding: 10px 12px;
   background: var(--bg1);
   border: 1px solid var(--line);
   border-radius: 10px;
 }
-.mc .ml { font-size: 11px; color: var(--t3); font-weight: 500; letter-spacing: 0.3px; margin-bottom: 4px; }
-.mc .mv { font-family: var(--mono); font-weight: 600; color: var(--t1); font-size: 22px; letter-spacing: -0.4px; line-height: 1.1; }
+.mc .ml { font-size: 11px; color: var(--t3); font-weight: 500; letter-spacing: 0.3px; margin-bottom: 3px; }
+.mc .mv { font-family: var(--mono); font-weight: 600; color: var(--t1); font-size: 18px; letter-spacing: -0.4px; line-height: 1.1; }
 .mc .ms { font-size: 11px; color: var(--t3); font-weight: 500; margin-top: 4px; font-family: var(--mono); }
 .mc.profit .mv, .mc.tg .mv, .mc.green .mv { color: var(--green); }
 .mc.loss .mv, .mc.tr .mv, .mc.red .mv { color: var(--red); }
 .mc.warn .mv, .mc.amber .mv, .mc.ty .mv { color: var(--amber); }
 .mc.accent .mv, .mc.highlight .mv { color: var(--accent); }
 .mg, .mg-grid, .margin-info {
-  display: grid; gap: 10px;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  display: grid; gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
 }
 /* Label spans entire row so metric cards below can fill width */
 .mg > .mg-label, .mg-grid > .mg-label {
@@ -1847,9 +1861,9 @@ html[data-theme="light"] select {
 }
 
 /* ── Input row helpers (.fl .fc .fr .fb .fn .fg) ──────────── */
-.fl, .fc, .fr { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
+.fl, .fc, .fr { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
 .fl { flex-direction: column; align-items: stretch; }
-.fb { display: block; margin-bottom: 10px; }
+.fb { display: block; margin-bottom: 8px; }
 .fn { font-family: var(--mono); }
 .fg { flex: 1; }
 .fg-readonly { color: var(--t3); background: var(--bg2); cursor: not-allowed; }
