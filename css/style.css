@@ -545,6 +545,149 @@ textarea.prism-input {
 }
 textarea.prism-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-d); }
 
+/* Global fallback for unclassed form controls inside content areas
+   — ensures bare <input type="text|number|date|time|datetime-local|email|password|tel|search|url">,
+   <select>, <textarea> inherit theme colors instead of browser defaults (white bg). */
+.main-content input[type="text"]:not(.sym-ac-item input):not([class]),
+.main-content input[type="number"]:not([class]),
+.main-content input[type="date"]:not([class]),
+.main-content input[type="datetime-local"]:not([class]),
+.main-content input[type="time"]:not([class]),
+.main-content input[type="email"]:not([class]),
+.main-content input[type="password"]:not([class]),
+.main-content input[type="tel"]:not([class]),
+.main-content input[type="search"]:not([class]),
+.main-content input[type="url"]:not([class]),
+.main-content select:not([class]),
+.main-content textarea:not([class]),
+.modal input[type="text"]:not([class]),
+.modal input[type="number"]:not([class]),
+.modal input[type="date"]:not([class]),
+.modal input[type="datetime-local"]:not([class]),
+.modal input[type="time"]:not([class]),
+.modal input[type="email"]:not([class]),
+.modal input[type="password"]:not([class]),
+.modal select:not([class]),
+.modal textarea:not([class]),
+.j-modal input[type="text"]:not([class]),
+.j-modal input[type="number"]:not([class]),
+.j-modal input[type="date"]:not([class]),
+.j-modal input[type="datetime-local"]:not([class]),
+.j-modal input[type="time"]:not([class]),
+.j-modal input[type="email"]:not([class]),
+.j-modal input[type="password"]:not([class]),
+.j-modal select:not([class]),
+.j-modal textarea:not([class]) {
+  background: var(--bg1);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  height: 36px;
+  padding: 0 12px;
+  font-family: var(--mono);
+  font-size: 14px;
+  color: var(--t1);
+  outline: none;
+  transition: border-color var(--dur) var(--ease-out);
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+}
+.main-content input[type="date"]:not([class]),
+.main-content input[type="datetime-local"]:not([class]),
+.main-content input[type="time"]:not([class]),
+.modal input[type="date"]:not([class]),
+.modal input[type="datetime-local"]:not([class]),
+.modal input[type="time"]:not([class]),
+.j-modal input[type="date"]:not([class]),
+.j-modal input[type="datetime-local"]:not([class]),
+.j-modal input[type="time"]:not([class]) {
+  font-family: var(--sans);
+}
+.main-content textarea:not([class]),
+.modal textarea:not([class]),
+.j-modal textarea:not([class]) {
+  height: auto; min-height: 72px;
+  padding: 10px 12px;
+  font-family: var(--sans); font-size: 13px;
+  line-height: 1.6; resize: vertical;
+}
+.main-content input:not([class]):focus,
+.main-content select:not([class]):focus,
+.main-content textarea:not([class]):focus,
+.modal input:not([class]):focus,
+.modal select:not([class]):focus,
+.modal textarea:not([class]):focus,
+.j-modal input:not([class]):focus,
+.j-modal select:not([class]):focus,
+.j-modal textarea:not([class]):focus {
+  border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-d);
+}
+.main-content input:not([class])::placeholder,
+.main-content textarea:not([class])::placeholder,
+.modal input:not([class])::placeholder,
+.modal textarea:not([class])::placeholder,
+.j-modal input:not([class])::placeholder,
+.j-modal textarea:not([class])::placeholder {
+  color: var(--t3);
+}
+/* Checkbox + radio keep native look but get accent color */
+input[type="checkbox"], input[type="radio"] {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+/* Number spinner wrapper (legacy .num-wrap with ± buttons) */
+.num-wrap {
+  display: inline-flex; align-items: stretch;
+  width: 100%; max-width: 200px;
+  border: 1px solid var(--line); border-radius: 8px;
+  background: var(--bg1);
+  overflow: hidden;
+}
+.fl > .num-wrap, .fc > .num-wrap { max-width: 200px; }
+@media(max-width: 768px) {
+  .num-wrap { max-width: none; }
+}
+.num-wrap:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-d); }
+.num-wrap .num-btn {
+  background: var(--bg2); color: var(--t1);
+  border: none;
+  width: 32px; height: auto;
+  font-size: 16px; font-weight: 700; line-height: 1;
+  cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.num-wrap .num-btn:hover { background: var(--bg3); }
+.num-wrap .num-btn:active { background: var(--accent); color: #fff; }
+.num-wrap input {
+  flex: 1; min-width: 0; width: auto;
+  border: none !important; box-shadow: none !important;
+  background: transparent !important;
+  height: 34px !important;
+  padding: 0 8px !important;
+  text-align: center;
+  font-family: var(--mono); font-size: 14px; font-weight: 500;
+  color: var(--t1);
+  outline: none;
+  -moz-appearance: textfield;
+}
+.num-wrap input::-webkit-outer-spin-button,
+.num-wrap input::-webkit-inner-spin-button {
+  -webkit-appearance: none; margin: 0;
+}
+/* Select dropdown arrow tint for dark themes */
+html[data-theme="dark"] select,
+html[data-theme="midnight"] select,
+html[data-theme="emerald"] select {
+  color-scheme: dark;
+}
+html[data-theme="paper"] select,
+html[data-theme="ivory"] select,
+html[data-theme="paperDense"] select,
+html[data-theme="light"] select {
+  color-scheme: light;
+}
+
 /* ── Metric / Stat block ──────────────────────────────────── */
 .metric { text-align: left; }
 .metric .metric-label {
@@ -625,13 +768,14 @@ textarea.prism-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px 
 
 /* ── Calc layout ──────────────────────────────────────────── */
 .calc-layout {
-  padding: 22px;
+  padding: 18px 22px 22px;
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 16px;
+  gap: 18px;
+  align-items: start;
 }
 .calc-left, .result-panel {
-  display: flex; flex-direction: column; gap: 14px;
+  display: flex; flex-direction: column; gap: 12px;
   min-width: 0;
 }
 
@@ -685,13 +829,14 @@ textarea.prism-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px 
   background: var(--bg1);
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
-  padding: 18px;
-  margin-bottom: 14px;
+  padding: 14px 16px;
+  margin-bottom: 0;
 }
+.input-section + .input-section { margin-top: 12px; }
 .input-section-hdr {
   font-size: 11px; color: var(--t3);
   font-weight: 600; letter-spacing: 0.6px;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
   text-transform: uppercase;
   display: flex; align-items: center; gap: 6px;
 }
@@ -1437,10 +1582,10 @@ textarea.prism-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px 
 
 /* ── Legacy metric cards (.mc / .ml / .mv / .ms) ──────────── */
 .mc {
-  padding: 14px 16px;
+  padding: 12px 14px;
   background: var(--bg1);
   border: 1px solid var(--line);
-  border-radius: var(--r-lg);
+  border-radius: 10px;
 }
 .mc .ml { font-size: 11px; color: var(--t3); font-weight: 500; letter-spacing: 0.3px; margin-bottom: 4px; }
 .mc .mv { font-family: var(--mono); font-weight: 600; color: var(--t1); font-size: 22px; letter-spacing: -0.4px; line-height: 1.1; }
@@ -1453,6 +1598,15 @@ textarea.prism-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px 
   display: grid; gap: 10px;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
 }
+/* Label spans entire row so metric cards below can fill width */
+.mg > .mg-label, .mg-grid > .mg-label {
+  grid-column: 1 / -1;
+  font-size: 11px; color: var(--t3);
+  font-weight: 600; letter-spacing: 0.5px;
+  text-transform: uppercase;
+  margin: 4px 0 -2px;
+}
+.mg > .mg-label:first-child { margin-top: 0; }
 .mi-item {
   padding: 8px 12px;
   background: var(--bg2);
@@ -1468,10 +1622,10 @@ textarea.prism-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px 
 
 /* ── Legacy risk bar ──────────────────────────────────────── */
 .risk-bar-wrap {
-  display: flex; align-items: center; gap: 12px;
-  padding: 14px;
+  display: flex; align-items: center; gap: 14px;
+  padding: 12px 14px;
   background: var(--bg2);
-  border-radius: var(--r-lg);
+  border-radius: 10px;
 }
 .risk-bar-info {
   flex: 0 0 auto;
@@ -1497,10 +1651,10 @@ textarea.prism-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px 
 
 /* ── Legacy alert box (.alert) ────────────────────────────── */
 .alert {
-  padding: 12px 14px; border-radius: 10px;
-  display: flex; align-items: flex-start; gap: 10px;
+  padding: 10px 14px; border-radius: 10px;
+  display: flex; align-items: center; gap: 10px;
   font-size: 13px;
-  margin-bottom: 10px;
+  margin-bottom: 0;
 }
 .alert svg { width: 18px; height: 18px; flex-shrink: 0; margin-top: 1px; }
 .alert.alert-safe { background: var(--green-soft); color: var(--green); border: 1px solid rgba(22,163,74,0.2); }
@@ -1511,20 +1665,20 @@ textarea.prism-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px 
 .cost-box {
   background: var(--bg1);
   border: 1px solid var(--line);
-  border-radius: var(--r-lg);
-  padding: 18px;
+  border-radius: 10px;
+  padding: 12px 14px;
 }
 .cost-title {
   display: flex; align-items: center; gap: 6px;
   font-size: 11px; color: var(--t3);
   font-weight: 600; letter-spacing: 0.6px;
   text-transform: uppercase;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 .cost-title svg { width: 14px; height: 14px; }
 .cost-box .cost-row {
   display: flex; justify-content: space-between; align-items: baseline;
-  padding: 9px 0;
+  padding: 7px 0;
   border-top: 1px solid var(--line);
   font-size: 12px;
 }
@@ -1974,14 +2128,22 @@ textarea.prism-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px 
 
 /* ── Settings page compat (.stg-*) ────────────────────────── */
 .stg-s-body {
-  display: grid; grid-template-columns: 200px 1fr;
-  gap: 16px; padding: 22px;
+  display: flex; flex-direction: column;
+  gap: 14px; padding: 18px 22px 22px;
 }
-@media(max-width: 1024px) { .stg-s-body { grid-template-columns: 1fr; } }
 .stg-section {
   background: var(--bg1); border: 1px solid var(--line);
-  border-radius: 12px; padding: 22px; margin-bottom: 14px;
+  border-radius: 12px; padding: 0; margin: 0 22px 14px;
+  overflow: hidden;
 }
+.stg-section > h4 {
+  margin: 0; padding: 16px 20px 10px;
+  font-size: 14px; font-weight: 700; color: var(--t1);
+  display: flex; align-items: center; gap: 8px;
+  border-bottom: 1px solid var(--line);
+}
+.stg-section > h4 svg { color: var(--accent); }
+.settings-body { padding: 20px 0 22px; }
 .stg-group { margin-bottom: 6px; }
 .stg-group-title {
   display: flex; align-items: center; gap: 8px;
@@ -1996,11 +2158,18 @@ textarea.prism-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px 
 .stg-group-body { padding: 12px; display: none; }
 .stg-group.open .stg-group-body { display: block; }
 .stg-row, .stg-dec-row, .stg-fs-row, .stg-db-row {
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
   padding: 10px 0;
   border-top: 1px solid var(--line);
 }
 .stg-row:first-child { border-top: none; }
+.stg-row > label, .stg-fs-row > label, .stg-dec-row > label, .stg-db-row > label {
+  font-size: 13px; color: var(--t1); font-weight: 500;
+  min-width: 110px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.stg-row > label > .stg-hint, .stg-row > label > .stg-sub-label { font-weight: 400; }
+.stg-s-body > .stg-row { padding-left: 4px; padding-right: 4px; }
 .stg-sub-label, .stg-fs-label, .stg-fs-base-label { font-size: 11px; color: var(--t3); font-weight: 600; }
 .stg-input, .stg-select {
   height: 32px; padding: 0 10px; font-size: 13px;
@@ -2128,6 +2297,48 @@ textarea.prism-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px 
   background: var(--bg2); border: none; border-radius: 6px; cursor: pointer;
 }
 .stg-username, .stg-uid { font-size: 13px; }
+
+/* Constrain all SVGs inside settings panel to prevent overflow */
+.stg-section svg, .stg-group svg { flex-shrink: 0; }
+.stg-section svg:not([width]):not([height]),
+.stg-group svg:not([width]):not([height]) { width: 16px; height: 16px; }
+
+/* Settings account avatar + info row */
+.stg-account-info {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 16px;
+  background: var(--bg2); border-radius: 10px;
+}
+.stg-account-info .stg-avatar {
+  width: 36px; height: 36px; border-radius: 18px;
+  background: var(--accent); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.stg-account-info .stg-avatar svg { width: 18px; height: 18px; }
+.stg-account-actions { padding: 10px 0 0; display: flex; gap: 8px; }
+
+/* stg-cb-region (index visibility) */
+.stg-cb-region {
+  padding: 10px 4px;
+  border-top: 1px solid var(--line);
+}
+.stg-cb-region:first-child { border-top: none; }
+.stg-cb-region-label {
+  font-size: 11px; color: var(--t3);
+  font-weight: 600; letter-spacing: 0.5px;
+  display: block; margin-bottom: 8px;
+  text-transform: uppercase;
+}
+.stg-cb {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 10px; margin: 2px 4px 2px 0;
+  background: var(--bg2); border-radius: 6px;
+  font-size: 12px; color: var(--t1);
+  cursor: pointer;
+}
+.stg-cb input[type="checkbox"] { margin: 0; }
+.stg-cb:has(input:checked) { background: var(--accent-bg); color: var(--accent); }
 
 /* Multi-eq button rows */
 .eq-multi-row { display: flex; gap: 6px; flex-wrap: wrap; }
