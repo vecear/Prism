@@ -13,39 +13,39 @@ async function ensureDB(db) {
         db.prepare("CREATE TABLE IF NOT EXISTS user_settings (user_id INTEGER PRIMARY KEY, data TEXT NOT NULL DEFAULT '{}', updated_at TEXT DEFAULT (datetime('now')), FOREIGN KEY (user_id) REFERENCES users(id))"),
       ]);
       // v2 migration: add account column
-      try { await db.prepare("ALTER TABLE trades ADD COLUMN account TEXT NOT NULL DEFAULT ''").run(); } catch {}
+      try { await db.prepare("ALTER TABLE trades ADD COLUMN account TEXT NOT NULL DEFAULT ''").run(); } catch (e) { /* column/table already exists */ }
       // v3 migration: add image_url column
-      try { await db.prepare("ALTER TABLE trades ADD COLUMN image_url TEXT NOT NULL DEFAULT ''").run(); } catch {}
+      try { await db.prepare("ALTER TABLE trades ADD COLUMN image_url TEXT NOT NULL DEFAULT ''").run(); } catch (e) { /* column/table already exists */ }
       // v4 migration: add rating column (1-5 stars, 0=unrated)
-      try { await db.prepare("ALTER TABLE trades ADD COLUMN rating INTEGER NOT NULL DEFAULT 0").run(); } catch {}
+      try { await db.prepare("ALTER TABLE trades ADD COLUMN rating INTEGER NOT NULL DEFAULT 0").run(); } catch (e) { /* column/table already exists */ }
       // v5 migration: daily_journal table
-      try { await db.prepare("CREATE TABLE IF NOT EXISTS daily_journal (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, date TEXT NOT NULL, mood INTEGER DEFAULT 3, market_note TEXT DEFAULT '', plan TEXT DEFAULT '', review TEXT DEFAULT '', created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')), FOREIGN KEY (user_id) REFERENCES users(id), UNIQUE(user_id, date))").run(); } catch {}
+      try { await db.prepare("CREATE TABLE IF NOT EXISTS daily_journal (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, date TEXT NOT NULL, mood INTEGER DEFAULT 3, market_note TEXT DEFAULT '', plan TEXT DEFAULT '', review TEXT DEFAULT '', created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')), FOREIGN KEY (user_id) REFERENCES users(id), UNIQUE(user_id, date))").run(); } catch (e) { /* column/table already exists */ }
       // v6 migration: daily_journal enhancements
-      try { await db.prepare("ALTER TABLE daily_journal ADD COLUMN discipline INTEGER NOT NULL DEFAULT 0").run(); } catch {}
-      try { await db.prepare("ALTER TABLE daily_journal ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'").run(); } catch {}
-      try { await db.prepare("ALTER TABLE daily_journal ADD COLUMN takeaway TEXT NOT NULL DEFAULT ''").run(); } catch {}
-      try { await db.prepare("ALTER TABLE daily_journal ADD COLUMN starred INTEGER NOT NULL DEFAULT 0").run(); } catch {}
+      try { await db.prepare("ALTER TABLE daily_journal ADD COLUMN discipline INTEGER NOT NULL DEFAULT 0").run(); } catch (e) { /* column/table already exists */ }
+      try { await db.prepare("ALTER TABLE daily_journal ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'").run(); } catch (e) { /* column/table already exists */ }
+      try { await db.prepare("ALTER TABLE daily_journal ADD COLUMN takeaway TEXT NOT NULL DEFAULT ''").run(); } catch (e) { /* column/table already exists */ }
+      try { await db.prepare("ALTER TABLE daily_journal ADD COLUMN starred INTEGER NOT NULL DEFAULT 0").run(); } catch (e) { /* column/table already exists */ }
       // v7 migration: trade review scores (discipline, timing, sizing) for process-vs-outcome analysis
-      try { await db.prepare("ALTER TABLE trades ADD COLUMN review_discipline INTEGER NOT NULL DEFAULT 0").run(); } catch {}
-      try { await db.prepare("ALTER TABLE trades ADD COLUMN review_timing INTEGER NOT NULL DEFAULT 0").run(); } catch {}
-      try { await db.prepare("ALTER TABLE trades ADD COLUMN review_sizing INTEGER NOT NULL DEFAULT 0").run(); } catch {}
+      try { await db.prepare("ALTER TABLE trades ADD COLUMN review_discipline INTEGER NOT NULL DEFAULT 0").run(); } catch (e) { /* column/table already exists */ }
+      try { await db.prepare("ALTER TABLE trades ADD COLUMN review_timing INTEGER NOT NULL DEFAULT 0").run(); } catch (e) { /* column/table already exists */ }
+      try { await db.prepare("ALTER TABLE trades ADD COLUMN review_sizing INTEGER NOT NULL DEFAULT 0").run(); } catch (e) { /* column/table already exists */ }
       // v8 migration: pricing_stage column for trade pricing stage tracking
-      try { await db.prepare("ALTER TABLE trades ADD COLUMN pricing_stage TEXT NOT NULL DEFAULT ''").run(); } catch {}
+      try { await db.prepare("ALTER TABLE trades ADD COLUMN pricing_stage TEXT NOT NULL DEFAULT ''").run(); } catch (e) { /* column/table already exists */ }
       // v9 migration: presets table for cross-device sync (products, multipliers, margins)
       try {
         await db.prepare("CREATE TABLE IF NOT EXISTS presets (user_id INTEGER PRIMARY KEY, data TEXT NOT NULL DEFAULT '{}', updated_at TEXT DEFAULT (datetime('now')), FOREIGN KEY (user_id) REFERENCES users(id))").run();
-      } catch {}
+      } catch (e) { /* column/table already exists */ }
       // v9 migration: templates table for trade templates sync
       try {
         await db.prepare("CREATE TABLE IF NOT EXISTS templates (user_id INTEGER PRIMARY KEY, data TEXT NOT NULL DEFAULT '[]', updated_at TEXT DEFAULT (datetime('now')), FOREIGN KEY (user_id) REFERENCES users(id))").run();
-      } catch {}
+      } catch (e) { /* column/table already exists */ }
       // v10 migration: app_state table for calculator state sync
       try {
         await db.prepare("CREATE TABLE IF NOT EXISTS app_state (user_id INTEGER PRIMARY KEY, data TEXT NOT NULL DEFAULT '{}', updated_at TEXT DEFAULT (datetime('now')), FOREIGN KEY (user_id) REFERENCES users(id))").run();
-      } catch {}
+      } catch (e) { /* column/table already exists */ }
       // v11 migration: indexes for trades table performance
-      try { await db.prepare("CREATE INDEX IF NOT EXISTS idx_trades_user_id ON trades(user_id)").run(); } catch {}
-      try { await db.prepare("CREATE INDEX IF NOT EXISTS idx_trades_user_date ON trades(user_id, date DESC)").run(); } catch {}
+      try { await db.prepare("CREATE INDEX IF NOT EXISTS idx_trades_user_id ON trades(user_id)").run(); } catch (e) { /* column/table already exists */ }
+      try { await db.prepare("CREATE INDEX IF NOT EXISTS idx_trades_user_date ON trades(user_id, date DESC)").run(); } catch (e) { /* column/table already exists */ }
       } catch (e) {
         dbInitPromise = null;
         throw e;
@@ -217,7 +217,7 @@ async function handleProxy(request) {
     const body = await resp.arrayBuffer();
     return new Response(body, {
       status: resp.status,
-      headers: { 'Content-Type': resp.headers.get('Content-Type') || 'application/json', 'Cache-Control': 'public, max-age=30' },
+      headers: { 'Content-Type': (() => { const ct = resp.headers.get('Content-Type') || ''; return ct.includes('text/html') ? 'text/plain' : (ct || 'application/json'); })(), 'Cache-Control': 'public, max-age=30' },
     });
   } catch (e) { console.error('[Proxy Error]', e); return jsonErr(502, 'Proxy fetch failed'); }
 }
@@ -244,12 +244,14 @@ async function handleFred(request, env) {
     return new Response(csv, {
       headers: { 'Content-Type': 'text/csv', 'Cache-Control': 'public, max-age=3600' },
     });
-  } catch (e) { console.error('[FRED Error]', e.message || e); return jsonErr(502, `FRED fetch failed: ${e.message || 'unknown'}`); }
+  } catch (e) { console.error('[Prism] FRED fetch failed:', e); return jsonErr(502, 'FRED fetch failed'); }
 }
 
 // ── Simple In-Memory Rate Limiter (per-worker instance) ──
 const _rateLimits = new Map();
 function checkRateLimit(key, maxRequests, windowMs) {
+  // NOTE: _rateLimits 是 in-memory Map，在 Cloudflare Workers 多實例環境下
+  // 每個實例獨立，rate limit 僅對單一實例有效。正式環境應使用 KV 或 Durable Objects。
   const now = Date.now();
   const entry = _rateLimits.get(key);
   if (!entry || now - entry.start > windowMs) {
@@ -301,6 +303,9 @@ async function handleLoginPost(request, env) {
   try { body = await request.json(); } catch { return jsonErr(400, '無效的請求格式'); }
   const { username, password } = body;
   if (!username || !password) return jsonErr(400, '請提供使用者名稱和密碼');
+  if (!username || !password || username.length > 50 || password.length > 200) {
+    return jsonErr(400, '參數錯誤');
+  }
 
   const db = env.DB;
   const user = await db.prepare('SELECT id, username, password_hash, salt FROM users WHERE username = ?').bind(username).first();
@@ -324,7 +329,7 @@ async function handleGetTrades(request, env) {
   const user = await getUser(request, env);
   if (!user) return jsonErr(401, '未登入');
   const db = env.DB;
-  const { results } = await db.prepare('SELECT * FROM trades WHERE user_id = ? ORDER BY date DESC').bind(user.sub).all();
+  const { results } = await db.prepare('SELECT * FROM trades WHERE user_id = ? ORDER BY date DESC LIMIT 5000').bind(user.sub).all();
   const trades = results.map(row => ({
     id: row.id, date: row.date, market: row.market, type: row.type,
     symbol: row.symbol, name: row.name, direction: row.direction, status: row.status,
@@ -366,7 +371,7 @@ async function handleCreateTrade(request, env) {
       String(body.symbol || '').slice(0, 20), String(body.name || '').slice(0, 100), direction, status,
       body.entryPrice ?? null, body.exitPrice ?? null, body.quantity ?? null,
       body.contractMul ? parseFloat(body.contractMul) || null : null, body.stopLoss ?? null, body.takeProfit ?? null,
-      body.fee ?? 0, body.tax ?? 0, JSON.stringify(Array.isArray(body.tags) ? body.tags.slice(0, 20) : []), String(body.notes || '').slice(0, 5000),
+      body.fee ?? 0, body.tax ?? 0, JSON.stringify(Array.isArray(body.tags) ? body.tags.slice(0, 20).map(t => String(t).slice(0, 50)) : []), String(body.notes || '').slice(0, 5000),
       String(body.account || '').slice(0, 50), imgUrl, body.rating ?? 0,
       body.reviewDiscipline ?? 0, body.reviewTiming ?? 0, body.reviewSizing ?? 0, String(body.pricingStage || '').slice(0, 20), now, now
     ).run();
@@ -402,7 +407,7 @@ async function handleUpdateTrade(request, env, tradeId) {
       String(body.symbol || '').slice(0, 20), String(body.name || '').slice(0, 100), VALID_DIRS.includes(body.direction) ? body.direction : 'long', VALID_STATUS.includes(body.status) ? body.status : 'open',
       body.entryPrice ?? null, body.exitPrice ?? null, body.quantity ?? null,
       body.contractMul ? parseFloat(body.contractMul) || null : null, body.stopLoss ?? null, body.takeProfit ?? null,
-      body.fee ?? 0, body.tax ?? 0, JSON.stringify(Array.isArray(body.tags) ? body.tags.slice(0, 20) : []), String(body.notes || '').slice(0, 5000),
+      body.fee ?? 0, body.tax ?? 0, JSON.stringify(Array.isArray(body.tags) ? body.tags.slice(0, 20).map(t => String(t).slice(0, 50)) : []), String(body.notes || '').slice(0, 5000),
       String(body.account || '').slice(0, 50), imgUrl, body.rating ?? 0,
       body.reviewDiscipline ?? 0, body.reviewTiming ?? 0, body.reviewSizing ?? 0, String(body.pricingStage || '').slice(0, 20), now,
       tradeId, user.sub
@@ -433,7 +438,7 @@ async function handleGetSettings(request, env) {
   if (!user) return jsonErr(401, '未登入');
   const row = await env.DB.prepare('SELECT data FROM user_settings WHERE user_id = ?').bind(user.sub).first();
   let settings = {};
-  if (row) { try { settings = JSON.parse(row.data); } catch {} }
+  if (row) { try { settings = JSON.parse(row.data); } catch (e) { /* column/table already exists */ } }
   return jsonRes({ settings });
 }
 
@@ -487,7 +492,7 @@ async function handleGetPresets(request, env) {
   if (!user) return jsonErr(401, '未登入');
   const row = await env.DB.prepare('SELECT data, updated_at FROM presets WHERE user_id = ?').bind(user.sub).first();
   let presets = {};
-  if (row) { try { presets = JSON.parse(row.data); } catch {} }
+  if (row) { try { presets = JSON.parse(row.data); } catch (e) { /* column/table already exists */ } }
   return jsonRes({ presets, updatedAt: row?.updated_at || null });
 }
 
@@ -509,7 +514,7 @@ async function handleGetTemplates(request, env) {
   if (!user) return jsonErr(401, '未登入');
   const row = await env.DB.prepare('SELECT data, updated_at FROM templates WHERE user_id = ?').bind(user.sub).first();
   let templates = [];
-  if (row) { try { templates = JSON.parse(row.data); } catch {} }
+  if (row) { try { templates = JSON.parse(row.data); } catch (e) { /* column/table already exists */ } }
   return jsonRes({ templates, updatedAt: row?.updated_at || null });
 }
 
@@ -532,7 +537,7 @@ async function handleGetAppState(request, env) {
   if (!user) return jsonErr(401, '未登入');
   const row = await env.DB.prepare('SELECT data, updated_at FROM app_state WHERE user_id = ?').bind(user.sub).first();
   let state = {};
-  if (row) { try { state = JSON.parse(row.data); } catch {} }
+  if (row) { try { state = JSON.parse(row.data); } catch (e) { /* column/table already exists */ } }
   return jsonRes({ state, updatedAt: row?.updated_at || null });
 }
 

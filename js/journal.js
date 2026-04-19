@@ -136,14 +136,16 @@ function resolveFeeVal(inputId, modeId) {
   const q = parseFloat($('#jf-qty')?.value) || 0;
   const typeVal = $('#jf-type2')?.value || 'stock';
   const mul = (isFuturesType(typeVal) || typeVal === 'options') ? (parseFloat($('#jf-mul')?.value) || 1) : 1; // inline: form values, not trade object
-  const notional = (en + (ex || 0)) * q * mul;
-  return Math.round(notional * raw / 100 * 100) / 100;
+  const notional = en * q * mul * raw / 100 + (ex || 0) * q * mul * raw / 100;
+  return Math.round(notional * 100) / 100;
 }
 
 function fmtDate(iso) {
   if (!iso) return '—';
-  const d = new Date(iso);
-  return `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`;
+  const s = iso.slice(0, 10);
+  const parts = s.split('-');
+  if (parts.length !== 3) return s;
+  return `${parts[0]}/${parts[1]}/${parts[2]}`;
 }
 function fmtDateTime(iso) {
   if (!iso) return '—';
@@ -1002,11 +1004,12 @@ async function batchClose() {
   if (!openIds.length) { if(window._showToast)window._showToast('沒有選取持倉中的交易'); return; }
   // Snapshot trade data and quotes before confirm to avoid stale references
   const closeJobs = [];
+  let skippedCount = 0;
   for (const id of openIds) {
     const t = trades.find(x => x.id === id);
     if (!t) continue;
     const lq = liveQuotes[getLiveQuoteKey(t)];
-    if (!lq?.price) continue;
+    if (!lq?.price) { skippedCount++; continue; }
     const ef = calcExitFees(t.market, t.type, lq.price, parseFloat(t.quantity), parseFloat(t.contractMul) || 1, t.direction, t.symbol);
     closeJobs.push({ id, data: { ...t, exitPrice: lq.price, status: 'closed',
       fee: String((parseFloat(t.fee) || 0) + (parseFloat(ef.fee) || 0)),
@@ -1025,14 +1028,15 @@ async function batchClose() {
     }
     batchSelected.clear();
     batchMode = false;
-    if (window._showToast) window._showToast(`已平倉 ${closed} 筆`);
+    const skipMsg = skippedCount > 0 ? `，${skippedCount} 筆無報價已略過` : '';
+    if (window._showToast) window._showToast(`已平倉 ${closed} 筆${skipMsg}`);
     renderJournal();
   });
 }
 
 // ── Average Cost for same symbol open trades ──
-function calcAvgCost(symbol, market) {
-  const openTrades = trades.filter(t => t.status === 'open' && t.symbol === symbol && t.market === market);
+function calcAvgCost(symbol, market, direction = null) {
+  const openTrades = trades.filter(t => t.status === 'open' && t.symbol === symbol && t.market === market && (direction === null || t.direction === direction));
   if (openTrades.length < 2) return null;
   let totalQtyMul = 0, totalNotional = 0, totalFee = 0, totalQty = 0;
   let groupDir = 1;
@@ -1457,7 +1461,7 @@ function showLoginModal() {
 }
 
 function handleLogout() {
-  authToken = ''; currentUser = null; trades = []; liveQuotes = {};
+  authToken = ''; currentUser = null; trades = []; liveQuotes = {}; dailyJournals = [];
   localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(USER_KEY);
   renderHeaderAuth();
   if ($('#tab-journal')?.classList.contains('active')) renderLogin();
@@ -1566,8 +1570,8 @@ window.PrismJournal = {
         trade.symbol = stkInput?.value?.trim() || '';
         trade.name = stkInfo?.textContent?.trim() || '';
       }
-      // Exit price: f-current → f-live-price → f-entry
-      const exitVal = _gvOrNull('f-current') ?? _gvOrNull('f-live-price') ?? _gvOrNull('f-entry');
+      // Exit price: f-current → f-live-price → 0
+      const exitVal = _gvOrNull('f-current') ?? _gvOrNull('f-live-price') ?? 0;
       if (exitVal != null) trade.exitPrice = String(exitVal);
       // Fee & tax
       const entry = _gv('f-entry'), qty = _gv('f-qty'), mul = _gv('f-mul');
@@ -1965,7 +1969,7 @@ function renderFilters() {
       <span class="j-filter-sep">~</span>
       <input type="date" id="jf-to" class="j-filter-date" value="${filterState.dateTo}">
     </div>
-    <div class="j-filter-search-wrap"><input type="text" id="jf-search" class="j-filter-search" placeholder="搜尋代號/名稱/備註..." value="${filterState.search}"></div>
+    <div class="j-filter-search-wrap"><input type="text" id="jf-search" class="j-filter-search" placeholder="搜尋代號/名稱/備註..." value="${esc(filterState.search)}"></div>
   </div>`;
   const refresh = () => { if(viewMode==='list')renderTradeList();else if(viewMode==='holdings')renderHoldings();else if(viewMode==='calendar')renderCalendar();else if(viewMode==='diary')renderDiary();else renderStats(); };
   const update = () => {

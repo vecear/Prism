@@ -80,6 +80,7 @@ html[data-theme="dark"] {
   --accent: #fb923c; --accent-soft: rgba(251,146,60,.3); --accent-bg: rgba(251,146,60,.15); --accent-d: rgba(251,146,60,.28);
   --green: #22c55e; --green-soft: rgba(34,197,94,.16); --red: #ef4444; --red-soft: rgba(239,68,68,.16);
   --amber: #f59e0b; --amber-soft: rgba(245,158,11,.16); --blue: #60a5fa; --blue-soft: rgba(96,165,250,.15);
+  --yellow: #fbbf24; --orange: #fb923c;
 }
 
 html[data-theme="midnight"] {
@@ -89,6 +90,7 @@ html[data-theme="midnight"] {
   --accent: #60a5fa; --accent-soft: rgba(96,165,250,.3); --accent-bg: rgba(96,165,250,.15); --accent-d: rgba(96,165,250,.12);
   --green: #22c55e; --green-soft: rgba(34,197,94,.16); --red: #f43f5e; --red-soft: rgba(244,63,94,.16);
   --amber: #fbbf24; --amber-soft: rgba(251,191,36,.16); --blue: #60a5fa; --blue-soft: rgba(96,165,250,.18);
+  --yellow: #fbbf24; --orange: #fb923c;
 }
 
 html[data-theme="emerald"] {
@@ -98,6 +100,7 @@ html[data-theme="emerald"] {
   --accent: #34d399; --accent-soft: rgba(52,211,153,.3); --accent-bg: rgba(52,211,153,.15); --accent-d: rgba(52,211,153,.12);
   --green: #34d399; --green-soft: rgba(52,211,153,.16); --red: #f43f5e; --red-soft: rgba(244,63,94,.16);
   --amber: #fbbf24; --amber-soft: rgba(251,191,36,.16); --blue: #60a5fa; --blue-soft: rgba(96,165,250,.15);
+  --yellow: #fbbf24; --orange: #fb923c;
 }
 
 /* ── Base ─────────────────────────────────────────────────── */
@@ -223,7 +226,7 @@ html, body {
   padding: 1px 7px; border-radius: 10px;
 }
 .sidebar-item .count[hidden] { display: none; }
-.sidebar-item.active .count { background: #fff; color: var(--accent); }
+.sidebar-item.active .count { background: var(--bg1); color: var(--accent); }
 .sidebar-spacer { flex: 1; }
 .sidebar-user-card {
   margin-top: 8px; padding: 10px;
@@ -840,8 +843,6 @@ html[data-theme="light"] select {
   display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
 }
 
-.input-panel, .result-panel > *:first-child:not(.card) { }
-
 /* Input grid */
 .input-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .input-grid-3 { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; }
@@ -909,6 +910,7 @@ html[data-theme="light"] select {
   font-family: var(--sans);
 }
 .quick-chip.active { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 600; }
+.quick-chip:not(.active):hover { background: var(--bg3); }
 .quick-chip.mono { font-family: var(--mono); font-weight: 600; }
 
 /* Product card grid (e.g. futures TX/MTX cards) */
@@ -944,6 +946,7 @@ html[data-theme="light"] select {
   border-radius: 5px; cursor: pointer; border: none;
 }
 .lev-chip.active { background: var(--accent); color: #fff; }
+.lev-chip:not(.active):hover { background: var(--bg3); }
 .lev-chip.warn { color: var(--red); }
 
 /* Cost table */
@@ -980,6 +983,7 @@ html[data-theme="light"] select {
 .stress-chip.down { color: var(--red); }
 .stress-chip.up { color: var(--green); }
 .stress-chip.alert { color: var(--amber); background: var(--amber-soft); }
+.stress-chip:not(.active):hover { background: var(--bg3); }
 
 /* Placeholder */
 .results-placeholder {
@@ -1309,7 +1313,7 @@ html[data-theme="light"] select {
 /* ── Modal ────────────────────────────────────────────────── */
 .modal-overlay {
   position: fixed; inset: 0;
-  background: rgba(28,25,23,0.45);
+  background: rgba(0,0,0,0.48);
   z-index: var(--z-modal-overlay);
   display: flex; align-items: center; justify-content: center;
   padding: 20px;
@@ -1364,7 +1368,7 @@ html[data-theme="light"] select {
   width: 52px; height: 52px; border-radius: 26px;
   background: var(--accent); color: #fff;
   display: none; align-items: center; justify-content: center;
-  box-shadow: 0 6px 16px rgba(194,65,12,0.4);
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--accent) 35%, transparent);
   border: none; cursor: pointer;
   z-index: var(--z-sticky);
 }
@@ -1507,6 +1511,11 @@ html[data-theme="light"] select {
   /* .calc-layout / .j-wizard-body 仍使用 1024px 斷點的單欄設定 */
 }
 
+/* Fix 18: wizard body 在 900px 以下強制單欄 */
+@media (max-width: 900px) {
+  .j-wizard-body { grid-template-columns: 1fr; }
+}
+
 @media (max-width: 768px) {
   :root { --sidebar-w: 0; }
   #app { grid-template-columns: 1fr; }
@@ -1561,6 +1570,13 @@ html[data-theme="light"] select {
   .mobile-tabbar .mtab .label { font-size: 10.5px; }
   /* 數量 num-wrap 手機改回全寬 */
   .num-wrap { max-width: none; }
+  /* Fix 10: batch bar sticky top 行動版 */
+  .j-batch-bar { top: 48px; }
+  /* Fix 12: stg-section 行動版移除外側 margin */
+  .stg-section { margin: 0 0 10px; }
+  /* Fix 17: settings-nav 隱藏 scrollbar */
+  .settings-nav { -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  .settings-nav::-webkit-scrollbar { display: none; }
 }
 
 @media (max-width: 420px) {
@@ -1576,6 +1592,17 @@ html[data-theme="light"] select {
   .hero-result .hero-cell .cell-value { font-size: 22px; }
   .ticker-region { font-size: 10px; }
   .j-card-meta, .ticker-chip .tc-name, .ticker-chip .tc-chg { font-size: 10px; }
+  /* Fix 11: calendar grid 縮小格高 */
+  .j-cal-grid { grid-auto-rows: minmax(54px, 1fr); }
+  .j-cal-cell .d-pnl { font-size: 0.65rem; }
+  /* Fix 13: selfrate-grid 單欄 */
+  .selfrate-grid { grid-template-columns: 1fr; }
+  /* Fix 14: toast 行動版位置 */
+  .toast-wrap { left: 10px; right: 10px; }
+  .toast { min-width: 0; }
+  /* Fix 16: modal-body 縮小 padding */
+  .j-modal-body { padding: 14px; }
+  .j-modal-footer { padding: 10px 14px; }
 }
 
 /* ================================================================
@@ -1918,7 +1945,7 @@ html[data-theme="light"] select {
 
 /* Action icon buttons */
 .j-act-btn {
-  width: 28px; height: 28px; border-radius: 6px;
+  width: 32px; height: 32px; border-radius: 6px;
   background: transparent; color: var(--t3); border: none;
   display: inline-flex; align-items: center; justify-content: center;
   cursor: pointer;
@@ -2218,7 +2245,7 @@ html[data-theme="light"] select {
   border-radius: 7px;
 }
 .stg-group-title:hover { background: var(--bg2); color: var(--t1); }
-.stg-group.open .stg-group-title { color: var(--t1); background: var(--accent-bg); color: var(--accent); }
+.stg-group.open .stg-group-title { background: var(--accent-bg); color: var(--accent); }
 .stg-group-chevron { margin-left: auto; transition: transform var(--dur) var(--ease-out); }
 .stg-group.open .stg-group-chevron { transform: rotate(90deg); }
 .stg-group-body { padding: 12px; display: none; }
@@ -2253,7 +2280,7 @@ html[data-theme="light"] select {
 }
 .stg-toggle::after {
   content: ''; position: absolute; top: 2px; left: 2px;
-  width: 16px; height: 16px; border-radius: 8px; background: #fff;
+  width: 16px; height: 16px; border-radius: 8px; background: var(--bg0);
   transition: left var(--dur) var(--ease-out);
   box-shadow: 0 1px 2px rgba(0,0,0,0.15);
 }
@@ -2600,7 +2627,7 @@ html[data-theme="light"] select {
 /* Trade form modal */
 .j-modal-overlay, .j-modal-overlay.open {
   position: fixed; inset: 0;
-  background: rgba(28,25,23,0.45);
+  background: rgba(0,0,0,0.48);
   z-index: var(--z-modal-overlay);
   display: none;
   align-items: center; justify-content: center;
@@ -2705,9 +2732,6 @@ html[data-theme="light"] select {
   display: block; font-size: 11px; color: var(--t3);
   font-weight: 500; margin-bottom: 4px; letter-spacing: 0.1px;
 }
-
-/* ── Stress test row for margin calc ─────────────────────── */
-.eq-multi-btn.active { background: var(--accent); color: #fff; }
 
 /* ── Guide card h3 spacing ───────────────────────────────── */
 .guide-card h2 + p, .guide-card h3 + p { margin-top: 4px; }

@@ -129,7 +129,7 @@ const PriceService = {
       const y = now.getFullYear() + yOff;
       for (const q of quarters) {
         const expiry = thirdFriday(y, q.month);
-        if ((expiry - now) / 864e5 > -1) {
+        if ((expiry - now) / 864e5 > 14) {
           all.push({ symbol: `${base}${q.code}${String(y).slice(-2)}.${exch}`, expiry });
         }
         if (all.length >= 2) break;
@@ -365,6 +365,7 @@ const PriceService = {
 
   fmtChg(q) {
     if (!q || q.error) return '';
+    if (q.change == null || q.changePct == null) return '';
     const s = q.change >= 0 ? '+' : '';
     return `${s}${q.change.toFixed(2)} (${s}${q.changePct.toFixed(2)}%)`;
   },
