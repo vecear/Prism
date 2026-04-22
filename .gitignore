@@ -11,3 +11,4 @@ Thumbs.db
 screen/
 .playwright-mcp/
 prism-import-payload.json
+*.png
