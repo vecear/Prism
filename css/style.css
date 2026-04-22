@@ -2762,3 +2762,239 @@ html[data-theme="light"] select {
 /* ── Guide card h3 spacing ───────────────────────────────── */
 .guide-card h2 + p, .guide-card h3 + p { margin-top: 4px; }
 
+/* ═══════════════════════════════════════════════════════════
+   Journal 頁面補齊（UI 重新設計後遺漏的 class 規則）
+   ═══════════════════════════════════════════════════════════ */
+
+/* 頂部 KPI 總覽容器 */
+.j-stats {
+  display: flex; flex-wrap: wrap; align-items: center;
+  gap: 12px 18px; padding: 10px 22px;
+  border-bottom: 1px solid var(--line); background: var(--bg1);
+}
+.j-stats-filter-pills {
+  display: inline-flex; gap: 4px; flex-shrink: 0;
+  padding: 2px; background: var(--bg2); border-radius: 999px; border: 1px solid var(--line);
+}
+.j-mf-pill {
+  padding: 4px 12px; border: 0; background: transparent; color: var(--t2);
+  font-size: 12px; font-weight: 500; border-radius: 999px; cursor: pointer;
+  transition: color .15s, background-color .15s;
+}
+.j-mf-pill:hover { color: var(--t1); }
+.j-mf-pill.active { background: var(--bg1); color: var(--accent); box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+
+.j-stats-section {
+  display: flex; flex: 1 1 auto; flex-wrap: wrap; align-items: center;
+  gap: 8px 16px; min-width: 0;
+}
+.j-hero-strip {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px;
+  flex: 1 1 auto; min-width: 0;
+}
+
+/* 個別 KPI pill */
+.j-kpi {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 2px 0; white-space: nowrap; min-width: 0;
+}
+.j-kpi-lbl { color: var(--t3); font-size: 11px; font-weight: 500; letter-spacing: .02em; }
+.j-kpi-val { font-family: var(--mono); font-weight: 700; font-size: 14px; color: var(--t1); }
+.j-kpi-hero .j-kpi-val { font-size: 22px; letter-spacing: -.01em; }
+.j-kpi-hero .j-kpi-lbl { font-size: 12px; }
+.j-kpi-val.tg, .j-wr-text.tg, .j-num-tick.tg { color: var(--green); }
+.j-kpi-val.tr, .j-wr-text.tr, .j-num-tick.tr { color: var(--red); }
+
+/* 更多 KPI 切換 */
+.j-kpi-more { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; }
+.j-kpi-more-toggle {
+  padding: 3px 10px; border: 1px dashed var(--line); background: transparent;
+  color: var(--t3); font-size: 11px; border-radius: 999px; cursor: pointer;
+}
+.j-kpi-more-toggle:hover { color: var(--accent); border-color: var(--accent); }
+
+/* 勝率圓環 */
+.j-wr-ring {
+  position: relative; display: inline-flex; align-items: center; justify-content: center;
+  width: 44px; height: 44px;
+}
+.j-wr-text {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  font-family: var(--mono); font-weight: 700; font-size: 11px;
+}
+
+/* 數字動畫（避免 layout shift） */
+.j-num-tick { display: inline-block; }
+
+/* ── Filter 列 ────────────────────────────────────────── */
+.j-filter-row {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  width: 100%;
+}
+.j-filter-group { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.j-filter-toggle {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 5px 10px; border: 1px solid var(--line); background: var(--bg1);
+  color: var(--t2); font-size: 12px; border-radius: 6px; cursor: pointer;
+}
+.j-filter-toggle:hover { color: var(--accent); border-color: var(--accent); }
+.j-filter-toggle svg { width: 12px; height: 12px; }
+.j-filter-date {
+  padding: 5px 8px; border: 1px solid var(--line); background: var(--bg1);
+  color: var(--t1); font-size: 12px; border-radius: 6px; font-family: var(--mono);
+}
+.j-filter-custom-date { display: inline-flex; gap: 6px; align-items: center; }
+.j-filter-sep { color: var(--t3); font-size: 12px; padding: 0 2px; }
+.j-filter-search-wrap { display: inline-flex; align-items: center; gap: 4px; flex: 1; min-width: 180px; max-width: 280px; }
+
+/* 快速 filter chips */
+.j-qf-count {
+  display: inline-flex; align-items: center; justify-content: center;
+  margin-left: 6px; padding: 0 5px; min-width: 18px; height: 16px;
+  background: var(--bg2); color: var(--t3);
+  font-size: 10px; font-weight: 600; border-radius: 999px;
+}
+.j-qf-chip.active .j-qf-count { background: rgba(255,255,255,.25); color: inherit; }
+
+/* ── Stat pill（單筆資料 badge） ──────────────────────── */
+.j-stat-pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px; background: var(--bg2); border: 1px solid var(--line);
+  border-radius: 999px; font-size: 11px; line-height: 1.4;
+}
+.j-stat-lbl { color: var(--t3); }
+.j-stat-val { color: var(--t1); font-family: var(--mono); font-weight: 600; }
+.j-stat-sep { color: var(--t3); opacity: .6; }
+.j-stat-mkt { font-weight: 600; color: var(--accent); }
+.j-badge-tw, .j-badge-us {
+  display: inline-flex; align-items: center; padding: 1px 6px;
+  font-size: 10px; font-weight: 600; border-radius: 3px;
+  background: var(--bg2); color: var(--t2);
+}
+.j-badge-us { background: var(--accent-soft, #fde68a); color: var(--accent); }
+
+/* ── Section title ───────────────────────────────────── */
+.j-section-title {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; font-weight: 600; color: var(--t2);
+  margin: 10px 0 6px; letter-spacing: .02em;
+}
+.j-section-title::before,
+.j-section-title::after {
+  content: ''; flex: 1; height: 1px; background: var(--line);
+}
+.j-section-title::before { margin-right: 8px; }
+.j-section-title::after  { margin-left: 8px; }
+
+/* ── Sparkline ───────────────────────────────────────── */
+.j-sparkline-wrap {
+  background: var(--bg1); border: 1px solid var(--line); border-radius: 10px;
+  padding: 12px 14px; margin: 10px 0;
+}
+.j-sparkline-meta {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--t2); margin-bottom: 6px;
+}
+.j-sparkline-label { font-weight: 600; color: var(--t1); }
+.j-sparkline-range { color: var(--t3); font-size: 11px; font-family: var(--mono); }
+.j-sparkline-svg, .j-equity-svg { width: 100%; height: auto; display: block; }
+
+/* ── Insight badges ──────────────────────────────────── */
+.j-insight-badges { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 22px; }
+.j-insight-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px;
+  background: var(--bg1); font-size: 11px;
+}
+.j-insight-badge-icon { font-size: 12px; }
+.j-insight-badge-text { color: var(--t2); }
+.j-insight-badge-val { font-family: var(--mono); font-weight: 700; }
+
+/* ── Dimension analysis（月份/類型/方向等分析表） ───── */
+.j-dim-pills { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+.j-dim-pill {
+  padding: 3px 10px; border: 1px solid var(--line); background: var(--bg1);
+  color: var(--t2); font-size: 11px; border-radius: 999px; cursor: pointer;
+}
+.j-dim-pill.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.j-dim-pill:hover:not(.active) { color: var(--accent); border-color: var(--accent); }
+.j-dim-body { overflow-x: auto; }
+.j-stats-table, .j-dim-table {
+  width: 100%; border-collapse: collapse; font-size: 12px;
+}
+.j-stats-table th, .j-dim-table th {
+  text-align: left; padding: 6px 10px; color: var(--t3); font-weight: 500;
+  border-bottom: 1px solid var(--line); font-size: 11px;
+}
+.j-stats-table td, .j-dim-table td {
+  padding: 6px 10px; border-bottom: 1px solid var(--line);
+  font-family: var(--mono); color: var(--t1);
+}
+.j-stats-table tr:last-child td, .j-dim-table tr:last-child td { border-bottom: 0; }
+.j-pl-bar {
+  display: inline-block; vertical-align: middle;
+  height: 8px; margin-left: 8px; border-radius: 4px; opacity: .55;
+}
+
+/* ── Tutorial steps（建議分析 1-10 清單） ──────────── */
+.j-tutorial-wrap { margin: 12px 22px; }
+.j-tutorial-toggle {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 4px 10px; border: 1px solid var(--line); background: var(--bg1);
+  color: var(--t2); font-size: 12px; border-radius: 6px; cursor: pointer;
+}
+.j-tutorial-toggle:hover { color: var(--accent); border-color: var(--accent); }
+.j-tutorial {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px; margin-top: 10px;
+}
+.j-tutorial-wrap.collapsed .j-tutorial { display: none; }
+.j-tutorial-step {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 10px 12px; background: var(--bg1);
+  border: 1px solid var(--line); border-radius: 8px;
+}
+.j-tutorial-num {
+  flex: 0 0 24px;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; border-radius: 50%;
+  background: var(--accent); color: #fff;
+  font-size: 12px; font-weight: 700; font-family: var(--mono);
+}
+.j-tutorial-body { flex: 1; min-width: 0; font-size: 12px; color: var(--t2); line-height: 1.5; }
+.j-tutorial-heading { font-weight: 600; color: var(--t1); font-size: 13px; margin-bottom: 2px; }
+.j-tutorial-body p { margin: 0; }
+.j-tutorial-body strong { color: var(--accent); font-weight: 600; }
+
+/* ── Refresh quotes 按鈕 ─────────────────────────────── */
+.j-refresh-quotes-btn {
+  padding: 4px 10px; border: 1px solid var(--line); background: var(--bg1);
+  color: var(--t2); font-size: 12px; border-radius: 6px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 4px;
+}
+.j-refresh-quotes-btn:hover { color: var(--accent); border-color: var(--accent); }
+
+/* ── 響應式：手機版壓縮 ─────────────────────────────── */
+@media (max-width: 768px) {
+  .j-stats { padding: 8px 12px; gap: 8px 12px; }
+  .j-hero-strip { gap: 4px 12px; }
+  .j-kpi-hero .j-kpi-val { font-size: 18px; }
+  .j-kpi-val { font-size: 13px; }
+  .j-filter-row { gap: 6px; }
+  .j-filter-select, .j-filter-date, .j-filter-toggle { font-size: 11px; padding: 4px 8px; }
+  .j-tutorial-wrap { margin: 10px 12px; }
+  .j-tutorial { grid-template-columns: 1fr; gap: 8px; }
+  .j-insight-badges { margin: 6px 12px; }
+  .j-sparkline-wrap { padding: 10px; }
+}
+@media (max-width: 420px) {
+  .j-stats { padding: 6px 10px; gap: 6px 10px; }
+  .j-kpi-lbl { font-size: 10px; }
+  .j-kpi-val { font-size: 12px; }
+  .j-kpi-hero .j-kpi-val { font-size: 16px; }
+  .j-mf-pill { padding: 3px 10px; font-size: 11px; }
+  .j-qf-count { font-size: 9px; min-width: 16px; height: 14px; }
+  .j-tutorial-step { padding: 8px 10px; gap: 8px; }
+  .j-tutorial-num { width: 22px; height: 22px; font-size: 11px; }
+}
+
