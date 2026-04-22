@@ -9,3 +9,5 @@ node_modules/
 Thumbs.db
 *.log
 screen/
+.playwright-mcp/
+prism-import-payload.json

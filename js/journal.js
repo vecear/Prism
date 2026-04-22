@@ -338,17 +338,20 @@ function exportCSV() {
   if(window._showToast)window._showToast(`已匯出 ${getFilteredTrades().length} 筆交易`);
 }
 
-// ── CSV Import (Enhanced: broker format support) ──
+// ── CSV / XLSX Import (broker format support: 元大 / 群益 等) ──
+// 採「exact match」以避免「沖銷日期」誤匹配到「日期」等 substring 衝突
 const BROKER_COL_ALIASES = {
-  date: ['date','成交日期','交易日期','交割日期','日期','買賣日期','Date'],
-  symbol: ['symbol','股票代號','證券代號','代號','商品代號','代碼','股票代碼','Symbol','Stock'],
-  name: ['name','股票名稱','證券名稱','商品名稱','名稱','Name'],
-  direction: ['direction','買賣別','買賣','交易別','買/賣','買賣區分','Side','Type'],
-  quantity: ['quantity','成交股數','成交數量','股數','數量','成交量','Qty','Quantity','Shares'],
+  date: ['date','成交日期','成交日','交易日期','日期','買賣日期','Date'],
+  symbol: ['symbol','股票代號','證券代號','代號','商品代號','商品','代碼','股票代碼','股號','Symbol','Stock','Ticker'],
+  name: ['name','股票名稱','證券名稱','商品名稱','名稱','股名','Name'],
+  direction: ['direction','買賣別','買賣','交易別','買/賣','買賣區分','Side'],
+  currency: ['幣別','Currency'],
+  exchange: ['交易所','Exchange','市場別','市場'],
+  quantity: ['quantity','成交股數','成交數量','股數','數量','成交量','口數','Qty','Quantity','Shares'],
   entryPrice: ['entryPrice','成交價格','成交均價','價格','均價','成交價','Price','Avg Price'],
   fee: ['fee','手續費','Fee','Commission'],
   tax: ['tax','交易稅','證交稅','稅額','Tax'],
-  market: ['market','市場','Market'],
+  market: ['market','Market'],
   type: ['type','商品類別','Type'],
   exitPrice: ['exitPrice'],
   contractMul: ['contractMul','契約乘數'],
@@ -358,14 +361,21 @@ const BROKER_COL_ALIASES = {
   notes: ['notes','備註','Notes'], status: ['status','狀態'],
   pricingStage: ['pricingStage'],
   _amount: ['淨收付金額','淨額','成交金額','金額','Amount','Net'],
+  // 期貨/選擇權專用
+  expiry: ['到期年月','契約月份','月份'],
+  strike: ['履約價','Strike'],
+  tradeTime: ['成交時間'],
 };
 
 function _resolveColMap(headerCells) {
   const map = {};
-  for (const cell of headerCells) {
-    const h = cell.trim().replace(/^["']|["']$/g, '');
+  for (let i = 0; i < headerCells.length; i++) {
+    const raw = (headerCells[i] ?? '').toString();
+    const h = raw.trim().replace(/^["']|["']$/g, '');
+    if (!h) continue;
     for (const [field, aliases] of Object.entries(BROKER_COL_ALIASES)) {
-      if (aliases.some(a => h === a || h.includes(a))) { map[field] = headerCells.indexOf(cell); break; }
+      if (map[field] != null) continue; // 第一個匹配優先
+      if (aliases.includes(h)) { map[field] = i; break; }
     }
   }
   return map;
@@ -395,6 +405,7 @@ function _parseBrokerDirection(raw) {
   if (!raw) return 'long';
   const s = raw.trim();
   if (/^(賣|賣出|融券賣出|sell|short|S)$/i.test(s)) return 'short';
+  // 買 / 買進 / 融資買進 / buy / long / B / B_買進
   return 'long';
 }
 
@@ -410,10 +421,10 @@ function _parseBrokerNum(raw) {
   return isNaN(n) ? '' : n;
 }
 
-function _parseRowToTrade(vals, colMap) {
+function _parseRowToTrade(vals, colMap, opts = {}) {
   const g = field => {
     const idx = colMap[field];
-    return idx != null ? (vals[idx] || '').trim() : '';
+    return idx != null ? (vals[idx] ?? '').toString().trim() : '';
   };
   const dir = _parseBrokerDirection(g('direction'));
   const qty = _parseBrokerQty(g('quantity'));
@@ -424,9 +435,31 @@ function _parseRowToTrade(vals, colMap) {
     const amt = Math.abs(_parseBrokerNum(g('_amount')));
     if (amt && qty) derivedPrice = Math.round(amt / qty * 100) / 100;
   }
+  // 期貨/選擇權：到期月份、履約價塞進 notes
+  const expiry = g('expiry');
+  const strike = g('strike');
+  const tradeTime = g('tradeTime');
+  const notePieces = [];
+  const baseNotes = g('notes');
+  if (baseNotes) notePieces.push(baseNotes);
+  if (expiry) notePieces.push(`到期 ${expiry}`);
+  if (strike && strike !== '0' && strike !== '0.0') notePieces.push(`履約價 ${strike}`);
+  if (tradeTime) notePieces.push(`時間 ${tradeTime}`);
+  const isFutures = !!opts.futures;
+  // 市場判定：優先用幣別/交易所欄位；否則 default 'tw'
+  const cur = g('currency').toUpperCase();
+  const exch = g('exchange');
+  let market = g('market') || '';
+  if (!market) {
+    if (/USD/.test(cur) || /美國|NYSE|NASDAQ|美股/i.test(exch)) market = 'us';
+    else if (/HKD/.test(cur) || /香港|HKEX|港股/i.test(exch)) market = 'hk';
+    else if (/JPY/.test(cur) || /日本|TSE|日股/i.test(exch)) market = 'jp';
+    else market = 'tw';
+  }
   return {
     date: _parseBrokerDate(g('date')) || localISOString(),
-    market: g('market') || 'tw', type: g('type') || 'stock',
+    market,
+    type: isFutures ? 'futures' : (g('type') || 'stock'),
     symbol: g('symbol').replace(/\s/g, ''), name: g('name'),
     direction: dir, status: g('status') || 'closed',
     entryPrice: derivedPrice, exitPrice: g('exitPrice') ? _parseBrokerNum(g('exitPrice')) : '',
@@ -435,33 +468,268 @@ function _parseRowToTrade(vals, colMap) {
     fee: _parseBrokerNum(g('fee')) || '', tax: _parseBrokerNum(g('tax')) || '',
     account: g('account'), rating: parseInt(g('rating')) || 0,
     tags: g('tags') ? g('tags').split(';').map(s => s.trim()).filter(Boolean) : [],
-    notes: g('notes'), pricingStage: g('pricingStage') || '',
+    notes: notePieces.join(' | '), pricingStage: g('pricingStage') || '',
   };
+}
+
+// ── FIFO 配對：把單腿成交列配對成「開倉 / 平倉」交易 ──
+// 輸入：_parseRowToTrade 產出的列陣列（每筆都是單腿）
+// 輸出：完整交易陣列，closed 含 entryPrice/exitPrice，open 只有 entryPrice
+function _pairFIFO(rawTrades) {
+  const byKey = {};
+  for (const t of rawTrades) {
+    const exp = (t.notes || '').match(/到期 (\S+)/);
+    const key = `${t.market}|${t.type}|${t.symbol}|${exp ? exp[1] : ''}`;
+    (byKey[key] = byKey[key] || []).push(t);
+  }
+  const _time = t => {
+    const m = (t.notes || '').match(/時間 ([\d:.]+)/);
+    return m ? m[1] : '';
+  };
+  const _round = (n, p = 2) => Math.round(n * Math.pow(10, p)) / Math.pow(10, p);
+  const results = [];
+  for (const key of Object.keys(byKey)) {
+    const list = byKey[key].slice().sort((a, b) => {
+      if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+      return _time(a).localeCompare(_time(b));
+    });
+    const queue = []; // 所有 lot 同一時間都同方向（反向時會先被平掉）
+    for (const t of list) {
+      const qty = Number(t.quantity) || 0;
+      const price = Number(t.entryPrice) || 0;
+      const fee = Number(t.fee) || 0;
+      const tax = Number(t.tax) || 0;
+      if (!qty || !price) continue;
+      let remaining = qty;
+      while (remaining > 0 && queue.length && queue[0].direction !== t.direction) {
+        const lot = queue[0];
+        const closedQty = Math.min(lot.qty, remaining);
+        const lotFee = lot.fee * (closedQty / lot.qty);
+        const lotTax = lot.tax * (closedQty / lot.qty);
+        const exitFee = fee * (closedQty / qty);
+        const exitTax = tax * (closedQty / qty);
+        const exitTime = _time(t);
+        const exitLabel = exitTime ? `出場 ${t.date} ${exitTime}` : `出場 ${t.date}`;
+        const notes = [lot.notes, exitLabel].filter(Boolean).join(' | ');
+        results.push({
+          date: lot.date, market: lot.market, type: lot.type,
+          symbol: lot.symbol, name: lot.name || t.name,
+          direction: lot.direction, status: 'closed',
+          entryPrice: lot.price, exitPrice: price,
+          quantity: closedQty,
+          contractMul: lot.contractMul || t.contractMul || '',
+          stopLoss: '', takeProfit: '',
+          fee: _round(lotFee + exitFee),
+          tax: _round(lotTax + exitTax),
+          account: lot.account || t.account,
+          rating: 0, tags: [], notes, pricingStage: '',
+        });
+        lot.qty -= closedQty;
+        lot.fee -= lotFee;
+        lot.tax -= lotTax;
+        remaining -= closedQty;
+        if (lot.qty <= 1e-9) queue.shift();
+      }
+      if (remaining > 0) {
+        const ratio = remaining / qty;
+        queue.push({
+          direction: t.direction, date: t.date,
+          qty: remaining, price,
+          fee: fee * ratio, tax: tax * ratio,
+          market: t.market, type: t.type,
+          symbol: t.symbol, name: t.name,
+          account: t.account, notes: t.notes,
+          contractMul: t.contractMul || '',
+        });
+      }
+    }
+    for (const lot of queue) {
+      results.push({
+        date: lot.date, market: lot.market, type: lot.type,
+        symbol: lot.symbol, name: lot.name,
+        direction: lot.direction, status: 'open',
+        entryPrice: lot.price, exitPrice: '',
+        quantity: lot.qty,
+        contractMul: lot.contractMul || '',
+        stopLoss: '', takeProfit: '',
+        fee: _round(lot.fee), tax: _round(lot.tax),
+        account: lot.account, rating: 0, tags: [],
+        notes: lot.notes, pricingStage: '',
+      });
+    }
+  }
+  // 按日期排序輸出
+  results.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+  return results;
+}
+
+// 解碼 CSV：先試 UTF-8（fatal），失敗退回 Big5（元大 CSV 常見編碼）
+async function _decodeFileText(file) {
+  const buf = await file.arrayBuffer();
+  // 去除 UTF-8 BOM
+  const u8 = new Uint8Array(buf);
+  const hasBom = u8.length >= 3 && u8[0] === 0xEF && u8[1] === 0xBB && u8[2] === 0xBF;
+  const body = hasBom ? buf.slice(3) : buf;
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(body);
+  } catch {
+    try { return new TextDecoder('big5').decode(body); }
+    catch { return new TextDecoder('utf-8').decode(body); }
+  }
+}
+
+// 極簡 ZIP reader：讀取 EOCD、central directory，解壓 deflate
+async function _unzipXlsx(buf) {
+  const dv = new DataView(buf);
+  const size = buf.byteLength;
+  let eocd = -1;
+  const searchFrom = Math.max(0, size - 65557);
+  for (let i = size - 22; i >= searchFrom; i--) {
+    if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  }
+  if (eocd < 0) throw new Error('非有效的 xlsx / zip 檔');
+  const cdCount = dv.getUint16(eocd + 10, true);
+  const cdOffset = dv.getUint32(eocd + 16, true);
+  const entries = [];
+  let p = cdOffset;
+  for (let i = 0; i < cdCount; i++) {
+    if (dv.getUint32(p, true) !== 0x02014b50) throw new Error('central directory 損毀');
+    const method = dv.getUint16(p + 10, true);
+    const compSize = dv.getUint32(p + 20, true);
+    const nameLen = dv.getUint16(p + 28, true);
+    const extraLen = dv.getUint16(p + 30, true);
+    const commentLen = dv.getUint16(p + 32, true);
+    const localOffset = dv.getUint32(p + 42, true);
+    const name = new TextDecoder('utf-8').decode(new Uint8Array(buf, p + 46, nameLen));
+    const lNameLen = dv.getUint16(localOffset + 26, true);
+    const lExtraLen = dv.getUint16(localOffset + 28, true);
+    const dataStart = localOffset + 30 + lNameLen + lExtraLen;
+    entries.push({ name, method, raw: new Uint8Array(buf, dataStart, compSize) });
+    p += 46 + nameLen + extraLen + commentLen;
+  }
+  const out = {};
+  for (const { name, method, raw } of entries) {
+    if (method === 0) {
+      out[name] = new TextDecoder('utf-8').decode(raw);
+    } else if (method === 8) {
+      const stream = new Blob([raw]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+      out[name] = await new Response(stream).text();
+    } else {
+      throw new Error(`不支援的壓縮方式：${method}（檔案 ${name}）`);
+    }
+  }
+  return out;
+}
+
+function _xlsxColToIdx(letters) {
+  let n = 0;
+  for (let i = 0; i < letters.length; i++) n = n * 26 + (letters.charCodeAt(i) - 64);
+  return n - 1;
+}
+
+async function _parseXlsx(buf) {
+  const files = await _unzipXlsx(buf);
+  const parser = new DOMParser();
+  // Shared strings
+  const ss = [];
+  const ssXml = files['xl/sharedStrings.xml'];
+  if (ssXml) {
+    const doc = parser.parseFromString(ssXml, 'application/xml');
+    const siList = doc.getElementsByTagName('si');
+    for (let i = 0; i < siList.length; i++) {
+      let s = '';
+      const tList = siList[i].getElementsByTagName('t');
+      for (let j = 0; j < tList.length; j++) s += tList[j].textContent || '';
+      ss.push(s);
+    }
+  }
+  // 找第一個 worksheet（sheet1.xml 或任何 xl/worksheets/*.xml）
+  const sheetKey = Object.keys(files).find(k => /^xl\/worksheets\/sheet[^/]*\.xml$/i.test(k));
+  if (!sheetKey) throw new Error('xlsx 中找不到 worksheet');
+  const doc = parser.parseFromString(files[sheetKey], 'application/xml');
+  const rowEls = doc.getElementsByTagName('row');
+  const rows = [];
+  for (let r = 0; r < rowEls.length; r++) {
+    const cells = [];
+    let maxCol = -1;
+    const cEls = rowEls[r].getElementsByTagName('c');
+    for (let c = 0; c < cEls.length; c++) {
+      const cEl = cEls[c];
+      const ref = cEl.getAttribute('r') || '';
+      const letters = (ref.match(/^[A-Z]+/) || [''])[0];
+      const colIdx = letters ? _xlsxColToIdx(letters) : c;
+      const t = cEl.getAttribute('t');
+      let val = '';
+      const isEl = cEl.getElementsByTagName('is')[0];
+      const vEl = cEl.getElementsByTagName('v')[0];
+      if (isEl) {
+        const tList = isEl.getElementsByTagName('t');
+        for (let k = 0; k < tList.length; k++) val += tList[k].textContent || '';
+      } else if (vEl) {
+        val = vEl.textContent || '';
+        if (t === 's') val = ss[parseInt(val, 10)] || '';
+        else if (t === 'b') val = val === '1' ? 'TRUE' : 'FALSE';
+      }
+      cells[colIdx] = val;
+      if (colIdx > maxCol) maxCol = colIdx;
+    }
+    for (let i = 0; i <= maxCol; i++) if (cells[i] == null) cells[i] = '';
+    rows.push(cells);
+  }
+  return rows;
 }
 
 function importCSV() {
   const input = document.createElement('input');
   input.type = 'file';
-  input.accept = '.csv,.txt';
+  input.accept = '.csv,.txt,.xlsx';
   input.addEventListener('change', async () => {
     const file = input.files[0];
     if (!file) return;
-    const text = await file.text();
-    const lines = text.split(/\r?\n/).filter(l => l.trim());
-    if (lines.length < 2) { if(window._showToast)window._showToast('CSV 檔案格式錯誤'); return; }
-    const headerCells = parseCSVLine(lines[0]);
-    const colMap = _resolveColMap(headerCells);
-    // Must have at least symbol or (symbol-like) + price
-    if (colMap.symbol == null) {
-      if(window._showToast)window._showToast('無法辨識 CSV 欄位，找不到股票代號欄位');
+    const lowerName = file.name.toLowerCase();
+    let rows;
+    try {
+      if (lowerName.endsWith('.xlsx')) {
+        const buf = await file.arrayBuffer();
+        rows = await _parseXlsx(buf);
+      } else if (lowerName.endsWith('.xls')) {
+        if(window._showToast)window._showToast('.xls 舊格式不支援，請在 Excel 另存為 .xlsx 或 CSV');
+        return;
+      } else {
+        const text = await _decodeFileText(file);
+        const lines = text.split(/\r?\n/).filter(l => l.trim());
+        rows = lines.map(parseCSVLine);
+      }
+    } catch (e) {
+      console.error('[Journal] Import parse error:', e);
+      if(window._showToast)window._showToast('檔案解析失敗：' + (e.message || e));
       return;
     }
-    // Parse all rows
+    if (!rows || rows.length < 2) { if(window._showToast)window._showToast('檔案內容不足，至少需標題列與一筆資料'); return; }
+    // 自動找標題列：取第一列有 symbol 對應 alias 的那一列（跳過報表上方的抬頭/空行）
+    let headerIdx = 0;
+    for (let i = 0; i < Math.min(rows.length, 10); i++) {
+      const cand = rows[i].map(c => (c ?? '').toString());
+      if (_resolveColMap(cand).symbol != null) { headerIdx = i; break; }
+    }
+    const headerCells = rows[headerIdx].map(c => (c ?? '').toString());
+    const colMap = _resolveColMap(headerCells);
+    if (colMap.symbol == null) {
+      if(window._showToast)window._showToast('無法辨識欄位，找不到代號/商品欄位');
+      return;
+    }
+    const hasExpiry = colMap.expiry != null;
     const parsed = [];
-    for (let i = 1; i < lines.length; i++) {
-      const vals = parseCSVLine(lines[i]);
+    for (let i = headerIdx + 1; i < rows.length; i++) {
+      const vals = rows[i].map(c => (c ?? '').toString());
       if (!vals.length || vals.every(v => !v.trim())) continue;
-      const t = _parseRowToTrade(vals, colMap);
+      // 跳過「小計 / 合計 / 總計」彙總列
+      const dateVal = colMap.date != null ? (vals[colMap.date] || '') : '';
+      const symVal = colMap.symbol != null ? (vals[colMap.symbol] || '').trim() : '';
+      if (/小計|合計|總計/.test(dateVal) || /小計|合計|總計/.test(symVal)) continue;
+      // 小計列通常 symbol 欄為空
+      if (!symVal) continue;
+      const t = _parseRowToTrade(vals, colMap, { futures: hasExpiry });
       if (t.symbol) parsed.push(t);
     }
     if (!parsed.length) { if(window._showToast)window._showToast('沒有可匯入的資料'); return; }
@@ -505,7 +773,9 @@ function _showImportPreview(parsed, headerCells, colMap) {
         </table>
       </div>
       <div class="j-imp-opts">
+        <label class="j-imp-opt"><input type="checkbox" id="j-imp-pair" checked> 自動配對開/平倉（FIFO，同商品 / 同到期月份）</label>
         <label class="j-imp-opt"><input type="checkbox" id="j-imp-dedup" checked> 跳過已存在的交易（同日期+代號+價格+數量）</label>
+        <div class="j-imp-pair-info" id="j-imp-pair-info" style="margin-top:4px;color:var(--t3);font-size:.85em"></div>
       </div>
     </div>
     <div class="j-modal-footer">
@@ -523,11 +793,29 @@ function _showImportPreview(parsed, headerCells, colMap) {
   $('#j-imp-cancel').onclick = close;
   overlay.onclick = e => { if (e.target === overlay) close(); };
 
+  // 預覽區：即時顯示配對後預計筆數
+  const _updatePairInfo = () => {
+    const info = $('#j-imp-pair-info');
+    if (!info) return;
+    if ($('#j-imp-pair')?.checked) {
+      const paired = _pairFIFO(parsed);
+      const closed = paired.filter(t => t.status === 'closed').length;
+      const open = paired.filter(t => t.status === 'open').length;
+      info.textContent = `配對後：${paired.length} 筆（${closed} 筆已平倉 + ${open} 筆未平倉）`;
+    } else {
+      info.textContent = `不配對：匯入 ${parsed.length} 筆單腿交易`;
+    }
+  };
+  _updatePairInfo();
+  $('#j-imp-pair')?.addEventListener('change', _updatePairInfo);
+
   $('#j-imp-confirm').onclick = async () => {
     const dedup = $('#j-imp-dedup')?.checked;
+    const doPair = $('#j-imp-pair')?.checked;
     close();
+    const finalTrades = doPair ? _pairFIFO(parsed) : parsed;
     let count = 0, skipped = 0, errors = 0;
-    const total = parsed.length;
+    const total = finalTrades.length;
     if(window._showToast)window._showToast(`匯入中… 0/${total}`);
 
     // Build dedup set from existing trades
@@ -538,7 +826,7 @@ function _showImportPreview(parsed, headerCells, colMap) {
       }
     }
 
-    for (const t of parsed) {
+    for (const t of finalTrades) {
       if (dedup) {
         const key = `${(t.date||'').slice(0,10)}|${t.symbol}|${t.entryPrice}|${t.quantity}`;
         if (dedupSet.has(key)) { skipped++; continue; }
