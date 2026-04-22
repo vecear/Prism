@@ -2067,6 +2067,7 @@ html[data-theme="light"] select {
 .j-charts-grid {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 14px;
+  width: 100%; flex: 1 1 100%; /* 避免在 flex 容器內被壓縮 */
 }
 .j-chart-cell {
   background: var(--bg1); border: 1px solid var(--line);
@@ -2899,7 +2900,11 @@ html[data-theme="light"] select {
 .j-sparkline-wrap {
   background: var(--bg1); border: 1px solid var(--line); border-radius: 10px;
   padding: 12px 14px; margin: 10px 0;
+  width: 100%; flex: 1 1 100%; /* 佔滿全寬 */
 }
+.j-insight-badges { width: 100%; flex-basis: 100%; }
+.j-dim-body { width: 100%; flex-basis: 100%; }
+.j-tutorial-wrap { width: 100%; flex-basis: 100%; }
 .j-sparkline-meta {
   display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
   font-size: 12px; color: var(--t2); margin-bottom: 6px;
