@@ -12,3 +12,9 @@ screen/
 .playwright-mcp/
 prism-import-payload.json
 *.png
+*.jpg
+*.jpeg
+before-*.*
+b1.*
+final.*
+check*.*
