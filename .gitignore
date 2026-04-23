@@ -1,6 +1,7 @@
 node_modules/
 .wrangler/
-.claude/
+.claude/*
+!.claude/commands/
 .env
 .env.*
 .env.local
