@@ -2065,16 +2065,30 @@ html[data-theme="light"] select {
 
 /* Charts */
 .j-charts-grid {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 14px;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
   width: 100%; flex: 1 1 100%; /* 避免在 flex 容器內被壓縮 */
 }
 .j-chart-cell {
   background: var(--bg1); border: 1px solid var(--line);
-  border-radius: 12px; padding: 18px;
+  border-radius: 12px; padding: 20px;
+  min-height: 240px;
+  display: flex; flex-direction: column;
 }
-.j-chart-title, .j-chart-hd { font-size: 13px; font-weight: 600; margin-bottom: 14px; }
-.j-chart-tip { font-size: 11px; color: var(--t3); }
+.j-chart-cell > svg,
+.j-chart-cell > canvas { flex: 1 1 auto; width: 100%; height: auto; min-height: 0; }
+.j-chart-title, .j-chart-hd {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 14px; font-weight: 600; margin-bottom: 14px; color: var(--t1);
+}
+.j-chart-tip {
+  font-size: 11px; color: var(--t3);
+  width: 16px; height: 16px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--line); border-radius: 50%;
+  cursor: help;
+}
+.j-chart-tip:hover { color: var(--accent); border-color: var(--accent); }
 
 /* Detail modal fields */
 .j-detail-grid {
@@ -2898,9 +2912,14 @@ html[data-theme="light"] select {
 
 /* ── Sparkline ───────────────────────────────────────── */
 .j-sparkline-wrap {
-  background: var(--bg1); border: 1px solid var(--line); border-radius: 10px;
-  padding: 12px 14px; margin: 10px 0;
-  width: 100%; flex: 1 1 100%; /* 佔滿全寬 */
+  background: var(--bg1); border: 1px solid var(--line); border-radius: 12px;
+  padding: 18px 22px; margin: 12px 0;
+  width: 100%; flex: 1 1 100%;
+}
+.j-sparkline-meta { margin-bottom: 10px; }
+.j-sparkline-svg, .j-equity-svg {
+  width: 100%; height: 140px !important; /* 桌面版放高讓走勢更清楚 */
+  display: block;
 }
 .j-insight-badges { width: 100%; flex-basis: 100%; }
 .j-dim-body { width: 100%; flex-basis: 100%; }
@@ -3164,15 +3183,50 @@ html[data-theme="light"] select {
   .tc-name { font-size: 12px; }
   .tc-price { font-size: 14px; }
 
-  /* 圖表區 padding */
-  .j-charts-grid { padding: 12px 28px; gap: 14px; }
-  .j-insight-badges { margin: 8px 28px; }
-  .j-sparkline-wrap { margin: 10px 28px; padding: 14px 18px; }
-  .j-tutorial-wrap { margin: 14px 28px; }
-  .j-tutorial { gap: 14px; }
-  .j-tutorial-step { padding: 12px 14px; }
+  /* 圖表區 padding — 寬鬆桌面版 */
+  .j-charts-grid {
+    padding: 14px 28px; gap: 18px;
+    grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  }
+  .j-chart-cell { padding: 22px 24px; min-height: 260px; border-radius: 14px; }
+  .j-chart-title, .j-chart-hd { font-size: 15px; margin-bottom: 16px; }
+  .j-insight-badges { margin: 10px 28px; gap: 8px; }
+  .j-insight-badge { padding: 6px 14px; font-size: 12px; }
+  .j-sparkline-wrap { margin: 14px 28px; padding: 20px 24px; border-radius: 14px; }
+  .j-sparkline-svg, .j-equity-svg { height: 160px !important; }
+  .j-sparkline-label { font-size: 15px; }
+
+  /* 維度分析區加大 */
+  .j-dim-body { margin: 0 28px; padding: 14px 0; }
+  .j-dim-pills { gap: 6px; margin-bottom: 14px; }
+  .j-dim-pill { padding: 6px 14px; font-size: 13px; }
+  .j-stats-table, .j-dim-table { font-size: 13px; }
+  .j-stats-table th, .j-dim-table th { padding: 10px 14px; font-size: 12px; }
+  .j-stats-table td, .j-dim-table td { padding: 10px 14px; font-size: 13px; }
+
+  /* 建議分析教學卡更大 */
+  .j-tutorial-wrap { margin: 18px 28px; }
+  .j-tutorial {
+    gap: 16px;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  }
+  .j-tutorial-step { padding: 16px 18px; gap: 12px; border-radius: 10px; }
+  .j-tutorial-num { width: 28px; height: 28px; font-size: 13px; flex-basis: 28px; }
   .j-tutorial-heading { font-size: 14px; }
-  .j-tutorial-body { font-size: 13px; }
+  .j-tutorial-body { font-size: 13px; line-height: 1.6; }
+
+  /* 副 KPI（筆數/均獲利等 8 項）→ 等分 grid，不再 wrap 擠成一團 */
+  .j-kpi-more {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px 24px;
+    margin-top: 4px;
+    padding-top: 10px;
+    border-top: 1px dashed var(--line);
+    width: 100%;
+    flex-basis: 100%;
+  }
+  .j-kpi-more .j-kpi { padding: 2px 0; }
 }
 
 /* 超寬螢幕（≥1600px）再進一步放大 */
@@ -3188,10 +3242,20 @@ html[data-theme="light"] select {
   .j-table thead th { padding: 16px 22px; font-size: 13px; }
   .j-td-sym strong { font-size: 16px; }
   .j-header { padding: 16px 36px !important; }
-  .j-charts-grid { padding: 14px 36px; }
-  .j-insight-badges { margin: 10px 36px; }
-  .j-sparkline-wrap { margin: 12px 36px; }
-  .j-tutorial-wrap { margin: 16px 36px; }
+  .j-charts-grid {
+    padding: 16px 36px; gap: 20px;
+    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  }
+  .j-chart-cell { padding: 24px 26px; min-height: 280px; }
+  .j-chart-title, .j-chart-hd { font-size: 16px; margin-bottom: 18px; }
+  .j-insight-badges { margin: 12px 36px; }
+  .j-sparkline-wrap { margin: 14px 36px; padding: 22px 28px; }
+  .j-sparkline-svg, .j-equity-svg { height: 180px !important; }
+  .j-tutorial-wrap { margin: 18px 36px; }
+  .j-dim-body { margin: 0 36px; }
+
+  /* 副 KPI 保持 4 欄但加寬 gap */
+  .j-kpi-more { gap: 12px 32px; padding-top: 12px; }
 }
 
 
