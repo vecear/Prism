@@ -362,8 +362,14 @@ html, body {
 }
 .ticker-bar.expanded .ticker-strip,
 .ticker-bar.expanded .sentiment-strip {
+  flex: 1 1 100%;
   flex-wrap: wrap;
   row-gap: 4px;
+}
+.ticker-bar.expanded .sentiment-strip {
+  border-left: none;
+  margin-left: 0;
+  padding-left: 0;
 }
 .ticker-bar.expanded .ticker-group { flex-wrap: wrap; row-gap: 2px; }
 
