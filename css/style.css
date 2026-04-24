@@ -1713,19 +1713,47 @@ html[data-theme="light"] select {
   .input-grid, .input-grid-3 { grid-template-columns: 1fr; }
   .j-table-wrap .j-table-head, .j-table-wrap .j-table-row { display: none; }
   .j-card-list { display: flex; flex-direction: column; gap: 8px; }
+  /* Trade card on mobile: stack head/sub/detail vertically so nothing clips */
   .j-card {
-    background: var(--bg1); border: 1px solid var(--line);
-    border-radius: 10px; padding: 12px;
-    display: flex; align-items: center; gap: 10px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding: 12px;
   }
-  .j-card .j-card-body { flex: 1; min-width: 0; }
-  .j-card .j-card-title { font-size: 13px; font-weight: 600; color: var(--t1); }
-  .j-card .j-card-meta { font-size: 10px; color: var(--t3); margin-top: 2px; }
-  .j-card .j-card-pnl { text-align: right; }
-  .j-card .j-card-pnl .pnl { font-family: var(--mono); font-weight: 700; font-size: 14px; }
-  .j-card .j-card-pnl .pct { font-family: var(--mono); font-size: 10px; }
-  .j-card .j-card-pnl.up .pnl, .j-card .j-card-pnl.up .pct { color: var(--green); }
-  .j-card .j-card-pnl.down .pnl, .j-card .j-card-pnl.down .pct { color: var(--red); }
+  .j-card-head {
+    width: 100%;
+    gap: 8px;
+    align-items: flex-start;
+  }
+  .j-card-left {
+    flex: 1 1 auto;
+    min-width: 0;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+  }
+  .j-card-right {
+    flex: 0 0 auto;
+    align-items: flex-end;
+    gap: 4px;
+  }
+  .j-card-symbol { font-size: 15px; flex-shrink: 0; }
+  .j-card-sub {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 10px;
+    font-size: 11px;
+  }
+  .j-card-sub > * { white-space: nowrap; }
+  .j-card-price { font-size: 12px; }
+  .j-card-detail-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 6px 12px !important;
+  }
+  .j-card-field { min-width: 0; }
+  .j-card-field .j-card-val { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .hero-result { padding: 16px; }
   .hero-result .hero-grid { gap: 14px; }
   .hero-result .hero-cell .cell-value { font-size: 22px; }
