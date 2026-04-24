@@ -1704,7 +1704,11 @@ html[data-theme="light"] select {
   .calc-layout { padding: 14px; gap: 12px; }
   .j-wizard { padding: 14px; }
   .settings-layout { padding: 14px; }
-  .main-content { padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px)); }
+  .main-content { padding-bottom: calc(140px + env(safe-area-inset-bottom, 0px)); }
+  .j-stats-strip { flex-direction: column; align-items: stretch; gap: 6px; white-space: normal; overflow-x: visible; }
+  .j-stats-strip .j-stat-mkt { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .j-stats-strip .j-stat-sep { display: none; }
+  .j-stats-strip > * { padding: 0; border-right: none; }
   .j-summary-grid { grid-template-columns: repeat(2, 1fr); }
   .input-grid, .input-grid-3 { grid-template-columns: 1fr; }
   .j-table-wrap .j-table-head, .j-table-wrap .j-table-row { display: none; }
@@ -1790,8 +1794,12 @@ html[data-theme="light"] select {
   .ticker-region { font-size: 10px; }
   .j-card-meta, .ticker-chip .tc-name, .ticker-chip .tc-chg { font-size: 10px; }
   /* Fix 11: calendar grid 縮小格高 */
-  .j-cal-grid { grid-auto-rows: minmax(54px, 1fr); }
-  .j-cal-cell .d-pnl { font-size: 0.65rem; }
+  .j-cal-grid { grid-auto-rows: minmax(62px, 1fr); }
+  .j-cal-grid .j-cal-cell { padding: 5px 4px; }
+  .j-cal-cell .d-pnl, .j-cal-cell .d-count { font-size: 9.5px; margin-top: 1px; line-height: 1.2; }
+  .j-cal-day { font-size: 11px; }
+  .j-cal-count { font-size: 9.5px; margin-top: 2px; }
+  .j-cal-wh div { padding: 6px 4px; font-size: 10px; }
   /* Fix 13: selfrate-grid 單欄 */
   .selfrate-grid { grid-template-columns: 1fr; }
   /* Fix 14: toast 行動版位置 */
@@ -1971,7 +1979,7 @@ html[data-theme="light"] select {
 .mi-val.tg { color: var(--green); }
 .mi-val.tr { color: var(--red); }
 .mi-val.ty { color: var(--amber); }
-.mi-sep { width: 1px; height: 12px; background: var(--line); margin: 0 6px; }
+.mi-sep { display: none; }
 
 /* ── Legacy risk bar ──────────────────────────────────────── */
 .risk-bar-wrap {
