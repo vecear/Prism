@@ -355,6 +355,7 @@ html, body {
 /* Expanded mode: wrap strips to multiple lines instead of horizontal scroll */
 .ticker-bar.expanded { align-items: flex-start; }
 .ticker-bar.expanded .ticker-bar-scroll {
+  display: flex;
   flex-wrap: wrap;
   white-space: normal;
   overflow-x: visible;
