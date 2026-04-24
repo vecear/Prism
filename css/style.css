@@ -399,10 +399,16 @@ html, body {
   flex: 1 1 auto;
   min-width: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   align-items: baseline;
-  column-gap: 12px;
+  column-gap: 16px;
   row-gap: 4px;
+}
+.ticker-bar.expanded .ticker-chip,
+.ticker-bar.expanded .sent-gauge {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .ticker-bar.expanded .ticker-chip {
   padding: 2px 0;
