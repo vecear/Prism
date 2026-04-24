@@ -28,7 +28,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;600;700&family=Instrument+Serif&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=20260424d">
+  <link rel="stylesheet" href="css/style.css?v=20260424e">
 </head>
 <body>
   <div id="app">
@@ -103,8 +103,10 @@
 
       <!-- Ticker + sentiment strip -->
       <div class="ticker-bar">
-        <div class="ticker-strip" id="ticker-inputs"></div>
-        <div class="sentiment-strip" id="sentiment-strip"></div>
+        <div class="ticker-bar-scroll">
+          <div class="ticker-strip" id="ticker-inputs"></div>
+          <div class="sentiment-strip" id="sentiment-strip"></div>
+        </div>
         <div class="ticker-bar-actions">
           <span class="ticker-time" id="ticker-time"></span>
           <button class="ticker-toggle" id="btn-ticker-toggle" aria-label="展開報價">
@@ -112,7 +114,6 @@
           </button>
         </div>
       </div>
-      <div class="ticker-expand-panel" id="ticker-expand-panel"></div>
 
       <!-- Main content -->
       <main class="main-content">

@@ -287,14 +287,18 @@ html, body {
   padding: 8px 28px;
   border-bottom: 1px solid var(--line);
   background: var(--bg0);
-  display: flex; align-items: center; gap: 0;
-  white-space: nowrap;
-  overflow-x: auto;
-  scrollbar-width: none;
+  display: flex; align-items: center; gap: 10px;
   font-size: 12px;
   flex-shrink: 0;
 }
-.ticker-bar::-webkit-scrollbar { display: none; }
+.ticker-bar-scroll {
+  flex: 1 1 auto; min-width: 0;
+  display: inline-flex; align-items: center; gap: 0;
+  white-space: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.ticker-bar-scroll::-webkit-scrollbar { display: none; }
 .ticker-strip {
   display: inline-flex; align-items: baseline; gap: 0;
   flex: 0 0 auto;
@@ -333,12 +337,9 @@ html, body {
   display: inline-flex; align-items: center; gap: 10px;
   color: var(--t3);
   font-size: 11px; font-family: var(--mono);
-  margin-left: auto;
   padding-left: 12px;
   flex-shrink: 0;
-  position: sticky; right: 0;
-  background: linear-gradient(90deg, transparent, var(--bg0) 20%);
-  padding-right: 4px;
+  border-left: 1px solid var(--line);
 }
 .ticker-time { color: var(--t3); }
 .ticker-toggle {
@@ -348,19 +349,23 @@ html, body {
   cursor: pointer;
   transition: transform var(--dur) var(--ease-out);
 }
-.ticker-toggle.expanded { transform: rotate(180deg); }
+.ticker-bar.expanded .ticker-toggle { transform: rotate(180deg); }
 .ticker-toggle:hover { background: var(--bg3); color: var(--t1); }
 
-/* Expanded quote cards (hidden by default, shown via .expanded class on #app) */
-#app:not(.ticker-expanded) .ticker-expand-panel { display: none; }
-.ticker-expand-panel {
-  padding: 12px 28px;
-  background: var(--bg0);
-  border-bottom: 1px solid var(--line);
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 10px;
+/* Expanded mode: wrap strips to multiple lines instead of horizontal scroll */
+.ticker-bar.expanded { align-items: flex-start; }
+.ticker-bar.expanded .ticker-bar-scroll {
+  flex-wrap: wrap;
+  white-space: normal;
+  overflow-x: visible;
+  row-gap: 6px;
 }
+.ticker-bar.expanded .ticker-strip,
+.ticker-bar.expanded .sentiment-strip {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+.ticker-bar.expanded .ticker-group { flex-wrap: wrap; row-gap: 2px; }
 
 /* ── Main content region ─────────────────────────────────── */
 .main-content {
