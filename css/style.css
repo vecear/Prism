@@ -1327,6 +1327,7 @@ html[data-theme="light"] select {
   font-size: 11px; color: var(--t3);
   text-align: center; margin-top: 28px; line-height: 1.6;
 }
+.login-card .field .field-wrap:focus-within { box-shadow: none; }
 
 /* ── Modal ────────────────────────────────────────────────── */
 .modal-overlay {
