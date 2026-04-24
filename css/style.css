@@ -1714,18 +1714,18 @@ html[data-theme="light"] select {
   .j-table-wrap .j-table-head, .j-table-wrap .j-table-row { display: none; }
   .j-card-list { display: flex; flex-direction: column; gap: 8px; }
   /* Trade card on mobile: stack head/sub/detail vertically so nothing clips */
-  .j-card {
+  .j-card.j-card {
     flex-direction: column;
     align-items: stretch;
     gap: 8px;
     padding: 12px;
   }
-  .j-card-head {
+  .j-card .j-card-head {
     width: 100%;
     gap: 8px;
     align-items: flex-start;
   }
-  .j-card-left {
+  .j-card .j-card-left {
     flex: 1 1 auto;
     min-width: 0;
     flex-direction: row;
@@ -1733,27 +1733,27 @@ html[data-theme="light"] select {
     align-items: center;
     gap: 6px;
   }
-  .j-card-right {
+  .j-card .j-card-right {
     flex: 0 0 auto;
     align-items: flex-end;
     gap: 4px;
   }
-  .j-card-symbol { font-size: 15px; flex-shrink: 0; }
-  .j-card-sub {
+  .j-card .j-card-symbol { font-size: 15px; flex-shrink: 0; }
+  .j-card .j-card-sub {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 6px 10px;
     font-size: 11px;
   }
-  .j-card-sub > * { white-space: nowrap; }
-  .j-card-price { font-size: 12px; }
-  .j-card-detail-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-    gap: 6px 12px !important;
+  .j-card .j-card-sub > * { white-space: nowrap; }
+  .j-card .j-card-price { font-size: 12px; }
+  .j-card .j-card-detail-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px 12px;
   }
-  .j-card-field { min-width: 0; }
-  .j-card-field .j-card-val { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .j-card .j-card-field { min-width: 0; }
+  .j-card .j-card-field .j-card-val { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .hero-result { padding: 16px; }
   .hero-result .hero-grid { gap: 14px; }
   .hero-result .hero-cell .cell-value { font-size: 22px; }
