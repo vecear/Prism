@@ -1749,10 +1749,16 @@ html[data-theme="light"] select {
   .j-card .j-card-sub > * { white-space: nowrap; }
   .j-card .j-card-price { font-size: 12px; }
   .j-card .j-card-detail-grid {
+    display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 6px 12px;
+    margin-top: 4px;
   }
-  .j-card .j-card-field { min-width: 0; }
+  .j-card .j-card-field {
+    display: flex; align-items: baseline;
+    gap: 6px; min-width: 0;
+  }
+  .j-card .j-card-field .j-card-label { flex-shrink: 0; }
   .j-card .j-card-field .j-card-val { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .hero-result { padding: 16px; }
   .hero-result .hero-grid { gap: 14px; }
