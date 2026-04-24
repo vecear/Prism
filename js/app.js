@@ -3996,6 +3996,39 @@ function init() {
     else if (window.PrismJournal && !window.PrismJournal.isLoggedIn()) window.PrismJournal.showLogin();
   });
 
+  // Mobile bottom sheet (more menu)
+  const moreSheet = $('#mobile-more-sheet');
+  const openMoreSheet = () => {
+    if (!moreSheet) return;
+    moreSheet.classList.add('open');
+    moreSheet.setAttribute('aria-hidden', 'false');
+    document.body.style.overflow = 'hidden';
+  };
+  const closeMoreSheet = () => {
+    if (!moreSheet) return;
+    moreSheet.classList.remove('open');
+    moreSheet.setAttribute('aria-hidden', 'true');
+    document.body.style.overflow = '';
+  };
+  $('#btn-mobile-more')?.addEventListener('click', openMoreSheet);
+  $('#sheet-close-btn')?.addEventListener('click', closeMoreSheet);
+  moreSheet?.addEventListener('click', (e) => { if (e.target === moreSheet) closeMoreSheet(); });
+  // Sheet items that are main-tab will be handled by main-tab handler; close sheet on any sheet-item click
+  $$('.sheet-item').forEach(b => b.addEventListener('click', () => setTimeout(closeMoreSheet, 50)));
+  $('#sheet-reload')?.addEventListener('click', async () => {
+    try {
+      if ('serviceWorker' in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map(r => r.unregister()));
+      }
+      if ('caches' in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map(k => caches.delete(k)));
+      }
+    } catch {}
+    location.reload();
+  });
+
   // Toggle groups
   $$('.toggle-group').forEach(g => {
     $$('.toggle-btn', g).forEach(b => b.addEventListener('click', () => {

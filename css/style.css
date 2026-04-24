@@ -267,6 +267,7 @@ html, body {
 .topbar {
   border-bottom: 1px solid var(--line);
   padding: 14px 28px;
+  padding-top: max(14px, env(safe-area-inset-top, 14px));
   display: flex; align-items: center; gap: 16px;
   background: var(--bg1);
   position: sticky; top: 0; z-index: var(--z-sticky);
@@ -1489,6 +1490,80 @@ html[data-theme="light"] select {
 .mobile-tabbar .mtab .label { font-size: 10px; font-weight: 500; }
 .mobile-tabbar .mtab.active .label { font-weight: 700; }
 
+/* ── Mobile bottom sheet (more menu) ──────────────────────── */
+.sheet-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: var(--z-modal-overlay, 1000);
+  display: none;
+  align-items: flex-end;
+  justify-content: center;
+}
+.sheet-overlay.open { display: flex; }
+.sheet {
+  width: 100%;
+  max-width: 520px;
+  background: var(--bg1);
+  border-radius: 16px 16px 0 0;
+  padding: 8px 16px calc(24px + env(safe-area-inset-bottom, 0px));
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.2);
+  animation: sheetUp 200ms var(--ease-out);
+}
+@keyframes sheetUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+.sheet-handle {
+  width: 40px; height: 4px; border-radius: 2px;
+  background: var(--t3); opacity: 0.3;
+  margin: 4px auto 14px;
+}
+.sheet-title {
+  font-size: 13px; font-weight: 600;
+  color: var(--t3); text-align: center;
+  margin-bottom: 12px; letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+.sheet-items {
+  display: flex; flex-direction: column; gap: 6px;
+  margin-bottom: 16px;
+}
+.sheet-item {
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px 14px;
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--t1);
+  cursor: pointer;
+  text-align: left;
+  min-height: 56px;
+  transition: background-color 120ms var(--ease-out);
+}
+.sheet-item:active { background: var(--bg3); }
+.sheet-item > svg { flex-shrink: 0; color: var(--accent); }
+.sheet-item-body { flex: 1; min-width: 0; }
+.sheet-item-title {
+  font-size: 15px; font-weight: 600; color: var(--t1);
+}
+.sheet-item-sub {
+  font-size: 12px; color: var(--t3);
+  margin-top: 2px;
+}
+.sheet-item-chevron { color: var(--t3); flex-shrink: 0; }
+.sheet-close {
+  width: 100%;
+  padding: 14px;
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  font-size: 15px; font-weight: 600;
+  color: var(--t2);
+  cursor: pointer;
+  min-height: 48px;
+}
+.sheet-close:active { background: var(--bg3); }
+
 /* ── Autocomplete ─────────────────────────────────────────── */
 .ac-wrap { position: relative; }
 .ac-list {
@@ -1624,7 +1699,7 @@ html[data-theme="light"] select {
   .topbar .topbar-title h1 { font-size: 16px; }
   .topbar .topbar-subtitle { font-size: 11px; }
   .topbar-actions .btn span { display: none; }
-  .topbar-actions .btn { padding: 0; width: 34px; justify-content: center; }
+  .topbar-actions .btn { padding: 0; width: 40px; height: 40px; justify-content: center; }
   .ticker-bar { padding: 6px 14px; }
   .calc-layout { padding: 14px; gap: 12px; }
   .j-wizard { padding: 14px; }
@@ -1675,6 +1750,30 @@ html[data-theme="light"] select {
   /* Fix 17: settings-nav 隱藏 scrollbar */
   .settings-nav { -webkit-overflow-scrolling: touch; scrollbar-width: none; }
   .settings-nav::-webkit-scrollbar { display: none; }
+}
+
+/* iPhone 14/15/16/17 range: 390–440px (includes Dynamic Island models) */
+@media (min-width: 390px) and (max-width: 440px) {
+  .topbar { padding: 12px 16px; padding-top: max(12px, env(safe-area-inset-top, 12px)); }
+  .topbar .topbar-title h1 { font-size: 17px; }
+  .topbar-actions .btn { width: 42px; height: 42px; }
+  .mobile-tabbar .mtab { min-height: 52px; padding: 6px 0 4px; }
+  .mobile-tabbar .mtab .label { font-size: 10.5px; }
+  .calc-layout, .j-wizard, .settings-layout { padding: 12px; }
+  .card { padding: 14px; }
+  .fab { width: 56px; height: 56px; border-radius: 28px; right: 16px; }
+  .fab svg { width: 24px; height: 24px; }
+  /* sentiment tooltip: centered bottom sheet on phones */
+  .sent-tooltip {
+    position: fixed;
+    left: 12px !important;
+    right: 12px;
+    top: auto !important;
+    bottom: calc(84px + env(safe-area-inset-bottom, 0px));
+    width: auto;
+    max-width: none;
+    min-width: 0;
+  }
 }
 
 @media (max-width: 420px) {
