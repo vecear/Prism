@@ -1523,7 +1523,7 @@ function buildTickerBar() {
   };
   container.innerHTML = regionOrder
     .filter(r => groups[r].some(k => CFG.indices[k] !== false))
-    .map(r => `<div class="ticker-group" data-region="${r}"><span class="ticker-region">${regionLabel[r]}</span>${groups[r].map(chipHTML).join('')}</div>`)
+    .map(r => `<div class="ticker-group" data-region="${r}"><span class="ticker-region">${regionLabel[r]}</span><div class="ticker-group-chips">${groups[r].map(chipHTML).join('')}</div></div>`)
     .join('');
   _initTickerDrag(container);
   _applyMobileTickerCount();
@@ -2063,7 +2063,7 @@ function _renderSentimentStrip() {
   for (const g of _SENT_GROUPS) {
     const pills = g.keys.filter(k => gauges[k]).map(k => gauges[k]);
     if (pills.length === 0) continue;
-    html += `<div class="sent-group"><span class="sent-group-label">${g.label}</span>${pills.join('')}</div>`;
+    html += `<div class="sent-group"><span class="sent-group-label">${g.label}</span><div class="sent-group-chips">${pills.join('')}</div></div>`;
   }
   // Append any ungrouped gauges
   const grouped = new Set(_SENT_GROUPS.flatMap(g => g.keys));
