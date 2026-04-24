@@ -1893,6 +1893,201 @@ function _initSentimentDrag(container) {
   }, sig);
 }
 
+// 每個市場情緒指標的意義與解讀方法（hover tooltip 用）
+const _SENT_INFO = {
+  vix: {
+    name: '恐慌指數 (VIX)',
+    meaning: '未來 30 天 S&P 500 選擇權的隱含年化波動率。數字越高代表市場預期價格波動越大。',
+    interpret: [
+      ['< 12', '極低波動、市場自滿'],
+      ['12–20', '正常區間'],
+      ['20–30', '風險升高'],
+      ['30–40', '恐慌'],
+      ['> 40', '極端恐慌，常見於崩盤'],
+    ],
+    note: '極高值常是短線反彈訊號；VIX 低不代表沒風險，只是代價被低估。',
+  },
+  vvix: {
+    name: 'VIX 的波動率 (VVIX)',
+    meaning: '衡量 VIX 選擇權本身的隱含波動率，即「波動的波動」。',
+    interpret: [
+      ['< 85', 'VIX 預期變動小'],
+      ['85–100', '正常'],
+      ['100–120', '預期 VIX 將明顯變動'],
+      ['> 120', '風險事件逼近，VIX 可能跳升'],
+    ],
+    note: 'VVIX 領先 VIX；VVIX 飆升但 VIX 尚低，常是風暴前的寧靜。',
+  },
+  vix1d: {
+    name: '單日波動率 (VIX1D)',
+    meaning: '衡量 S&P 500 當日（0DTE）選擇權的隱含波動率。',
+    interpret: [
+      ['< VIX 很多', '當日平靜，適合賣方策略'],
+      ['≈ VIX', '當日常態'],
+      ['> VIX', '當日即將有劇烈事件（FOMC、CPI、財報）'],
+    ],
+    note: '與 VIX 對比可判斷恐慌是短線踩踏還是結構性壓力。',
+  },
+  vix3m: {
+    name: '3 個月波動率 (VIX3M)',
+    meaning: '未來 90 天 S&P 500 選擇權的隱含波動率。',
+    interpret: [
+      ['VIX3M > VIX', '正價差 (Contango)，長期 > 短期，結構正常'],
+      ['VIX3M < VIX', '逆價差 (Backwardation)，短期恐慌 > 長期，急性壓力'],
+    ],
+    note: '搭配 VIX 看「期限結構」比單看 VIX 更能判斷恐慌的性質。',
+  },
+  vixRatio: {
+    name: '波動率期限結構 (VIX ÷ VIX3M)',
+    meaning: 'VIX 除以 VIX3M 的比值，一個數字判斷波動率曲線狀態。',
+    interpret: [
+      ['< 0.85', '正價差深，市場過度自滿'],
+      ['0.85–1.00', '正常正價差（健康）'],
+      ['1.00–1.15', '逆價差，短期壓力升高'],
+      ['> 1.15', '極度逆價差，急性恐慌'],
+    ],
+    note: '> 1.0 進入逆價差時，風險資產常已處於下跌；轉回正價差是恐慌緩解訊號。',
+  },
+  gex: {
+    name: 'Gamma 曝險 (GEX)',
+    meaning: 'S&P 500 選擇權做市商持有的 Gamma 部位總和，決定市場是被「穩定」還是「放大」。',
+    interpret: [
+      ['> +4B', '強正 Gamma：做市商賣漲買跌，波動被壓縮'],
+      ['0 ~ +4B', '正 Gamma：行情溫和'],
+      ['-2B ~ 0', '中性偏不穩'],
+      ['< -4B', '強負 Gamma：做市商追漲殺跌，波動被放大'],
+    ],
+    note: '負 Gamma 區間容易出現急漲急跌；正 Gamma 區間 pin to strike 效應強。',
+  },
+  credit: {
+    name: '高收益債信用利差 (OAS)',
+    meaning: 'ICE BofA US High Yield 選項調整後利差；企業債相對公債的風險溢酬。',
+    interpret: [
+      ['< 3.5%', '風險偏好強、信用寬鬆'],
+      ['3.5–5.0%', '正常'],
+      ['5.0–7.0%', '風險升高'],
+      ['> 7.0%', '信用緊縮，衰退警報'],
+    ],
+    note: '領先指標：利差擴大通常早於股市下跌；壓力事件中是觀察資金流向的關鍵。',
+  },
+  brent: {
+    name: '布蘭特原油 (Brent Crude)',
+    meaning: '國際基準原油價格（美元/桶），通膨與地緣風險的領先指標。',
+    interpret: [
+      ['< $70', '需求疲弱、通縮風險'],
+      ['$70–100', '正常區間'],
+      ['> $100 (持續 4-6 週)', '通膨壓力升高'],
+      ['> $125', '能源衝擊，可能導致衰退'],
+    ],
+    note: '油價持續時間比絕對價格更重要；短暫飆升影響有限。',
+  },
+  breakeven: {
+    name: '5 年期通膨預期 (5Y BEI)',
+    meaning: '5 年期 TIPS 盈虧平衡通膨率，市場對未來 5 年平均通膨的預期。',
+    interpret: [
+      ['< 2.0%', '通縮預期'],
+      ['2.0–2.5%', 'Fed 目標區'],
+      ['2.5–3.0%', '通膨偏高'],
+      ['> 3.0%', '市場開始不安'],
+      ['> 3.5%', '通膨預期脫錨警報'],
+    ],
+    note: '是 Fed 政策立場的市場投票；快速攀升會迫使 Fed 鷹派轉向。',
+  },
+  treasury: {
+    name: '10 年期美債殖利率 (10Y)',
+    meaning: '美國 10 年期公債殖利率，全球無風險利率基準。',
+    interpret: [
+      ['殖利率急降', '避險情緒濃、預期衰退'],
+      ['殖利率急升', '通膨預期或 Fed 鷹派'],
+      ['與 2Y 倒掛', '衰退警報（提前 12-24 月）'],
+    ],
+    note: '影響股票估值折現率；急升拖累成長股，急降拖累金融股。',
+  },
+  breadth: {
+    name: '市場寬度 (Breadth)',
+    meaning: 'CNN 恐懼貪婪子指標：NYSE 創新高 vs 創新低股票數量比例。',
+    interpret: [
+      ['0–25', '極度恐慌，拋售擴散'],
+      ['25–50', '恐慌'],
+      ['50–55', '中性'],
+      ['55–75', '貪婪'],
+      ['75–100', '極度貪婪'],
+    ],
+    note: '指數上漲但寬度走弱 = 少數大股撐盤，上漲不健康，要提防反轉。',
+  },
+  fg: {
+    name: '恐懼與貪婪指數 (Fear & Greed)',
+    meaning: 'CNN 整合 7 項指標（動能、寬度、Put/Call、VIX、避險需求、垃圾債需求、動能差）的綜合分數。',
+    interpret: [
+      ['0–25', '極度恐慌（逢低機會）'],
+      ['25–45', '恐慌'],
+      ['45–55', '中性'],
+      ['55–75', '貪婪'],
+      ['75–100', '極度貪婪（風險警報）'],
+    ],
+    note: '反向指標：極端值出現時考慮反向操作，但不適合在趨勢中使用。',
+  },
+};
+
+let _sentTooltipEl = null;
+function _getSentTooltipEl() {
+  if (_sentTooltipEl) return _sentTooltipEl;
+  const el = document.createElement('div');
+  el.className = 'sent-tooltip';
+  el.setAttribute('role', 'tooltip');
+  document.body.appendChild(el);
+  _sentTooltipEl = el;
+  return el;
+}
+function _showSentTooltip(target) {
+  const key = target.getAttribute('data-sent');
+  const info = _SENT_INFO[key];
+  if (!info) return;
+  const tip = _getSentTooltipEl();
+  const timeInfo = (target.getAttribute('data-time') || '').trim();
+  const rows = info.interpret.map(([r, d]) =>
+    `<li><span class="st-range">${r}</span><span class="st-desc">${d}</span></li>`
+  ).join('');
+  tip.innerHTML = `
+    <div class="st-name">${info.name}</div>
+    <div class="st-meaning">${info.meaning}</div>
+    <div class="st-section">解讀方法</div>
+    <ul class="st-list">${rows}</ul>
+    ${info.note ? `<div class="st-note">${info.note}</div>` : ''}
+    ${timeInfo ? `<div class="st-time">${timeInfo.replace(/\n/g, '<br>')}</div>` : ''}
+  `;
+  tip.classList.add('visible');
+  // Position after render (need measured size)
+  requestAnimationFrame(() => _positionSentTooltip(target, tip));
+}
+function _positionSentTooltip(target, tip) {
+  const r = target.getBoundingClientRect();
+  const tw = tip.offsetWidth;
+  const th = tip.offsetHeight;
+  const margin = 10;
+  let top = r.bottom + 8;
+  let left = r.left + r.width / 2 - tw / 2;
+  if (top + th > window.innerHeight - margin) top = r.top - th - 8;
+  left = Math.max(margin, Math.min(left, window.innerWidth - tw - margin));
+  tip.style.top = `${top + window.scrollY}px`;
+  tip.style.left = `${left + window.scrollX}px`;
+}
+function _hideSentTooltip() {
+  if (_sentTooltipEl) _sentTooltipEl.classList.remove('visible');
+}
+document.addEventListener('mouseover', (e) => {
+  const g = e.target.closest?.('.sent-gauge');
+  if (g && _SENT_INFO[g.getAttribute('data-sent')]) _showSentTooltip(g);
+});
+document.addEventListener('mouseout', (e) => {
+  const g = e.target.closest?.('.sent-gauge');
+  if (!g) return;
+  // Only hide if we're leaving the gauge entirely
+  if (e.relatedTarget && g.contains(e.relatedTarget)) return;
+  _hideSentTooltip();
+});
+window.addEventListener('scroll', _hideSentTooltip, { passive: true });
+
 function _renderSentimentStrip() {
   const strip = $('#sentiment-strip');
   if (!strip) return;
@@ -1947,7 +2142,8 @@ function _renderSentimentStrip() {
 
   // Helper: build a compact inline pill
   function _pill(key, label, value, lv, chgHtml, tip, href) {
-    return `<a class="sent-gauge" data-sent="${key}" draggable="true" title="${tip}" href="${href}" target="_blank" rel="noopener"><span class="sent-label">${label}</span><span class="sent-value" style="color:${lv.color}">${value}</span><span class="sent-tag" style="color:${lv.color}">${lv.label}</span>${chgHtml}</a>`;
+    const safeTip = (tip || '').replace(/"/g, '&quot;');
+    return `<a class="sent-gauge" data-sent="${key}" data-time="${safeTip}" draggable="true" href="${href}" target="_blank" rel="noopener"><span class="sent-label">${label}</span><span class="sent-value" style="color:${lv.color}">${value}</span><span class="sent-tag" style="color:${lv.color}">${lv.label}</span>${chgHtml}</a>`;
   }
   function _chg(val, decimals, invert) {
     if (val == null) return '';
