@@ -372,7 +372,13 @@ html, body {
   margin-left: 0;
   padding-left: 0;
 }
-.ticker-bar.expanded .ticker-group { flex-wrap: wrap; row-gap: 2px; }
+.ticker-bar.expanded .ticker-group {
+  display: flex;
+  flex: 1 1 100%;
+  flex-wrap: wrap;
+  align-items: baseline;
+  row-gap: 2px;
+}
 
 /* ── Main content region ─────────────────────────────────── */
 .main-content {
