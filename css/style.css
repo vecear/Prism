@@ -352,32 +352,71 @@ html, body {
 .ticker-bar.expanded .ticker-toggle { transform: rotate(180deg); }
 .ticker-toggle:hover { background: var(--bg3); color: var(--t1); }
 
-/* Expanded mode: wrap strips to multiple lines instead of horizontal scroll */
-.ticker-bar.expanded { align-items: flex-start; }
+/* Expanded mode: switch to a tidy CSS grid (label column + equal chip columns) */
+.ticker-bar.expanded { align-items: flex-start; flex-direction: column; padding: 10px 28px; }
 .ticker-bar.expanded .ticker-bar-scroll {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
+  flex-wrap: nowrap;
   white-space: normal;
   overflow-x: visible;
-  row-gap: 6px;
+  width: 100%;
+  row-gap: 4px;
 }
 .ticker-bar.expanded .ticker-strip,
 .ticker-bar.expanded .sentiment-strip {
-  flex: 1 1 100%;
-  flex-wrap: wrap;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  width: 100%;
+  border-left: none;
+  margin-left: 0;
+  padding-left: 0;
   row-gap: 4px;
 }
-.ticker-bar.expanded .sentiment-strip {
+.ticker-bar.expanded .ticker-group,
+.ticker-bar.expanded .sent-group {
+  display: grid;
+  grid-template-columns: 54px repeat(auto-fill, minmax(220px, 1fr));
+  align-items: baseline;
+  column-gap: 12px;
+  row-gap: 4px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.ticker-bar.expanded .ticker-region,
+.ticker-bar.expanded .sent-group-label {
+  grid-column: 1;
+  padding: 0;
+  color: var(--t3);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+.ticker-bar.expanded .ticker-chip {
+  padding: 2px 0;
+  margin: 0;
+  width: 100%;
+}
+.ticker-bar.expanded .ticker-chip:hover { background: transparent; }
+.ticker-bar.expanded .sent-gauge {
+  padding: 2px 0;
+  margin: 0;
+  width: 100%;
+}
+.ticker-bar.expanded .sent-gauge + .sent-gauge {
   border-left: none;
   margin-left: 0;
   padding-left: 0;
 }
-.ticker-bar.expanded .ticker-group {
-  display: flex;
-  flex: 1 1 100%;
-  flex-wrap: wrap;
-  align-items: baseline;
-  row-gap: 2px;
+.ticker-bar.expanded .ticker-bar-actions {
+  align-self: flex-end;
+  border-left: none;
+  padding-left: 0;
+  margin-top: 4px;
 }
 
 /* ── Main content region ─────────────────────────────────── */
