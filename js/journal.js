@@ -8,8 +8,7 @@
 (() => {
 'use strict';
 
-const API = (location.protocol === 'file:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')
-  ? 'https://prism-7t8.pages.dev/api' : '/api';
+const API = '/api';
 const TOKEN_KEY = 'prism_token';
 const USER_KEY = 'prism_user_info';
 const $ = (s, c = document) => c.querySelector(s);
@@ -24,8 +23,11 @@ function esc(str) {
 }
 
 // ── State ──
-let authToken = localStorage.getItem(TOKEN_KEY) || '';
-let currentUser = (() => { try { return JSON.parse(localStorage.getItem(USER_KEY)); } catch { return null; } })();
+// 本機單機模式：無需登入，直接以本機使用者身份運作
+let authToken = 'local';
+let currentUser = { id: 1, username: '本機' };
+localStorage.setItem(TOKEN_KEY, 'local');
+localStorage.setItem(USER_KEY, JSON.stringify(currentUser));
 let trades = [];
 let editingId = null;
 let filterState = { market: 'all', type: 'all', tag: 'all', account: 'all', status: 'all', search: '', dateFrom: '', dateTo: '' };
@@ -1560,207 +1562,19 @@ function getChecklistItems() {
 }
 
 // ================================================================
-//  HEADER AUTH — Show login/user badge in header on page load
+//  HEADER AUTH — 本機模式：固定顯示本機狀態
 // ================================================================
 function renderHeaderAuth() {
   const el = $('#header-auth');
   const slot = $('#sidebar-user-slot');
-  if (authToken && currentUser) {
-    const initial = (currentUser.username || '?').charAt(0).toUpperCase();
-    if (el) {
-      el.innerHTML = `<button class="btn btn-ghost btn-sm" id="ha-userbtn" title="登出" aria-label="使用者帳戶 ${esc(currentUser.username)}">
-        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-        <span>${esc(currentUser.username)}</span>
-      </button>`;
-      $('#ha-userbtn')?.addEventListener('click', () => {
-        if (!confirm(`要登出 ${currentUser.username} 嗎？`)) return;
-        handleLogout();
-      });
-    }
-    if (slot) {
-      slot.innerHTML = `<div class="sidebar-user-card">
-        <div class="sidebar-user-avatar">${esc(initial)}</div>
-        <div class="sidebar-user-info">
-          <div class="name">${esc(currentUser.username)}</div>
-          <div class="status">已同步</div>
-        </div>
-        <button id="ha-logout" title="登出">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-        </button>
-      </div>`;
-      $('#ha-logout')?.addEventListener('click', () => {
-        if (!confirm('確定要登出嗎？')) return;
-        handleLogout();
-      });
-    }
-  } else {
-    if (el) {
-      el.innerHTML = `<button class="btn btn-primary btn-sm" id="ha-loginbtn">
-        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
-        <span>登入</span>
-      </button>`;
-      $('#ha-loginbtn')?.addEventListener('click', () => showLoginModal?.());
-    }
-    if (slot) {
-      slot.innerHTML = `<button class="btn btn-soft btn-sm btn-full" id="sb-loginbtn" style="margin-top:8px">登入 / 註冊</button>`;
-      $('#sb-loginbtn')?.addEventListener('click', () => showLoginModal?.());
-    }
-  }
+  if (el) el.innerHTML = `<span style="font-size:11px;color:var(--t3);padding:4px 8px;white-space:nowrap">本機模式</span>`;
+  if (slot) slot.innerHTML = `<div style="padding:8px 12px;font-size:11px;color:var(--t3)">本機單機模式</div>`;
 }
 
-// ── Login Modal (center card · warm gradient bubbles) ──
-function showLoginModal() {
-  $('#prism-login-overlay')?.remove();
+// ── Login Modal — 本機模式不需要，保留空函數供呼叫相容
+function showLoginModal() { /* 本機模式：不需要登入 */ }
 
-  const triggerEl = document.activeElement;
-  const prevBodyOverflow = document.body.style.overflow;
-  document.body.style.overflow = 'hidden';
-
-  const overlay = document.createElement('div');
-  overlay.id = 'prism-login-overlay';
-  overlay.className = 'modal-overlay';
-  overlay.setAttribute('role', 'dialog');
-  overlay.setAttribute('aria-modal', 'true');
-  overlay.setAttribute('aria-labelledby', 'jg-title');
-  overlay.innerHTML = `
-    <div class="modal" style="max-width:420px;padding:0;overflow:visible">
-      <div class="login-wrap" style="min-height:auto;padding:40px 30px;border-radius:14px">
-        <button class="modal-close" id="jg-close" aria-label="關閉">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </button>
-        <div class="login-card">
-          <div class="brand-row">
-            <svg width="36" height="36" viewBox="0 0 28 28" fill="none" style="flex-shrink:0">
-              <polygon points="14,3 25,25 3,25" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" style="color:var(--accent)"/>
-              <line x1="14" y1="3" x2="9" y2="25" stroke="currentColor" stroke-width="1.2" opacity=".35" style="color:var(--accent)"/>
-              <line x1="14" y1="3" x2="19" y2="25" stroke="currentColor" stroke-width="1.2" opacity=".35" style="color:var(--accent)"/>
-            </svg>
-            <div>
-              <div class="brand-name">Prism</div>
-              <div class="brand-sub">TRADING RISK TOOLKIT</div>
-            </div>
-          </div>
-          <div class="welcome-title" id="jg-title">歡迎回來</div>
-          <div class="welcome-sub" id="jg-sub">登入以同步交易紀錄、設定與範本。</div>
-          <div style="display:inline-flex;background:var(--bg2);padding:3px;border-radius:8px;margin-bottom:14px">
-            <button class="seg-item active" data-mode="login" id="jt-login">登入</button>
-            <button class="seg-item" data-mode="register" id="jt-register">註冊</button>
-          </div>
-          <div class="form-stack">
-            <div class="field field-lg field-sans">
-              <div class="field-label">帳號</div>
-              <div class="field-wrap"><input type="text" id="jg-user" placeholder="使用者名稱" maxlength="20" autocomplete="username"></div>
-            </div>
-            <div class="field field-lg">
-              <div class="field-label">密碼</div>
-              <div class="field-wrap"><input type="password" id="jg-pass" placeholder="••••••••••" autocomplete="current-password"></div>
-            </div>
-            <div id="jg-error" style="color:var(--red);font-size:12px;min-height:14px"></div>
-            <button class="btn btn-primary btn-lg btn-full" id="jg-submit">登入</button>
-            <div class="divider"><span>或</span></div>
-            <button class="btn btn-ghost btn-full" id="jg-guest">先不登入 · 以訪客模式使用</button>
-          </div>
-          <div class="foot">
-            本工具僅供學習與參考，實際交易規則以券商 / 期貨商公告為準。<br>
-            JWT 加密 · PBKDF2 密碼雜湊 · 跨裝置同步
-          </div>
-        </div>
-      </div>
-    </div>
-  `;
-  document.body.appendChild(overlay);
-  $('#jg-user')?.focus();
-  let mode = 'login';
-  const setMode = (m) => {
-    mode = m;
-    $('#jt-login').classList.toggle('active', m === 'login');
-    $('#jt-register').classList.toggle('active', m === 'register');
-    $('#jg-submit').textContent = m === 'login' ? '登入' : '建立新帳號';
-    $('#jg-title').textContent = m === 'login' ? '歡迎回來' : '建立 Prism 帳號';
-    $('#jg-sub').textContent = m === 'login' ? '登入以同步交易紀錄、設定與範本。' : '只需使用者名稱與密碼，稍後可補資料。';
-    $('#jg-error').textContent = '';
-  };
-  $('#jt-login').addEventListener('click', () => setMode('login'));
-  $('#jt-register').addEventListener('click', () => setMode('register'));
-
-  const close = () => {
-    overlay.remove();
-    document.removeEventListener('keydown', keyHandler);
-    document.body.style.overflow = prevBodyOverflow;
-    if (triggerEl && typeof triggerEl.focus === 'function') triggerEl.focus();
-  };
-  const keyHandler = (e) => {
-    if (e.key === 'Escape') { close(); return; }
-    // Focus trap: keep Tab within modal
-    if (e.key === 'Tab') {
-      const focusables = overlay.querySelectorAll(
-        'button:not([disabled]):not([aria-hidden="true"]), [href]:not([aria-hidden="true"]), input:not([disabled]):not([aria-hidden="true"]), select:not([disabled]):not([aria-hidden="true"]), textarea:not([disabled]):not([aria-hidden="true"]), [tabindex]:not([tabindex="-1"]):not([aria-hidden="true"])'
-      );
-      if (!focusables.length) return;
-      const first = focusables[0], last = focusables[focusables.length - 1];
-      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
-      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
-    }
-  };
-  document.addEventListener('keydown', keyHandler);
-  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
-  $('#jg-close').addEventListener('click', close);
-  $('#jg-guest')?.addEventListener('click', close);
-
-  const submit = async () => {
-    const username = $('#jg-user')?.value.trim();
-    const password = $('#jg-pass')?.value;
-    if (!username || !password) {
-      $('#jg-error').textContent = '請填寫使用者名稱和密碼';
-      $('#jg-error').setAttribute('role', 'alert');
-      return;
-    }
-    const btn = $('#jg-submit');
-    const origLabel = btn.textContent;
-    btn.disabled = true;
-    btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation:spin 1s linear infinite;margin-right:6px"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>處理中…';
-    $('#jg-error').textContent = '';
-    try {
-      const data = await api(`/auth/${mode}`, { method: 'POST', body: JSON.stringify({ username, password }) });
-      authToken = data.token; currentUser = data.user;
-      localStorage.setItem(TOKEN_KEY, authToken);
-      localStorage.setItem(USER_KEY, JSON.stringify(currentUser));
-      renderHeaderAuth();
-      // Show skeleton on journal tab before loadTrades finishes
-      if ($('#tab-journal')?.classList.contains('active')) {
-        const root = $('#journal-root');
-        if (root) root.innerHTML = '<div class="j-skeleton" style="padding:40px;text-align:center;color:var(--t3)">載入交易紀錄中…</div>';
-      }
-      close();
-      // Refresh settings panel to show account
-      window._stgRendered = false;
-      if ($('#settings-panel')?.classList.contains('open')) { renderSettings(); window._stgRendered = true; }
-      // Load all cloud data after login
-      if (window.loadSettingsFromServer) window.loadSettingsFromServer();
-      if (window.loadPresetsFromServer) window.loadPresetsFromServer();
-      if (window.loadAppStateFromServer) window.loadAppStateFromServer();
-      loadTemplatesFromServer();
-      // If journal tab is active, refresh it
-      if ($('#tab-journal')?.classList.contains('active')) { await loadTrades(); renderJournal(); }
-      if (window._showToast) window._showToast(`歡迎回來，${username}`);
-    } catch (e) {
-      $('#jg-error').textContent = e.message;
-      btn.disabled = false; btn.textContent = origLabel;
-    }
-  };
-  $('#jg-submit').addEventListener('click', submit);
-  $$('#jg-user, #jg-pass').forEach(el => el.addEventListener('keydown', e => { if (e.key === 'Enter') submit(); }));
-}
-
-function handleLogout() {
-  authToken = ''; currentUser = null; trades = []; liveQuotes = {}; dailyJournals = [];
-  localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(USER_KEY);
-  renderHeaderAuth();
-  if ($('#tab-journal')?.classList.contains('active')) renderLogin();
-  // Refresh settings panel account section
-  window._stgRendered = false;
-  if ($('#settings-panel')?.classList.contains('open') && window.renderSettings) { renderSettings(); window._stgRendered = true; }
-}
+function handleLogout() { /* 本機模式：不需要登出 */ }
 
 // ================================================================
 //  RECORD TRADE — Buttons in calculator tabs
@@ -4528,37 +4342,17 @@ async function deleteTrade(id) {
 //  INIT
 // ================================================================
 async function initJournal() {
-  // Verify token on page load
-  if (authToken) {
-    try {
-      const data = await api('/auth/me');
-      currentUser = data.user;
-      localStorage.setItem(USER_KEY, JSON.stringify(currentUser));
-      // Pre-load trades so they're ready for calc tab buttons
-      await loadTrades();
-      loadDailyJournals();
-    } catch {
-      authToken = ''; currentUser = null;
-      localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(USER_KEY);
-    }
-  }
+  // 本機模式：直接載入資料，不需要驗證 token
+  await loadTrades();
+  loadDailyJournals();
 
-  // Render header auth immediately
   renderHeaderAuth();
 
-  // Render journal content if tab is already active on page load
-  if ($('#tab-journal')?.classList.contains('active')) {
-    if (authToken && currentUser) renderJournal();
-    else renderLogin();
-  }
+  if ($('#tab-journal')?.classList.contains('active')) renderJournal();
 
-  // Journal tab activation on click
   document.addEventListener('click', async (e) => {
     const tab = e.target.closest('.main-tab');
-    if (tab && tab.dataset.tab === 'journal') {
-      if (authToken && currentUser) { await loadTrades(); renderJournal(); }
-      else renderLogin();
-    }
+    if (tab && tab.dataset.tab === 'journal') { await loadTrades(); renderJournal(); }
   });
 
   // Request notification permission for SL/TP alerts

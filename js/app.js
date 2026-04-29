@@ -8,10 +8,8 @@ window.addEventListener('error', function(e) {
 window.addEventListener('unhandledrejection', function(e) {
   console.error('[Prism] Unhandled promise rejection:', e.reason);
 });
-// API base: local file / localhost → cloud; deployed → same origin
-const CLOUD_ORIGIN = 'https://prism-7t8.pages.dev';
-const API_BASE = (location.protocol === 'file:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')
-  ? CLOUD_ORIGIN : '';
+// API base: always relative (local server on port 3000)
+const API_BASE = '';
 const $ = (s, c = document) => c.querySelector(s);
 const $$ = (s, c = document) => [...c.querySelectorAll(s)];
 const fmt = (n, d = 0) => n == null || isNaN(n) || !isFinite(n) ? '—' : Number(n).toLocaleString('zh-TW', { minimumFractionDigits: d, maximumFractionDigits: d });

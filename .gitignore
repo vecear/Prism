@@ -1,5 +1,8 @@
 node_modules/
 .wrangler/
+prism.db
+prism.db-shm
+prism.db-wal
 .claude/*
 !.claude/commands/
 .env

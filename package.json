@@ -1,7 +1,9 @@
 {
   "name": "prism",
   "private": true,
+  "type": "module",
   "scripts": {
+    "start": "node server.js",
     "dev": "wrangler pages dev . --port 3000 --d1 DB --script-path _worker.js",
     "deploy": "wrangler pages deploy ."
   },
