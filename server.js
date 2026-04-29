@@ -428,13 +428,25 @@ const server = http.createServer(async (req, res) => {
     const stat = fs.statSync(absPath);
     if (!stat.isFile()) throw new Error('Not a file');
     const ext = path.extname(absPath).toLowerCase();
-    res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream' });
+    const headers = { 'Content-Type': MIME[ext] || 'application/octet-stream' };
+    // HTML 與 service worker 永不快取，避免改動後使用者看到舊版本
+    if (ext === '.html' || absPath.endsWith('sw.js')) {
+      headers['Cache-Control'] = 'no-cache, no-store, must-revalidate';
+      headers['Pragma'] = 'no-cache';
+      headers['Expires'] = '0';
+    }
+    res.writeHead(200, headers);
     fs.createReadStream(absPath).pipe(res);
   } catch {
     // Fallback: serve index.html for SPA-style navigation
     const indexPath = path.join(__dirname, 'index.html');
     try {
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+      });
       fs.createReadStream(indexPath).pipe(res);
     } catch {
       res.writeHead(404); res.end('Not found');

@@ -223,6 +223,59 @@ function pairFIFO(raw) {
   return results;
 }
 
+// ── HTML-as-XLS 解析（元富/MasterLink 等券商 HTML 偽裝格式）──────────
+function isHtmlXls(buf) {
+  const head = buf.slice(0, 300).toString('utf8');
+  return head.includes('<html') || head.includes('ExcelWorkbook');
+}
+
+function parseHtmlXlsRows(html) {
+  const rows = [];
+  const trRe = /<tr\b[^>]*>([\s\S]*?)<\/tr>/gi;
+  let trM;
+  while ((trM = trRe.exec(html))) {
+    const cells = [];
+    const tdRe = /<(?:td|th)\b[^>]*>([\s\S]*?)<\/(?:td|th)>/gi;
+    let tdM;
+    while ((tdM = tdRe.exec(trM[1]))) {
+      const text = tdM[1]
+        .replace(/<br\b[^>]*>/gi, ' ')
+        .replace(/<[^>]+>/g, '')
+        .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+        .replace(/&nbsp;/g, ' ').replace(/&#(\d+);/g, (_, n) => String.fromCharCode(+n))
+        .replace(/\s+/g, ' ').trim();
+      cells.push(text);
+    }
+    if (cells.length > 0) rows.push(cells);
+  }
+  return rows;
+}
+
+// 元富/MasterLink 投資明細格式：row0=20欄主標題，row1=4欄子標題，data從row2起22欄
+function isMasterlinkFormat(rows) {
+  const h0 = (rows[0] || []).map(c => (c || '').trim());
+  const h1 = (rows[1] || []).map(c => (c || '').trim());
+  return h0[0] === '成交日期' && h0.includes('損益') &&
+         h1.includes('代號') && h1.includes('名稱');
+}
+
+function masterlinkRowsToRaw(rows, srcLabel) {
+  // 固定欄位位置：成交日期(0) 代號(1) 名稱(2) 交易種類(3) 買賣(4) 交易類別(5) 數量(6) 單價(7) 價金(8) 手續費(9) 交易稅(10) ... 幣別(21)
+  const cm = { date: 0, symbol: 1, name: 2, direction: 4, quantity: 6, entryPrice: 7, fee: 9, tax: 10, currency: 21 };
+  const raw = [];
+  for (let i = 2; i < rows.length; i++) {
+    const v = (rows[i] || []).map(c => (c || '').toString());
+    if (v.length < 8) continue;
+    const first = v[0].trim();
+    if (!first || !/^\d{4}\/\d{2}\/\d{2}/.test(first)) continue;
+    const sym = (v[1] || '').trim();
+    if (!sym) continue;
+    raw.push(parseRowToTrade(v, cm, {}));
+  }
+  if (!raw.length) throw new Error(`${srcLabel}：元富格式解析後無有效資料列`);
+  return raw;
+}
+
 // ── xlsx 解析（原生 ZIP + 正則 XML）──────────────────────
 async function unzipXlsx(buf) {
   const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
@@ -351,8 +404,19 @@ async function main() {
     const ext = path.extname(f).toLowerCase();
     const label = path.basename(f);
     try {
-      const rows = ext === '.xlsx' ? await parseXlsxFile(f) : parseCsvFile(f);
-      const raw = rowsToRaw(rows, label);
+      let rows, raw;
+      if (ext === '.xlsx') {
+        rows = await parseXlsxFile(f);
+        raw = rowsToRaw(rows, label);
+      } else if (ext === '.xls') {
+        const buf = fs.readFileSync(f);
+        if (!isHtmlXls(buf)) throw new Error(`${label}：.xls 非 HTML 格式，無法解析`);
+        rows = parseHtmlXlsRows(buf.toString('utf8'));
+        raw = isMasterlinkFormat(rows) ? masterlinkRowsToRaw(rows, label) : rowsToRaw(rows, label);
+      } else {
+        rows = parseCsvFile(f);
+        raw = rowsToRaw(rows, label);
+      }
       allRaw.push(...raw);
       perFile.push({ file: label, legs: raw.length });
     } catch (e) {
