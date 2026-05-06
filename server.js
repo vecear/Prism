@@ -177,6 +177,8 @@ async function handleProxy(req, res, searchParams) {
       },
     };
     if (req.method === 'POST') {
+      const incomingCT = req.headers['content-type'];
+      if (incomingCT) opts.headers['Content-Type'] = incomingCT;
       opts.body = await new Promise(r => { let b = ''; req.on('data', c => b += c); req.on('end', () => r(b)); });
     }
     const fetchRes = await fetch(target, opts);
@@ -389,10 +391,12 @@ const server = http.createServer(async (req, res) => {
     if (method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
     try {
+      // Proxy must read its own body — handle before readBody() drains the stream
+      if (pathname === '/api/proxy') return await handleProxy(req, res, url.searchParams);
+
       let body = {};
       if (['POST', 'PUT'].includes(method)) body = await readBody(req);
 
-      if (pathname === '/api/proxy') return await handleProxy(req, res, url.searchParams);
       if (pathname === '/api/auth/me') return jsonOk(res, { user: { id: USER_ID, username: 'local' } });
       if (pathname === '/api/auth/register' || pathname === '/api/auth/login') {
         return jsonOk(res, { token: 'local', user: { id: USER_ID, username: 'local' } });

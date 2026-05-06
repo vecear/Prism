@@ -130,6 +130,8 @@ function _esc(str) {
 const INDEX_DEFS = {
   taiex:    { name: '加權指數',  placeholder: '22000', market: 'tw', region: '台灣', chart: 'TWSE:TAIEX' },
   txf:      { name: '台指期',    placeholder: '22000', market: 'tw', region: '台灣', chart: 'TXF1!' },
+  mxf:      { name: '小台指',    placeholder: '22000', market: 'tw', region: '台灣', chart: 'MXF1!' },
+  tmf:      { name: '微台指',    placeholder: '22000', market: 'tw', region: '台灣', chart: 'TMF1!' },
   twn:      { name: '富台指',    placeholder: '2650',  market: 'sg', region: '台灣', chart: 'SGX:TWN1!' },
   es:       { name: 'S&P 期貨',  placeholder: '5800',  market: 'us', region: '美國', chart: 'CME_MINI:ES1!' },
   nq:       { name: '那指期貨',  placeholder: '20000', market: 'us', region: '美國', chart: 'CME_MINI:NQ1!' },
@@ -321,8 +323,10 @@ const PriceService = {
   },
 
   async fetchIndex(key) {
-    // 台指期走專屬 TAIFEX MIS API
+    // 台指期 / 小台 / 微台走專屬 TAIFEX MIS API
     if (key === 'txf') return await this.fetchTxfQuote();
+    if (key === 'mxf') return await this.fetchMxfQuote();
+    if (key === 'tmf') return await this.fetchTmfQuote();
 
     // SGX 富台指：月合約，取成交量較高者
     if (key === 'twn') {
@@ -403,7 +407,8 @@ const PriceService = {
 
   async fetchAllIndices() {
     const results = {};
-    const keys = Object.keys(CFG.indices).filter(k => CFG.indices[k]);
+    // 列出所有 INDEX_DEFS 的 key，未明確設為 false 者皆抓（避免新增的 key 因舊設定缺漏而被跳過）
+    const keys = Object.keys(INDEX_DEFS).filter(k => CFG.indices[k] !== false);
     // Fetch sentiment indicators (not in INDEX_DEFS / ticker)
     if (CFG.showVix) keys.push('vix');
     if (CFG.showVvix) keys.push('vvix');
@@ -721,6 +726,16 @@ const PriceService = {
   // ── TAIFEX 台指期即時報價 (支援日盤/夜盤自動切換) ──
   async fetchTxfQuote() {
     return await this._taifexQuote('1', 'TXF');
+  },
+
+  // ── TAIFEX 小台指即時報價 (支援日盤/夜盤自動切換) ──
+  async fetchMxfQuote() {
+    return await this._taifexQuote('1', 'MXF');
+  },
+
+  // ── TAIFEX 微型台指即時報價 (支援日盤/夜盤自動切換) ──
+  async fetchTmfQuote() {
+    return await this._taifexQuote('1', 'TMF');
   },
 
   // ── TAIFEX 股票期貨即時報價 (一般=KindID 4, 小型=KindID 8，僅日盤) ──
@@ -3993,6 +4008,192 @@ function renderGuide() {
 <div class="guide-warn">常見錯誤：① 單看原油庫存就下結論 ② 把美元指數當油價唯一決定因子 ③ 忽略維修季（春秋煉廠維修讓裂解價差失真）④ 把新聞情緒看太重而忽略曲線的事實</div>
 </div>`;
 
+  // ── 主動交易者修煉（整理自梅川「一個人工交易者是如何做交易的」2024/01/14）──
+  const traderPath = `<div class="guide-card">
+<h4>市場為何長期向上：通膨紅利</h4>
+<p>各國央行依凱恩斯學派執行貨幣政策，總目標是<strong>印鈔＋花錢刺激經濟</strong>。結果是貨幣供給長期擴張：</p>
+<ul>
+<li>美元 M2 在 40 年間增加約 74 倍</li>
+<li>美元購買力在百年內跌掉 99% — <strong>長期持有現金 = 被政府當礦挖</strong></li>
+<li>多餘的錢流入消費品 → 通膨；流入資產 → 房地產與股市長期牛市（NASDAQ 100 在 20 年內漲 10 倍）</li>
+</ul>
+<div class="guide-tip">了解這個底層邏輯後，你會明白：「不投資」其實是一種主動選擇——選擇讓自己的購買力被稀釋。</div>
+</div>
+<div class="guide-card">
+<h4>爆富三原則</h4>
+<table class="guide-table">
+<tr><th>原則</th><th>核心</th><th>實踐</th></tr>
+<tr><td><strong>1. 投對標的</strong></td><td>選擇長期向上、歷久不衰的標的</td><td>投資市場龍頭：蛋黃區房子、指數型 ETF（0050、QQQ）、比特幣。少碰小幣、小股、郊區房</td></tr>
+<tr><td><strong>2. 重倉</strong></td><td>持續投入，創造複利</td><td>拿 1000 塊玩土狗幣翻 10 倍只賺 9000；不如拿 100 萬買台積電賺 10% = 10 萬。<strong>本金大小決定上限</strong></td></tr>
+<tr><td><strong>3. 拿得住</strong></td><td>能扛多少波動，決定績效好壞</td><td>不因為一時浮虧拋售，也不滿足於小額收益（買台積賺 10% 就跑）</td></tr>
+</table>
+<div class="guide-tip">選擇永遠比努力重要。正確標的的重倉與錯誤標的的重倉天差地遠——買 BTC 還是買 PRT，決定了長期持有是發財還是歸零。</div>
+</div>
+<div class="guide-card">
+<h4>爆虧四手段（散戶的常見死法）</h4>
+<ol>
+<li><strong>與趨勢對作、不認錯</strong>：漲多了不停做空、補保證金、認為早晚會跌——把身家都賠進去</li>
+<li><strong>頻繁交易</strong>：市場長期有趨勢，但短期渾沌不明，頻繁交易拉低勝率。本金 10000U 開十倍、每週開關 4 單，<strong>一年手續費就 23000U</strong></li>
+<li><strong>重倉甚至開槓桿</strong>：凹單攤平、用合約期貨放大部位。一般人想放大獲利，更多時候是放大虧損</li>
+<li><strong>不設止損</strong>：以為虧損放著總會漲回來——上市公司平均壽命只有 30 年，不是所有商品都會永遠存在。低倍槓桿（2~3x）也會在意外發生時爆倉</li>
+</ol>
+<div class="guide-warn">「重劍無鋒，大巧不爆」——能用 1.1 倍槓桿差點爆倉的人，不是因為技術差，是因為標的選錯。</div>
+</div>
+<div class="guide-card">
+<h4>韭菜是怎麼被割的</h4>
+<p>大部分人牛市都賺錢，<strong>真正割人的是熊市</strong>。籌碼換手的本質：</p>
+<ul>
+<li><strong>熊市</strong>：主力買入 ↔ 散戶賣出（撐不住跌幅，浮虧轉實虧）</li>
+<li><strong>牛市</strong>：主力賣出 ↔ 散戶買入（FOMO 進場，攤平加倉）</li>
+</ul>
+<p>典型的散戶心理週期：「區塊鏈革命！」→ 進場 → 主力倒貨散戶還在數錢 → 加倉攤平 → 「快抄底」→ 主力重新吸籌 → 「幹幹幹早知道不要印了」→「2025 一定回本！」</p>
+<div class="guide-tip">當你在媒體、KOL、Telegram 群組到處看到「某某幣」、「某某股票」消息時，通常已經是<strong>主力派發階段</strong>。資訊到達散戶時，行情早已啟動很久。</div>
+</div>
+<div class="guide-card">
+<h4>被動投資：最穩定的變富手段</h4>
+<p>主動投資績效太爛、做交易太累，<strong>永遠都有退路：打不贏大盤就加入大盤</strong>。</p>
+<p>被動投資三步驟：</p>
+<ol>
+<li>挑選市場最穩定的標的（指數型 ETF：0050、QQQ）</li>
+<li>定期定額買入，<strong>不賣出，直到退休</strong></li>
+<li>完整享受趨勢紅利，承受較低風險，不用整天盯盤</li>
+</ol>
+<table class="guide-table">
+<tr><th>標的</th><th>近 20 年平均績效</th><th>每月 1 萬定期定額 40 年</th><th>換算現在購買力</th></tr>
+<tr><td>0050（台股）</td><td>9.8%</td><td>4,800 萬</td><td>約 2,400 萬</td></tr>
+<tr><td>QQQ（美股 NASDAQ100）</td><td>14%</td><td>1 億 7,000 萬</td><td>約 8,560 萬</td></tr>
+</table>
+<div class="guide-warn">被動投資的關鍵不是技巧，而是<strong>必須能承受市場最大跌幅而不被掃出場</strong>。下跌時不可因恐懼停止買入；上漲時不可怕高主動獲利了結。</div>
+</div>
+<div class="guide-card">
+<h4>主動交易者的交易系統四要素</h4>
+<p>市場各種作法都有；<strong>只有專屬自己特化的交易系統，才適合長期運作</strong>。完整的交易系統由四個環環相扣的部分組成：</p>
+<table class="guide-table">
+<tr><th>要素</th><th>核心問題</th></tr>
+<tr><td><strong>1. 觀察與分析市場</strong></td><td>基本面 / 技術面 / 鏈上數據 / 情緒流量。目前牛熊？標的能否買賣？面臨的風險與收益？</td></tr>
+<tr><td><strong>2. 交易進出場邏輯</strong></td><td>每筆交易前預想：預期狀況？不符預期怎麼辦？這值得做嗎？投入多少部位？</td></tr>
+<tr><td><strong>3. 資金與風險管理</strong></td><td>活存 + 保險 + 投資三層；分散與相關性；部位大小止損 vs 下跌 % 止損</td></tr>
+<tr><td><strong>4. 心態管理</strong></td><td>持倉體驗（會讓你睡不好的倉位都需要修改）；分散的生活；交易紀律</td></tr>
+</table>
+<div class="guide-tip">沒有絕對準確的市場預測方法。市場是有機體會不斷變化，<strong>靠水晶球預言的人最後會被碎玻璃刺傷</strong>。</div>
+</div>
+<div class="guide-card">
+<h4>技術分析的本質與侷限</h4>
+<p>技術分析有效的兩個前提：</p>
+<ol>
+<li>價格漲跌是市場參與者拿真金白銀投票走出來的，會反映未來預期（效率市場理論）</li>
+<li>K 線是資金博弈而成，能反映散戶與主力之間的狀態與趨勢</li>
+</ol>
+<p>因此<strong>流動性越好、存在時間越久</strong>的標的，越符合技術分析的預期。</p>
+<p>反之，<strong>流動性差、存在時間短、市場參與者少、主力握有過多籌碼</strong>的品種（如土狗幣），技術分析難以使用——這種池子，主力 50% 籌碼超低成本，可能上漲、可能橫盤、也可能下跌，這就是真實現況。</p>
+<div class="guide-warn">技術分析永遠都有可能錯誤——它是觀察市場的一種手段，<strong>不是精準預測市場的水晶球</strong>。</div>
+</div>
+<div class="guide-card">
+<h4>市場結構：收斂與發散的彈簧</h4>
+<p>市場的運行是<strong>從收斂到發散，不停重複的過程</strong>：</p>
+<table class="guide-table">
+<tr><th></th><th>收斂（盤整）</th><th>發散（突破）</th></tr>
+<tr><td>波動</td><td>較低</td><td>較大</td></tr>
+<tr><td>持續時間</td><td>較長</td><td>較短</td></tr>
+<tr><td>本質</td><td>彈簧擠壓，累積能量</td><td>彈簧放開，釋放能量</td></tr>
+</table>
+<p><strong>越長時間的盤整，能孕育出越大的突破幅度。</strong> 趨勢需要走出一段不小的距離才會反轉，反轉前會出現衰竭信號（小級別假突破 → 中級別反彈受阻 → 大級別暴力下破）。</p>
+</div>
+<div class="guide-card">
+<h4>常見圖形結構與做單建議</h4>
+<table class="guide-table">
+<tr><th>結構</th><th>博弈充分度</th><th>做單建議</th></tr>
+<tr><td><strong>A 反、V 轉</strong>（假突破）</td><td>不充分（情緒一致時出現）</td><td>難找進場與止損點，<strong>不建議做單</strong></td></tr>
+<tr><td><strong>M 頭、W 底</strong></td><td>不充分（兩段博弈）</td><td>除非有小級別結構佐證，否則不做</td></tr>
+<tr><td><strong>頭尖頂、頭肩底</strong></td><td>充分（三段博弈）</td><td>右肩試單、頸線突破時加倉</td></tr>
+<tr><td><strong>三角結構</strong></td><td>充分（六個以上接觸點）</td><td>逆勢邊第三點試單、突破時加倉</td></tr>
+<tr><td><strong>楔形</strong>（中後期）</td><td>充分</td><td>低/高位楔形多反轉</td></tr>
+<tr><td><strong>逆勢通道</strong>（趨勢中回調）</td><td>充分</td><td>通道突破後建倉，止損於逆勢邊底部</td></tr>
+<tr><td><strong>順勢通道</strong>（罕見）</td><td>充分</td><td>逆勢邊任一點試單，止損於通道底部</td></tr>
+<tr><td><strong>箱體</strong>（吸籌/派發）</td><td>充分</td><td>底部建倉；假跌破收回是<strong>高勝率高盈虧比上等機會</strong></td></tr>
+<tr><td><strong>圓弧頂底</strong></td><td>級別越大越有效</td><td>難找進場點，依其他級別結構入場</td></tr>
+</table>
+<div class="guide-tip">圖形結構經常會疊加（如同雪花碎形）與變形（六點轉九點三角、三角轉通道、三角轉 M 頭）。型態變化多端，<strong>初學者需要不斷複盤養成盤感</strong>。</div>
+</div>
+<div class="guide-card">
+<h4>四個進場點與止損邏輯</h4>
+<p><strong>盤整區間內頻繁交易，是趨勢交易者虧錢的主因。</strong>應該在博弈充分後、盤整後期進場：</p>
+<table class="guide-table">
+<tr><th>進場點</th><th>勝率</th><th>盈虧比</th></tr>
+<tr><td>1. 逆勢邊的第三點</td><td>低</td><td>好</td></tr>
+<tr><td>2. 突破前的蓄勢</td><td>普通</td><td>好</td></tr>
+<tr><td>3. 突破盤整區間</td><td>普通</td><td>差</td></tr>
+<tr><td>4. 突破後的回踩</td><td>高</td><td>普通</td></tr>
+</table>
+<p><strong>止損的核心邏輯：止損點要能證明你的錯誤。</strong>觸發止損後行情應該繼續往原預期的反方向運行（做多被止損後應該下跌，證明做多是錯的）。技術分析按圖形做交易，<strong>以會破壞圖形結構的點位作為止損</strong>。</p>
+<div class="guide-warn">頻繁的調低止損不想虧錢，是你<strong>賺不到大錢的關鍵</strong>。價格往預期方向走出一段距離後，才可移動止損。</div>
+</div>
+<div class="guide-card">
+<h4>以損定量的槓桿法</h4>
+<p>不從「我要開幾倍槓桿」反推，而是從「我能接受多少虧損」正推：</p>
+<p><strong>倉位價值 = 可接受虧損金額 ÷ 止損 % 數</strong></p>
+<table class="guide-table">
+<tr><th>項目</th><th>數值</th></tr>
+<tr><td>本金</td><td>20,000 U</td></tr>
+<tr><td>單筆可接受虧損</td><td>5%（= 1,000 U）</td></tr>
+<tr><td>止損 % 數</td><td>5%</td></tr>
+<tr><td>應開倉位</td><td>1,000 ÷ 0.05 = 20,000 U（≈ 1 倍身家槓桿）</td></tr>
+<tr><td>若漲幅 40%</td><td>利潤 = 20,000 × 0.4 = 8,000 U</td></tr>
+<tr><td>盈虧比</td><td>8,000 / 1,000 = 8 : 1</td></tr>
+</table>
+<div class="guide-tip">合適的交易手段帶給你非常好的盈虧比，讓你<strong>低勝率也能盈利</strong>。盈虧比小於 3 的機會都是垃圾機會——除非勝率在三成以上，否則不該做。</div>
+</div>
+<div class="guide-card">
+<h4>趨勢滾倉：賺大賠小的進階玩法</h4>
+<p><strong>趨勢滾倉</strong>：在趨勢開始時建立倉位，每個上漲中繼不斷增大倉位，直到反轉結構形成才平倉。</p>
+<table class="guide-table">
+<tr><th>優點</th><th>缺點</th></tr>
+<tr><td>賺大賠小、獲利滾利、容易累積大把利潤</td><td>需要對趨勢有把握、找得出反轉區間（你要夠強）；很少止盈又不停放大倉位，錯誤離場容易白忙一場</td></tr>
+</table>
+<p>典型操作（BTC 小牛市為例）：底部建倉 → 突破加倉 → 底部加倉 → 突破加倉 → 底部加倉 → 突破加倉 → 底部加倉 → 反轉結構形成平倉。</p>
+<p><strong>結果差距</strong>：吃完小牛完整漲幅的現貨黨可能賺 2 倍利潤；吃完大部分漲幅的合約滾倉黨可能賺 22 倍利潤。</p>
+<div class="guide-warn">這是低勝率、高盈虧比的玩法，<strong>適合沒錢的人累積本金用</strong>。本金大時應降低槓桿、轉趨保守。</div>
+</div>
+<div class="guide-card">
+<h4>給技術派新手的 8 條鐵律</h4>
+<ol>
+<li>應該做<strong>市場龍頭、指數標的</strong>做練習，少做小股、小幣</li>
+<li>初學者做的單應該依託於<strong>60 根 15 分鐘以上 K 線</strong>所組成的結構</li>
+<li>再好的機會都<strong>不該拿所有資產作為槓桿保證金直接梭哈</strong></li>
+<li><strong>超過五倍身家的槓桿都在玩命</strong></li>
+<li>初學者每次做單的保證金建議在<strong>總資產 1~3~5%</strong> 內</li>
+<li>連續三四次的錯誤交易、或單筆超過 30% 的回撤，都應該<strong>「融斷」暫停交易至少一週</strong></li>
+<li>每次資產大幅回撤（>30%）都伴隨一定問題，<strong>請嚴格複盤檢討</strong></li>
+<li>會讓你晚上睡不好的倉位都太重，應該減倉；被投資搞到心神不寧，請減少參與度</li>
+</ol>
+<div class="guide-tip">成為合格交易員的路就像從肥宅健身成猛男——<strong>猛男的生活千篇一律，練不壯的人各有各的原因</strong>。需要持續閱讀、大量複盤畫圖、檢討交易、完善交易系統。</div>
+</div>
+<div class="guide-card">
+<h4>爆富與爆虧的矛盾</h4>
+<p>爆富與爆虧往往只差一念之間：</p>
+<ul>
+<li>正確的重倉與錯誤的重倉<strong>天差地遠</strong> — 買 BTC 還是 PRT，決定歸零或財富自由</li>
+<li>在錯誤的標的不設止損 → 巨額虧損</li>
+<li>在正確的標的扛住虧損 → 未來巨額收益</li>
+<li>常見避險方法：<strong>購買市場指數 ETF、龍頭標的</strong></li>
+<li>你不想虧錢又想賺大錢？<strong>市場不可能給你白嫖，想要收益必須承擔風險</strong></li>
+</ul>
+<p>做主動投資從來不是簡單的事——如何挑標的？判斷牛熊？打入合適倉位？設定止損？虧錢睡不好怎麼辦？什麼時候賣？</p>
+<div class="guide-warn">面對無盡的選擇與自我懷疑，是<strong>主觀交易者不可能避免的過程</strong>。如果你不想經歷這些，被動投資永遠是合法的退路。</div>
+</div>
+<div class="guide-card">
+<h4>延伸閱讀（梅川推薦）</h4>
+<ul>
+<li><strong>《日本蠟燭圖理論》</strong> — 不同 K 線與量能所代表的意義</li>
+<li><strong>《威科夫操盤法》</strong> — 主力吸籌與派發行為</li>
+<li><strong>《道氏理論》</strong> — 趨勢分析的奠基之作</li>
+<li><strong>《技術分析聖經》</strong> — 圖表結構與型態學</li>
+<li><strong>《股票作手回憶錄》</strong> — Jesse Livermore 的交易心法</li>
+<li><strong>《專業投機原理》</strong> — Victor Sperandeo 的系統化交易</li>
+</ul>
+<div class="guide-tip">本章內容整理自梅川 2024/01/14 的分享「一個人工交易者是如何做交易的」（在摸摸熊群 MOMOBear DAO 友情贊助播出）。Telegram & Twitter & Discord：@plumy_river</div>
+</div>`;
+
   // ── Course structure ──
   const COURSE = [
     { phase:'I', title:'覺醒', sub:'The Awakening', chapters:[
@@ -4017,6 +4218,7 @@ function renderGuide() {
       {id:'research-bias',num:13,title:'投研盲點',desc:'時間軸、估值漂移與情境分析',content: researchBias},
       {id:'industry-analysis',num:14,title:'行業分析',desc:'第一性原理與雙重切入思維',content: industryAnalysis},
       {id:'system',num:15,title:'建立交易系統',desc:'風報比、凱利公式、交易心理與系統化交易',content: riskExtra},
+      {id:'trader-path',num:16,title:'主動交易者修煉',desc:'爆富三原則、爆虧四手段、滾倉策略與技術派實戰心法',content: traderPath},
     ]},
   ];
   const allCh = COURSE.flatMap(p=>p.chapters);

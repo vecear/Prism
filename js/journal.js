@@ -1459,16 +1459,24 @@ function resolveQuoteSymbol(t) {
   if (t.type === 'stock' || t.type === 'etf') return { method: 'stock', code: sym, market: mkt };
   if (isFuturesType(t.type)) {
     if (mkt === 'tw') {
-      // TX/MTX/MXF 追蹤同一標的 → CID 'TXF', KindID '1'
-      if (['TX','MTX','MXF'].includes(sym)) return { method: 'taifex', kindID: '1', cid: 'TXF' };
-      // 其他指數期貨 (TE/TF/XIF/TGF...) → KindID '1', CID 就是 symbol 本身
-      if (typeof FP !== 'undefined' && FP.tw?.[sym]) return { method: 'taifex', kindID: '1', cid: sym };
+      // 月合約代號正規化：去掉尾端「月碼(A-L)+年末碼(0-9)」(例: TMFC6 → TMF, MXFE6 → MXF)
+      const upper = sym.toUpperCase();
+      const baseMatch = upper.match(/^([A-Z]+?)([A-L][0-9])$/);
+      const base = baseMatch ? baseMatch[1] : upper;
+      // 大台
+      if (['TX','TXF'].includes(base)) return { method: 'taifex', kindID: '1', cid: 'TXF' };
+      // 小台
+      if (['MTX','MXF'].includes(base)) return { method: 'taifex', kindID: '1', cid: 'MXF' };
+      // 微台
+      if (['TMF','FITM'].includes(base)) return { method: 'taifex', kindID: '1', cid: 'TMF' };
+      // 其他指數期貨 (TE/TF/XIF/TGF...) → KindID '1', CID 就是 base
+      if (typeof FP !== 'undefined' && FP.tw?.[base]) return { method: 'taifex', kindID: '1', cid: base };
       // 股票期貨 (CDF/DHF...) → 用 STOCK_FUTURES 的 kind
-      if (typeof STOCK_FUTURES !== 'undefined' && STOCK_FUTURES[sym]) {
-        return { method: 'taifex', kindID: STOCK_FUTURES[sym].kind || '4', cid: sym };
+      if (typeof STOCK_FUTURES !== 'undefined' && STOCK_FUTURES[base]) {
+        return { method: 'taifex', kindID: STOCK_FUTURES[base].kind || '4', cid: base };
       }
       // 未知合約 → 先試 KindID '1' 再 '4'
-      return { method: 'taifex', kindID: '1', cid: sym };
+      return { method: 'taifex', kindID: '1', cid: base };
     }
     if (mkt === 'us') {
       // CME/CBOT 期貨：使用主力合約解析
