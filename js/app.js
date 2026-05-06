@@ -983,6 +983,7 @@ const DEFAULT_SETTINGS = {
   showCreditSpread: true,
   showTreasury: true,
   showBreadth: true,
+  showRegime: true,        // 市場 Regime 偵測 pill（基於 Spectral Clustering 文獻）
   defaultMarket: 'tw',
   twSource: 'twse',        // 'yahoo' | 'twse' | 'tpex'
   usSource: 'yahoo',       // 'yahoo' | 'finnhub'
@@ -2086,6 +2087,110 @@ document.addEventListener('mouseout', (e) => {
 });
 window.addEventListener('scroll', _hideSentTooltip, { passive: true });
 
+// ── Market Regime Detection（rule-based, hierarchical）——
+// 4 個市場狀態（對應 Simonian & Wu 2019 + Substack 文章 2）
+// goldilocks / inflation / stress / recovery
+const _REGIME_INFO = {
+  goldilocks: {
+    name: 'Goldilocks',
+    desc: '低波動 + 信用寬鬆 + 通膨溫和 — 風險資產友善',
+    advice: '可正常配置成長股；停損維持 ATR×2；可使用槓桿但不過度。',
+    favored: '科技股、成長股、高 beta',
+  },
+  inflation: {
+    name: 'Inflation Shock',
+    desc: '通膨預期升高 + 殖利率走升 — 成長股承壓',
+    advice: '降低長天期成長股；提高現金/原物料配置；縮短持倉週期。',
+    favored: '能源、原物料、價值股、TIPS',
+  },
+  stress: {
+    name: 'Credit Stress',
+    desc: '信用利差擴大 + VIX 高 + 流動性收縮 — 風險資產普跌',
+    advice: '部位縮減至 50%；停損收緊至 ATR×1；避免攤平；現金為王。',
+    favored: '美元、長債、黃金、避險資產',
+  },
+  recovery: {
+    name: 'Recovery Transition',
+    desc: '恐慌消退 + 利差收斂 + 通膨回落 — 復甦輪動初期',
+    advice: '中性配置；觀察 cyclical 輪動；可分批佈局景氣循環股。',
+    favored: '小型股、工業股、原物料、Cyclicals',
+  },
+  unknown: {
+    name: '資料不足',
+    desc: '宏觀指標尚未載入完整',
+    advice: '等待 VIX、OAS、5Y BEI 載入後再判斷。',
+    favored: '—',
+  },
+};
+
+function _detectRegimePill(s) {
+  const r = _classifyRegime(s);
+  const info = _REGIME_INFO[r.id];
+  const tip = `${info.name} — ${info.desc}\n\n` +
+    `信心度：${r.score}/100\n` +
+    (r.factors.length ? `關鍵訊號：\n${r.factors.map(f => '· ' + f).join('\n')}\n\n` : '') +
+    `建議：${info.advice}\n` +
+    `偏好資產：${info.favored}\n\n` +
+    `（基於 VIX、HY OAS、5Y BEI、10Y、F&G 之 rule-based 分類；參考 Spectral Clustering 文獻）`;
+  return `<span class="regime-pill" data-r="${r.id}" title="${tip.replace(/"/g, '&quot;')}">
+    <span class="regime-dot"></span>
+    <span class="regime-name">${info.name}</span>
+    <span class="regime-score">${r.score}</span>
+  </span>`;
+}
+
+function _classifyRegime(s) {
+  // 提取輸入（容錯：null/undefined → 跳過該維度）
+  const vix = (typeof s.vix === 'number') ? s.vix : null;
+  const vix3m = (typeof s.vix3m === 'number') ? s.vix3m : null;
+  const oas = (typeof s.oas === 'number') ? s.oas : null;
+  const oasChg = (typeof s.oasChg === 'number') ? s.oasChg : 0;
+  const bei = (typeof s.bei === 'number') ? s.bei : null;
+  const beiChg = (typeof s.beiChg === 'number') ? s.beiChg : 0;
+  const tnxChg = (typeof s.tnxChg === 'number') ? s.tnxChg : 0;
+  const fg = (typeof s.fg === 'number') ? s.fg : null;
+
+  const factors = [];
+  let stressScore = 0, inflationScore = 0, goldiScore = 0, recoveryScore = 0;
+
+  // ── Stress 訊號 ──
+  if (vix != null && vix >= 25) { stressScore += 30; factors.push(`VIX ${vix.toFixed(1)} 高位`); }
+  else if (vix != null && vix >= 20) stressScore += 12;
+  if (vix != null && vix3m && (vix / vix3m >= 1.0)) { stressScore += 20; factors.push('期限結構逆價差（短期恐慌）'); }
+  if (oas != null && oas >= 5) { stressScore += 30; factors.push(`HY OAS ${oas.toFixed(2)}% 顯著擴大`); }
+  else if (oas != null && oas >= 4) stressScore += 12;
+  if (oasChg > 0.15) { stressScore += 10; factors.push('信用利差擴大中'); }
+  if (fg != null && fg <= 25) { stressScore += 10; factors.push(`F&G ${fg} 極度恐懼`); }
+
+  // ── Inflation Shock 訊號 ──
+  if (bei != null && bei >= 2.7) { inflationScore += 25; factors.push(`5Y BEI ${bei.toFixed(2)}% 偏高`); }
+  if (beiChg > 0.05) { inflationScore += 15; factors.push('通膨預期上升中'); }
+  if (tnxChg > 0.05) { inflationScore += 15; factors.push('10Y 殖利率走升'); }
+  if (vix != null && vix >= 18 && vix < 25) inflationScore += 8;
+
+  // ── Goldilocks 訊號 ──
+  if (vix != null && vix < 17) { goldiScore += 25; factors.push(`VIX ${vix.toFixed(1)} 低位`); }
+  if (oas != null && oas < 3.5) { goldiScore += 20; factors.push(`HY OAS ${oas.toFixed(2)}% 信用寬鬆`); }
+  if (vix != null && vix3m && (vix / vix3m < 0.92)) { goldiScore += 12; factors.push('期限結構正價差（穩定）'); }
+  if (bei != null && bei >= 2.0 && bei < 2.6) goldiScore += 10;
+  if (fg != null && fg >= 60) goldiScore += 10;
+
+  // ── Recovery 訊號 ──
+  if (vix != null && vix >= 17 && vix < 22) recoveryScore += 12;
+  if (oasChg < -0.1) { recoveryScore += 18; factors.push('信用利差收斂'); }
+  if (beiChg < 0 && bei != null && bei < 2.7) recoveryScore += 12;
+  if (fg != null && fg >= 35 && fg < 60) recoveryScore += 10;
+
+  const scores = { stress: stressScore, inflation: inflationScore, goldilocks: goldiScore, recovery: recoveryScore };
+  const total = stressScore + inflationScore + goldiScore + recoveryScore;
+  if (total < 15) return { id: 'unknown', score: 0, factors: [] };
+  let bestId = 'unknown', bestScore = -1;
+  for (const k of Object.keys(scores)) if (scores[k] > bestScore) { bestScore = scores[k]; bestId = k; }
+  // confidence (0-100)
+  const confidence = Math.min(100, Math.round((bestScore / Math.max(total, 1)) * 100 + Math.min(20, total / 5)));
+  return { id: bestId, score: confidence, factors: factors.slice(0, 5) };
+}
+
 function _renderSentimentStrip() {
   const strip = $('#sentiment-strip');
   if (!strip) return;
@@ -2247,6 +2352,17 @@ function _renderSentimentStrip() {
     gauges.fg = _pill('fg', 'F&G', String(fgData.score), lv, _chg(chg, 0, false), fgTip, 'https://edition.cnn.com/markets/fear-and-greed');
   }
 
+  // ── 市場 Regime 偵測（rule-based）——
+  // 靈感：Substack「AI 協助資產管理 — Spectral Clustering 與市場狀態辨識」
+  // 用既有 sentiment data 即時辨識當前市場狀態：Goldilocks / Inflation / Stress / Recovery
+  const regimePill = _detectRegimePill({
+    vix: vixVal, vix3m: vix3mQ?.price, vix1d: vix1dQ?.price,
+    oas: csData?.spread, oasChg: csData?.change,
+    bei: beData?.rate, beiChg: beData?.change,
+    tnx: tnxQ?.price, tnxChg: tnxQ?.change,
+    fg: fgData?.score,
+  });
+
   // Group gauges by category
   const _SENT_GROUPS = [
     { id: 'vol', label: '波動率', keys: ['vix', 'vvix', 'vix1d', 'vix3m', 'vixRatio', 'gex'] },
@@ -2254,6 +2370,9 @@ function _renderSentimentStrip() {
     { id: 'mood', label: '情緒', keys: ['breadth', 'fg'] },
   ];
   let html = '';
+  if (regimePill && CFG.showRegime !== false) {
+    html += `<div class="sent-group"><span class="sent-group-label">狀態</span><div class="sent-group-chips">${regimePill}</div></div>`;
+  }
   for (const g of _SENT_GROUPS) {
     const pills = g.keys.filter(k => gauges[k]).map(k => gauges[k]);
     if (pills.length === 0) continue;

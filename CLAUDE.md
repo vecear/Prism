@@ -20,8 +20,9 @@ Prism/
 ├── index.html                        # 頁面結構，所有 tab 的 HTML 骨架
 ├── css/style.css                     # 全域樣式 + design tokens + 6 種主題
 ├── js/
-│   ├── app.js                        # 主模組：計算引擎、PriceService、UI 渲染、設定面板、Guide
-│   └── journal.js                    # 交易日誌：CRUD、5 視圖（list/calendar/stats/holdings/diary）、Auth UI
+│   ├── ml.js                         # ML 工具：K-Means、Spectral Clustering、Z-score、silhouette
+│   ├── app.js                        # 主模組：計算引擎、PriceService、UI 渲染、設定面板、Guide、Regime 偵測
+│   └── journal.js                    # 交易日誌：CRUD、5 視圖（list/calendar/stats/holdings/diary）、Auth UI、行為分群
 ├── server.js                         # 本機單機 Node 伺服器（使用 node:sqlite）
 ├── _worker.js                        # Cloudflare Worker：API 路由、CORS proxy、DB 遷移
 ├── sw.js                             # Service Worker：離線快取策略
@@ -38,6 +39,10 @@ Prism/
 
 | 功能 | 檔案 | 說明 |
 |------|------|------|
+| ML 工具（K-Means / Spectral / Z-score） | `js/ml.js` | `window.PrismML.{kmeans, kmeansAuto, zscoreMatrix, spectralCluster, clusterSummary, relabelBySize}` |
+| 市場 Regime 偵測 | `js/app.js` → `_classifyRegime()` / `_detectRegimePill()` | 4 狀態（goldilocks/inflation/stress/recovery）rule-based 分類，靈感取自 Spectral Clustering 文獻 |
+| 持倉行為分群 | `js/journal.js` → `_renderHoldingsClusterBar()` | K-Means 自動 k 選擇，揭露持倉的隱藏集中度 |
+| 交易行為分群 | `js/journal.js` → `_renderTradeClusters()` / `_renderClusterScatter()` | 對 closed trades 做 K-Means，找出最賺/最賠模式 |
 | 計算引擎（股票/期貨/選擇權/加密貨幣） | `js/app.js` | 各 tab 的 `renderXxxInputs()` + `calcXxx()` |
 | 即時報價服務 | `js/app.js` → `PriceService` | 多來源架構，含 CORS proxy fallback |
 | 指數定義 | `js/app.js` → `INDEX_DEFS` | 12 個指數/幣種的定義 |

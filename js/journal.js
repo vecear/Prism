@@ -2288,6 +2288,80 @@ function renderTradeList() {
 }
 
 // ================================================================
+//  Holdings clustering bar — 揭露持倉的隱藏集中度
+//  靈感：Substack「AI 協助資產管理 — Clustering 入門」
+//  按行為（市場/類型/方向/規模）分群，看出「表面分散、實質集中」
+// ================================================================
+function _renderHoldingsClusterBar(groupList) {
+  if (!window.PrismML || !groupList || groupList.length < 4) return '';
+  const PAL = ['var(--accent)', 'var(--blue)', 'var(--green)', 'var(--amber)'];
+
+  // 特徵向量（per holding group）
+  // 規模、方向、市場 one-hot、商品類型 one-hot、未實現損益率
+  const TYPE_NUM = { stock: 0, etf: 0.2, futures: 0.6, options: 0.8, crypto: 1 };
+  const MKT_NUM = { tw: 0, us: 0.5, crypto: 1 };
+  const features = [];
+  const valid = [];
+  for (const g of groupList) {
+    const cost = Math.abs(g.totalNotional) || 1;
+    const upl = g.hasQuote ? (g.unrealized / cost * 100) : 0;
+    features.push([
+      Math.log(cost + 1),
+      g.direction === 'long' ? 1 : -1,
+      MKT_NUM[g.market] != null ? MKT_NUM[g.market] : 0.5,
+      TYPE_NUM[g.type] != null ? TYPE_NUM[g.type] : 0.5,
+      Math.max(-30, Math.min(30, upl)),
+    ]);
+    valid.push(g);
+  }
+  if (features.length < 4) return '';
+  const { z } = window.PrismML.zscoreMatrix(features);
+  const result = window.PrismML.kmeansAuto(z, { maxK: Math.min(4, Math.floor(features.length / 2)), minK: 2, seed: 42 });
+  const k = result.k || 1;
+  const labels = window.PrismML.relabelBySize(result.labels, k);
+
+  // 各群統計
+  const groups = Array.from({ length: k }, () => []);
+  labels.forEach((l, i) => groups[l].push(valid[i]));
+  const totalCost = valid.reduce((s, g) => s + Math.abs(g.totalNotional || 0), 0) || 1;
+  const ML = { tw: '台股', us: '美股', crypto: '加密' };
+  const TL = (typeof TYPE_LABELS !== 'undefined') ? TYPE_LABELS : {};
+
+  const pills = groups.map((gs, ci) => {
+    const sumCost = gs.reduce((s, g) => s + Math.abs(g.totalNotional || 0), 0);
+    const pct = (sumCost / totalCost * 100);
+    const sumUPL = gs.reduce((s, g) => s + (g.hasQuote ? g.unrealized : 0), 0);
+    const mkts = [...new Set(gs.map(g => ML[g.market] || g.market))];
+    const types = [...new Set(gs.map(g => TL[g.type] || g.type))];
+    const dirs = [...new Set(gs.map(g => g.direction))];
+    const dirLabel = dirs.length === 1 ? (dirs[0] === 'long' ? '多' : '空') : '混';
+    const symbols = gs.map(g => g.symbol).slice(0, 4).join('・') + (gs.length > 4 ? `…(+${gs.length - 4})` : '');
+    return `<span class="j-hcluster-pill" title="${esc(symbols)}\n佔比 ${pct.toFixed(1)}%\n未實現損益 ${(typeof fmtMoney === 'function') ? fmtMoney(sumUPL, gs[0].market) : sumUPL.toFixed(0)}">
+      <span class="dot" style="background:${PAL[ci % PAL.length]}"></span>
+      <strong>群${ci + 1}</strong>
+      <span style="color:var(--t2)">${gs.length}檔・${pct.toFixed(0)}%</span>
+      <span style="color:var(--t3);font-size:10px">${mkts.join('/')}・${types.slice(0, 2).join('/')}・${dirLabel}</span>
+    </span>`;
+  }).join('');
+
+  // 集中度警告
+  const maxPct = Math.max(...groups.map(gs => gs.reduce((s, g) => s + Math.abs(g.totalNotional || 0), 0) / totalCost * 100));
+  let warn = '';
+  if (maxPct >= 60 && groups.length > 1) {
+    const dom = groups[groups.findIndex(gs => gs.reduce((s, g) => s + Math.abs(g.totalNotional || 0), 0) / totalCost * 100 === maxPct)];
+    const types = [...new Set(dom.map(g => TL[g.type] || g.type))].join('/');
+    const mkts = [...new Set(dom.map(g => ML[g.market] || g.market))].join('/');
+    warn = `<div class="j-hcluster-warn">⚠️ 你以為持有 ${valid.length} 檔分散，但行為上 ${maxPct.toFixed(0)}% 都集中在「${mkts}・${types}」這群。考慮跨群分散。</div>`;
+  }
+
+  return `<div class="j-holdings-cluster-bar">
+    <span style="color:var(--t3);font-size:11px;margin-right:4px">AI 行為分群</span>
+    ${pills}
+    ${warn ? '' : `<span style="margin-left:auto;color:var(--t3);font-size:10px;font-family:var(--mono)">k=${k} · sil ${result.score.toFixed(2)}</span>`}
+  </div>${warn}`;
+}
+
+// ================================================================
 //  Holdings (庫存)
 // ================================================================
 function renderHoldings() {
@@ -2370,6 +2444,9 @@ function renderHoldings() {
   const uplSummary = mktKeys.map(m => `<strong class="${uplByMkt[m] >= 0 ? 'tg' : 'tr'}">${fmtMoney(uplByMkt[m], m)}</strong>`).join(' ');
 
   let h = `<div class="j-summary-bar"><span>持倉 <strong>${openTrades.length}</strong> 筆（<strong>${groupList.length}</strong> 檔商品）</span>${mktKeys.length ? `<span>未實現淨損益：${uplSummary}</span>` : ''}</div>`;
+
+  // AI 持倉行為分群（K-Means）
+  h += _renderHoldingsClusterBar(groupList);
 
   // Desktop: holdings table
   h += `<div class="j-table-wrap"><table class="j-table j-holdings-table"><thead><tr><th>商品</th><th>方向</th><th>數量</th><th title="均價已含交易成本">現價 / 均價</th><th title="成本已含交易成本">市值 / 成本</th><th title="淨損益 = 原損益 - 交易成本（台股含預估賣出費用）">未實現淨損益</th><th>筆數</th><th></th></tr></thead><tbody>`;
@@ -3530,6 +3607,13 @@ function renderStatsPage(st, market, fm) {
   const sec3 = `<div class="j-stats-section"><div class="j-section-title">維度分析</div>${dimPills}${dimTable}</div>`;
 
   // ================================================================
+  //  Section 3.5: AI 行為分群（Trade Clustering）
+  //  靈感：Substack「AI 協助資產管理 — Clustering 入門」
+  //  把所有平倉交易按行為特徵分群，揭露「最賺/最賠的那群交易長什麼樣」
+  // ================================================================
+  const secCluster = _renderTradeClusters(pls, fm);
+
+  // ================================================================
   //  Tutorial (collapsed)
   // ================================================================
   const sec4 = `<div class="j-stats-section" style="padding:4px 8px">
@@ -3548,7 +3632,165 @@ function renderStatsPage(st, market, fm) {
     </div></div>
   </div>`;
 
-  return sec1 + sec2 + sec3 + sec4;
+  return sec1 + sec2 + sec3 + secCluster + sec4;
+}
+
+// ================================================================
+//  Trade Behavior Clustering（K-Means on closed trades）
+// ================================================================
+function _renderTradeClusters(pls, fm) {
+  if (!window.PrismML) return '';
+  if (!pls || pls.length < 6) {
+    return `<div class="j-stats-section"><div class="j-section-title">AI 行為分群</div>
+      <div style="padding:14px;color:var(--t3);font-size:.85rem">需至少 6 筆已平倉交易才能進行分群（目前 ${pls?.length||0} 筆）</div>
+    </div>`;
+  }
+
+  // 特徵向量（log scale 處理 + 標準化）
+  const FEATS = ['持倉天數', '報酬率%', '部位規模', '方向', '有停損', '時段', '評分'];
+  const features = [];
+  const valid = [];
+  for (const t of pls) {
+    const en = parseFloat(t.entryPrice), qty = parseFloat(t.quantity);
+    if (isNaN(en) || isNaN(qty) || en <= 0 || qty <= 0) continue;
+    const mul = (typeof getContractMul === 'function') ? getContractMul(t) : 1;
+    const cost = en * qty * mul;
+    if (cost <= 0) continue;
+    const days = Math.max(0, Math.round((new Date(t.updatedAt || t.date) - new Date(t.date)) / 86400000));
+    const retPct = (t.pl.net / cost) * 100;
+    const hour = new Date(t.date).getHours();
+    features.push([
+      Math.log(days + 1),
+      Math.max(-50, Math.min(50, retPct)),  // clip 極端值
+      Math.log(cost + 1),
+      t.direction === 'long' ? 1 : -1,
+      (t.stopLoss && parseFloat(t.stopLoss) > 0) ? 1 : 0,
+      hour < 12 ? 0 : 1,
+      (t.rating || 0) / 5,
+    ]);
+    valid.push(t);
+  }
+  if (features.length < 6) {
+    return `<div class="j-stats-section"><div class="j-section-title">AI 行為分群</div>
+      <div style="padding:14px;color:var(--t3);font-size:.85rem">有效樣本不足</div>
+    </div>`;
+  }
+
+  const { z } = window.PrismML.zscoreMatrix(features);
+  const result = window.PrismML.kmeansAuto(z, { maxK: Math.min(4, Math.floor(features.length / 3)), minK: 2, seed: 42 });
+  const k = result.k || 1;
+  const labels = window.PrismML.relabelBySize(result.labels, k);
+
+  // 各群統計（在原始尺度上計算 mean）
+  const summary = window.PrismML.clusterSummary(features, labels, k, FEATS);
+  const groups = Array.from({ length: k }, () => []);
+  labels.forEach((l, i) => groups[l].push(valid[i]));
+
+  // 為每群生成「人話」標籤
+  const PAL = ['var(--accent)', 'var(--blue)', 'var(--green)', 'var(--amber)'];
+  const cards = groups.map((trades, ci) => {
+    const c = summary[ci];
+    const days = Math.exp(c.mean[0]) - 1;
+    const ret = c.mean[1];
+    const dir = c.mean[3];
+    const hasSL = c.mean[4];
+    const time = c.mean[5];
+    const wins = trades.filter(t => t.pl.net > 0).length;
+    const wr = trades.length ? (wins / trades.length * 100).toFixed(0) : 0;
+    const totalNet = trades.reduce((s, t) => s + t.pl.net, 0);
+    const avgNet = trades.length ? totalNet / trades.length : 0;
+
+    // 自動命名
+    const tags = [];
+    if (days < 1.5) tags.push('當沖/短線');
+    else if (days > 14) tags.push('波段');
+    else tags.push('短中線');
+    if (Math.abs(dir) > 0.6) tags.push(dir > 0 ? '偏多' : '偏空');
+    if (hasSL > 0.7) tags.push('有停損紀律');
+    else if (hasSL < 0.3) tags.push('多無停損');
+    if (time > 0.7) tags.push('盤後/夜盤');
+
+    const perfCls = avgNet >= 0 ? 'tg' : 'tr';
+    const wrCls = wr >= 50 ? 'tg' : 'tr';
+    return `<div class="j-cluster-card" style="border-left-color:${PAL[ci % PAL.length]}" data-cluster="${ci}">
+      <div class="j-cluster-hd">
+        <span class="j-cluster-dot" style="background:${PAL[ci % PAL.length]}"></span>
+        <strong>群 ${ci + 1}</strong>
+        <span class="j-cluster-count">${trades.length} 筆</span>
+      </div>
+      <div class="j-cluster-tags">${tags.map(t => `<span class="j-cluster-tag">${esc(t)}</span>`).join('')}</div>
+      <div class="j-cluster-metrics">
+        <div><span class="j-cluster-lbl">勝率</span><span class="j-cluster-val ${wrCls}">${wr}%</span></div>
+        <div><span class="j-cluster-lbl">均損益</span><span class="j-cluster-val ${perfCls}">${fm(avgNet)}</span></div>
+        <div><span class="j-cluster-lbl">總損益</span><span class="j-cluster-val ${totalNet>=0?'tg':'tr'}">${fm(totalNet)}</span></div>
+        <div><span class="j-cluster-lbl">均持倉</span><span class="j-cluster-val">${days < 1 ? (days * 24).toFixed(1) + 'h' : days.toFixed(1) + 'd'}</span></div>
+        <div><span class="j-cluster-lbl">均報酬</span><span class="j-cluster-val ${ret>=0?'tg':'tr'}">${ret >= 0 ? '+' : ''}${ret.toFixed(2)}%</span></div>
+      </div>
+    </div>`;
+  }).join('');
+
+  // 散布圖：x = 持倉天數(log), y = 報酬率%, 顏色 = cluster
+  const scatter = _renderClusterScatter(features, labels, valid, k, PAL);
+
+  // 找出最佳/最差群
+  const groupStats = groups.map((g, i) => ({
+    i, count: g.length,
+    avgPL: g.length ? g.reduce((s, t) => s + t.pl.net, 0) / g.length : 0,
+    wr: g.length ? g.filter(t => t.pl.net > 0).length / g.length : 0,
+  }));
+  const bestG = [...groupStats].filter(g => g.count >= 2).sort((a, b) => b.avgPL - a.avgPL)[0];
+  const worstG = [...groupStats].filter(g => g.count >= 2).sort((a, b) => a.avgPL - b.avgPL)[0];
+  let insight = '';
+  if (bestG && worstG && bestG.i !== worstG.i) {
+    insight = `<div class="j-cluster-insight">
+      <span class="j-insight-icon">💡</span>
+      <span><strong>群 ${bestG.i + 1}</strong> 是你最賺錢的行為模式（均 ${fm(bestG.avgPL)}、勝率 ${(bestG.wr * 100).toFixed(0)}%），
+      <strong>群 ${worstG.i + 1}</strong> 最虧損（均 ${fm(worstG.avgPL)}、勝率 ${(worstG.wr * 100).toFixed(0)}%）。
+      考慮專注前者、減少後者的交易頻率。</span>
+    </div>`;
+  }
+
+  return `<div class="j-stats-section">
+    <div class="j-section-title">AI 行為分群 <span class="j-section-sub">K-Means · k=${k} · silhouette ${result.score.toFixed(2)}</span></div>
+    <div class="j-cluster-grid">${cards}</div>
+    ${insight}
+    ${scatter}
+    <details class="j-cluster-help"><summary>這在做什麼？</summary>
+      <p>把每筆已平倉交易轉成 7 維向量（持倉天數、報酬率、部位規模、方向、是否設停損、時段、評分），用 K-Means 找出「行為相似」的交易群。</p>
+      <p>這呼應 Clustering 的核心觀念：<em>算所有交易的平均沒意義，要先分群才知道哪種模式有效</em>。</p>
+    </details>
+  </div>`;
+}
+
+function _renderClusterScatter(features, labels, trades, k, palette) {
+  const W = 560, H = 200, pad = 28;
+  const xs = features.map(f => f[0]);    // log holdDays
+  const ys = features.map(f => f[1]);    // return %
+  const xMin = Math.min(...xs), xMax = Math.max(...xs);
+  const yMin = Math.min(...ys, -1), yMax = Math.max(...ys, 1);
+  const xRange = xMax - xMin || 1, yRange = yMax - yMin || 1;
+  const sx = v => pad + (v - xMin) / xRange * (W - pad * 2);
+  const sy = v => H - pad - (v - yMin) / yRange * (H - pad * 2);
+  const zeroY = sy(0);
+  const dots = features.map((f, i) => {
+    const t = trades[i];
+    const days = Math.exp(f[0]) - 1;
+    const r = Math.min(7, 3 + Math.log((parseFloat(t.entryPrice) * parseFloat(t.quantity)) || 1) / 3);
+    return `<circle cx="${sx(f[0]).toFixed(1)}" cy="${sy(f[1]).toFixed(1)}" r="${r.toFixed(1)}"
+      fill="${palette[labels[i] % palette.length]}" fill-opacity="0.7" stroke="var(--bg1)" stroke-width="0.8">
+      <title>${esc(t.symbol)} · ${days.toFixed(1)}d · ${f[1].toFixed(2)}% · 群${labels[i]+1}</title></circle>`;
+  }).join('');
+  return `<div class="j-cluster-scatter-wrap">
+    <div class="j-cluster-scatter-hd">行為散布圖（X：持倉天數 log，Y：報酬率 %，色：群）</div>
+    <svg viewBox="0 0 ${W} ${H}" class="j-cluster-scatter" preserveAspectRatio="xMidYMid meet">
+      <line x1="${pad}" y1="${zeroY}" x2="${W - pad}" y2="${zeroY}" stroke="var(--bdr)" stroke-dasharray="2 3"/>
+      <line x1="${pad}" y1="${pad}" x2="${pad}" y2="${H - pad}" stroke="var(--bdr)"/>
+      <line x1="${pad}" y1="${H - pad}" x2="${W - pad}" y2="${H - pad}" stroke="var(--bdr)"/>
+      <text x="${pad - 4}" y="${zeroY + 3}" font-size="9" fill="var(--t3)" text-anchor="end">0%</text>
+      <text x="${W - pad}" y="${H - 6}" font-size="9" fill="var(--t3)" text-anchor="end">長期 →</text>
+      ${dots}
+    </svg>
+  </div>`;
 }
 
 // Cache computed stats for dimension switching without re-render
