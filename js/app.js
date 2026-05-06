@@ -23,6 +23,79 @@ const OK_SVG = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48
 const PLACEHOLDER = '<div class="results-placeholder"><p>輸入參數即可即時計算</p></div>';
 function _scrollToResults() { /* disabled — mobile users scroll manually */ }
 
+// ── Formula tab post-processor ──────────────────────────────────
+// 把扁平的內聯等式重組成結構化的 [標題] + [結果] + [計算過程] 卡片格式
+// 規則：
+//  - 含 .r（結果） → 拆成 label/result/expr 三段式 grid
+//  - 無 .r 但有 .v → 描述列（full-width，例如「② 逾期未補繳：...」）
+//  - 兩者皆無 → 連續行（保留原樣，作為前一行的延續）
+function _formatFormulaPanel(panel) {
+  if (!panel) return;
+  const rows = panel.querySelectorAll(':scope > .fb > .fl, :scope > .fb > span.fl');
+  rows.forEach(row => {
+    if (row.dataset.fmtok === '1') return;
+    row.dataset.fmtok = '1';
+    const v = row.querySelector(':scope > .v');
+    const rs = row.querySelectorAll(':scope > .r');
+    const r = rs.length ? rs[rs.length - 1] : null;
+    if (!r) {
+      // 無結果 → 描述列
+      row.classList.add('fmla-desc');
+      return;
+    }
+    // 有結果：拆成 label / result / expr
+    const labelText = v ? v.textContent : '';
+    const resultHTML = r.innerHTML;
+    const resultExtraClasses = [...r.classList].filter(c => c !== 'r').join(' ');
+    // 收集中間表達式（排除 v 與 r）
+    const tmp = document.createElement('span');
+    let foundV = false, foundR = false;
+    [...row.childNodes].forEach(n => {
+      if (n === v) { foundV = true; return; }
+      if (n === r) { foundR = true; return; }
+      tmp.appendChild(n.cloneNode(true));
+    });
+    // 修剪頭尾的 "=" / 空白
+    let exprHTML = tmp.innerHTML.trim();
+    exprHTML = exprHTML.replace(/^(\s|<span class="o">\s*=\s*<\/span>)+/g, '');
+    exprHTML = exprHTML.replace(/(\s|<span class="o">\s*=\s*<\/span>)+$/g, '');
+    const exprText = exprHTML.replace(/<[^>]+>/g, '').trim();
+    const showExpr = exprText.length > 0;
+    row.classList.add('fmla-row');
+    row.innerHTML =
+      `<div class="fmla-label">${labelText || ' '}</div>` +
+      `<div class="fmla-result ${resultExtraClasses}">${resultHTML}</div>` +
+      (showExpr ? `<div class="fmla-expr">${exprHTML}</div>` : '');
+  });
+}
+
+function _initFormulaObservers() {
+  const ids = ['margin-results', 'futures-results', 'options-results', 'crypto-results'];
+  const obs = new MutationObserver(muts => {
+    const panels = new Set();
+    muts.forEach(m => {
+      const t = m.target;
+      if (!(t instanceof Element)) return;
+      // panel = .sub-pane > .fc
+      t.querySelectorAll?.('.sub-pane > .fc').forEach(p => panels.add(p));
+      const closestFc = t.closest && t.closest('.sub-pane > .fc');
+      if (closestFc) panels.add(closestFc);
+    });
+    panels.forEach(_formatFormulaPanel);
+  });
+  ids.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) obs.observe(el, { childList: true, subtree: true });
+  });
+  // 也對任何已存在的公式面板做一次初始格式化
+  ids.forEach(id => document.getElementById(id)?.querySelectorAll('.sub-pane > .fc').forEach(_formatFormulaPanel));
+}
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', _initFormulaObservers);
+} else {
+  _initFormulaObservers();
+}
+
 // ── Section helper for input panel UI ──
 const _secIcon = {
   product: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>',

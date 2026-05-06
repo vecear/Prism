@@ -2187,145 +2187,215 @@ html[data-theme="light"] select {
 .fb { display: block; margin-bottom: 8px; }
 
 /* ──────────────────────────────────────────────────────────
-   計算公式 Tab — 卡片化公式展示
-   `.fc` class 在 input row 與 formula container 兩處共用；
-   以 `.sub-pane >` 限定範圍只覆寫公式情境，不影響輸入欄位。
+   計算公式 Tab — 結構化公式展示
+   JS post-processor 把每個 .fl 重組為 [label][result][expr]
+   未含 .r 的描述列加上 .fmla-desc 走 full-width 排版
    ────────────────────────────────────────────────────────── */
 .sub-pane > .fc {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
   gap: var(--space-4);
   padding: var(--space-3);
   margin: 0;
-  align-items: stretch;
-  counter-reset: formula-section;
+  align-items: start;
 }
 .sub-pane > .fc > .fb {
   background: var(--bg1);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
-  padding: var(--space-4) var(--space-5);
+  padding: 0;
   margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 0;
   position: relative;
+  overflow: hidden;
   box-shadow: var(--shadow-sm);
 }
 .sub-pane > .fc > .fb > h4 {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  font-size: var(--text-sm);
+  font-size: 13px;
   font-weight: 600;
   color: var(--t1);
-  margin: 0 0 var(--space-3);
-  padding-bottom: var(--space-2);
+  margin: 0;
+  padding: 12px 16px;
+  background: var(--bg2);
   border-bottom: 1px solid var(--line);
-  letter-spacing: 0.01em;
+  letter-spacing: 0.02em;
 }
 .sub-pane > .fc > .fb > h4::before {
   content: "";
   display: block;
-  width: 3px;
-  height: 16px;
+  width: 3px; height: 14px;
   background: var(--accent);
   border-radius: 2px;
   flex-shrink: 0;
 }
 
-/* Formula row — 覆寫 .fl 的 flex column，改為單行 equation */
-.sub-pane > .fc > .fb > .fl,
-.sub-pane > .fc > .fb span.fl {
-  display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
+/* ── Equation row（含結果） ── */
+.sub-pane > .fc .fl.fmla-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas:
+    "label result"
+    "expr  expr";
+  column-gap: 16px;
+  row-gap: 4px;
   align-items: baseline;
-  gap: 3px 6px;
+  padding: 12px 16px;
   margin: 0;
-  padding: var(--space-2) 0;
-  font-size: var(--text-xs);
-  line-height: 1.7;
-  border-bottom: 1px dashed var(--line);
-  font-family: inherit;
-}
-.sub-pane > .fc > .fb > .fl:last-of-type,
-.sub-pane > .fc > .fb span.fl:last-of-type { border-bottom: 0; }
-.sub-pane > .fc > .fb > .fl + .fl,
-.sub-pane > .fc > .fb span.fl + span.fl { /* tighter spacing between adjacent rows */ }
-
-/* Span semantic styling */
-.sub-pane > .fc .v {
-  color: var(--t1);
+  border-bottom: 1px solid var(--line);
   font-family: var(--sans);
-  font-weight: 600;
-  letter-spacing: 0;
-  margin-right: 2px;
 }
-.sub-pane > .fc .o {
+.sub-pane > .fc .fl.fmla-row:last-of-type { border-bottom: 0; }
+.sub-pane > .fc .fmla-label {
+  grid-area: label;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--t1);
+  line-height: 1.4;
+}
+.sub-pane > .fc .fmla-result {
+  grid-area: result;
+  font-size: 15px;
+  font-weight: 700;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  white-space: nowrap;
+  letter-spacing: -0.01em;
+}
+.sub-pane > .fc .fmla-result.tg, .sub-pane > .fc .fmla-result[class*="tg"] { color: var(--green); }
+.sub-pane > .fc .fmla-result.tr, .sub-pane > .fc .fmla-result[class*="tr"] { color: var(--red); }
+.sub-pane > .fc .fmla-expr {
+  grid-area: expr;
+  font-size: 11px;
+  line-height: 1.6;
   color: var(--t3);
   font-family: var(--mono);
-  margin: 0 1px;
+  font-variant-numeric: tabular-nums;
+  word-break: break-word;
+  padding-left: 0;
+}
+.sub-pane > .fc .fmla-expr .v {
+  font-family: var(--sans);
+  color: var(--t3);
   font-weight: 500;
 }
-.sub-pane > .fc .n {
+.sub-pane > .fc .fmla-expr .o {
+  color: var(--t3);
+  margin: 0 2px;
+  font-weight: 500;
+}
+.sub-pane > .fc .fmla-expr .n {
+  color: var(--t2);
+  font-weight: 500;
+}
+.sub-pane > .fc .fmla-expr .r {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* ── Descriptive row（無結果，例如「② 逾期未補繳：...」） ── */
+.sub-pane > .fc .fl.fmla-desc {
+  display: block;
+  padding: 10px 16px;
+  margin: 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--t2);
+  font-family: var(--sans);
+}
+.sub-pane > .fc .fl.fmla-desc:last-of-type { border-bottom: 0; }
+.sub-pane > .fc .fl.fmla-desc .v {
+  font-family: var(--sans);
+  font-weight: 600;
+  color: var(--t1);
+}
+.sub-pane > .fc .fl.fmla-desc .o {
+  color: var(--t3);
+  margin: 0 2px;
+  font-family: var(--mono);
+}
+.sub-pane > .fc .fl.fmla-desc .n {
   color: var(--t2);
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
-  font-weight: 500;
 }
-.sub-pane > .fc .r {
-  color: var(--accent);
-  font-family: var(--mono);
-  font-variant-numeric: tabular-nums;
-  font-weight: 700;
-  padding: 1px 4px;
-  background: var(--accent-bg, rgba(0,0,0,0.04));
-  border-radius: var(--radius-sm);
-}
-.sub-pane > .fc .r.tg, .sub-pane > .fc span.r[class*="tg"] { color: var(--green); }
-.sub-pane > .fc .r.tr, .sub-pane > .fc span.r[class*="tr"] { color: var(--red); }
-.sub-pane > .fc strong {
+.sub-pane > .fc .fl.fmla-desc strong {
   color: var(--accent);
   font-weight: 700;
 }
 
-/* Note callout — 取代原本 .fn 的 monospace 純文字 */
-.sub-pane > .fc > .fb .fn {
-  margin-top: var(--space-3);
-  padding: var(--space-2) var(--space-3);
-  background: var(--bg2);
-  border-left: 2px solid var(--accent);
-  border-radius: var(--radius-sm);
+/* Fallback — 沒被 JS 處理到的 .fl（極少見），讓它至少不會跑回 flex column */
+.sub-pane > .fc .fl:not(.fmla-row):not(.fmla-desc) {
+  display: block;
+  padding: 10px 16px;
+  font-size: 12px;
+  line-height: 1.65;
   color: var(--t2);
-  font-size: var(--text-xs);
-  line-height: 1.6;
+  border-bottom: 1px solid var(--line);
+}
+.sub-pane > .fc .fl:not(.fmla-row):not(.fmla-desc):last-of-type { border-bottom: 0; }
+
+/* ── Note callout（.fn）── */
+.sub-pane > .fc > .fb .fn {
+  margin: 0;
+  padding: 10px 16px 12px;
+  background: var(--bg2);
+  border-top: 1px solid var(--line);
+  color: var(--t2);
+  font-size: 11.5px;
+  line-height: 1.65;
+  font-family: var(--sans);
+  position: relative;
+}
+.sub-pane > .fc > .fb .fn::before {
+  content: "ℹ";
+  display: inline-block;
+  margin-right: 6px;
+  color: var(--accent);
+  font-weight: 700;
   font-family: var(--sans);
 }
 .sub-pane > .fc > .fb .fn span {
   font-family: var(--mono);
   color: var(--t1);
   font-variant-numeric: tabular-nums;
+  font-weight: 500;
 }
 
-/* Mobile：單欄堆疊 */
+/* ── Mobile：單欄堆疊、字體微調 ── */
 @media (max-width: 768px) {
   .sub-pane > .fc {
     grid-template-columns: 1fr;
     padding: var(--space-2);
     gap: var(--space-3);
   }
-  .sub-pane > .fc > .fb {
-    padding: var(--space-3) var(--space-4);
-  }
   .sub-pane > .fc > .fb > h4 {
-    font-size: 13px;
+    padding: 10px 14px;
+    font-size: 12.5px;
   }
-  .sub-pane > .fc > .fb > .fl,
-  .sub-pane > .fc > .fb span.fl {
-    font-size: 11px;
-    line-height: 1.65;
+  .sub-pane > .fc .fl.fmla-row {
+    padding: 10px 14px;
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "label"
+      "result"
+      "expr";
+    row-gap: 2px;
   }
+  .sub-pane > .fc .fmla-label { font-size: 12px; }
+  .sub-pane > .fc .fmla-result {
+    font-size: 14px;
+    text-align: left;
+    margin-top: 2px;
+  }
+  .sub-pane > .fc .fmla-expr { font-size: 10.5px; }
+  .sub-pane > .fc .fl.fmla-desc { padding: 8px 14px; font-size: 11.5px; }
+  .sub-pane > .fc > .fb .fn { padding: 8px 14px 10px; font-size: 11px; }
 }
 .fn { font-family: var(--mono); }
 .fg { flex: 1; }
