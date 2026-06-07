@@ -82,6 +82,7 @@ let liveQuotes = {}; // { "symbol|market": { price, time } }
 let alertDismissed = {}; // dismissed SL/TP alerts this session
 let calMonth = null; // for calendar view: { year, month }
 let quickFilter = 'all'; // 'all' | 'today' | 'open' | 'winners' | 'losers'
+let _cbDismissedAt = 0; // 連敗熔斷提醒：記錄關閉時的連敗數，連敗加深會再次顯示
 
 // ── 視圖偏好持久化（viewMode + sortState）──
 const VIEW_PREFS_KEY = 'j-view-prefs';
@@ -99,6 +100,55 @@ function restoreViewPrefs() {
       sortState = { field: p.sortState.field, asc: !!p.sortState.asc };
     }
   } catch {}
+}
+
+// ================================================================
+//  風險管理設定（Van Tharp 部位規模 / 風險預算 / 連敗熔斷）
+//  純前端設定，存於 localStorage；雙後端皆無需變更
+// ================================================================
+const RISK_CFG_KEY = 'prism_risk_cfg';
+const RISK_CFG_DEFAULTS = { acct: { tw: 0, us: 0, crypto: 0 }, riskPct: 1, maxOpenRiskPct: 6, lossStreakAlert: 3 };
+function getRiskCfg() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(RISK_CFG_KEY) || '{}');
+    return { ...RISK_CFG_DEFAULTS, ...raw, acct: { ...RISK_CFG_DEFAULTS.acct, ...(raw.acct || {}) } };
+  } catch { return { ...RISK_CFG_DEFAULTS, acct: { ...RISK_CFG_DEFAULTS.acct } }; }
+}
+function setRiskCfg(patch) {
+  const cur = getRiskCfg();
+  const next = { ...cur, ...patch };
+  if (patch && patch.acct) next.acct = { ...cur.acct, ...patch.acct };
+  try { localStorage.setItem(RISK_CFG_KEY, JSON.stringify(next)); } catch {}
+  return next;
+}
+// 部位乘數（期貨/選擇權用合約乘數，其餘為 1）
+function riskMul(t) { return (isFuturesType(t.type) || t.type === 'options') ? (parseFloat(t.contractMul) || 1) : 1; }
+
+// 未平倉部位初始風險（|進場-停損| × 數量 × 乘數），依市場幣別分組；無停損者列為裸部位
+function computeOpenRisk() {
+  const byCur = {};
+  trades.filter(t => t.status === 'open').forEach(t => {
+    const m = MKT_CURRENCY[t.market] ? t.market : 'tw';
+    if (!byCur[m]) byCur[m] = { risk: 0, naked: [], positions: [] };
+    const en = parseFloat(t.entryPrice), sl = parseFloat(t.stopLoss), qty = parseFloat(t.quantity) || 0;
+    if (!isNaN(en) && !isNaN(sl) && sl > 0 && en !== sl && qty > 0) {
+      const r = Math.abs(en - sl) * qty * riskMul(t);
+      byCur[m].risk += r;
+      byCur[m].positions.push({ t, risk: r });
+    } else {
+      byCur[m].naked.push(t);
+    }
+  });
+  return byCur;
+}
+
+// 目前連續虧損筆數（依平倉日由近到遠）
+function currentLossStreak() {
+  const closed = trades.filter(t => t.status === 'closed').map(t => ({ ...t, pl: calcPL(t) })).filter(t => t.pl);
+  closed.sort((a, b) => (closedAttribDate(a) < closedAttribDate(b) ? 1 : -1));
+  let streak = 0;
+  for (const t of closed) { if (t.pl.net < 0) streak++; else break; }
+  return streak;
 }
 
 // ── API helpers ──
@@ -387,7 +437,7 @@ function newTrade() {
     tags: [], notes: '', status: 'open', contractMul: '',
     account: '', imageUrl: '', rating: 0,
     reviewDiscipline: 0, reviewTiming: 0, reviewSizing: 0,
-    pricingStage: '',
+    pricingStage: '', thesis: '',
   };
 }
 
@@ -437,7 +487,7 @@ function getLiveQuoteKey(t) { return `${t.symbol}|${t.market}`; }
 
 // ── CSV Export ──
 function exportCSV() {
-  const cols = ['date','market','type','symbol','name','direction','status','entryPrice','exitPrice','quantity','contractMul','stopLoss','takeProfit','fee','tax','account','rating','tags','notes','pricingStage'];
+  const cols = ['date','market','type','symbol','name','direction','status','entryPrice','exitPrice','quantity','contractMul','stopLoss','takeProfit','fee','tax','account','rating','tags','notes','pricingStage','thesis'];
   const filtered = getFilteredTrades();
   const rows = [cols.join(',')];
   for (const t of filtered) {
@@ -484,6 +534,7 @@ const BROKER_COL_ALIASES = {
   rating: ['rating'], tags: ['tags','標籤'],
   notes: ['notes','備註','Notes'], status: ['status','狀態'],
   pricingStage: ['pricingStage'],
+  thesis: ['thesis','論點'],
   _amount: ['淨收付金額','淨額','成交金額','金額','Amount','Net'],
   // 期貨/選擇權專用
   expiry: ['到期年月','契約月份','月份'],
@@ -1962,6 +2013,7 @@ function renderJournal() {
           <button class="j-act-btn" id="j-csv-import" title="匯入 CSV" aria-label="匯入 CSV"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button>
           <button class="j-act-btn" id="j-export-report" title="匯出報表" aria-label="匯出報表"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></button>
           <button class="j-act-btn ${batchMode?'active':''}" id="j-batch-toggle" title="批次操作" aria-label="批次操作"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg></button>
+          <button class="j-act-btn" id="j-pos-sizer" title="部位規模計算機" aria-label="部位規模計算機"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="8" y2="10"/><line x1="12" y1="10" x2="12" y2="10"/><line x1="16" y1="10" x2="16" y2="10"/><line x1="8" y1="14" x2="8" y2="14"/><line x1="12" y1="14" x2="12" y2="14"/><line x1="8" y1="18" x2="16" y2="18"/></svg></button>
         </div>
         <button class="j-add-btn" id="j-add" title="新增交易 (N)"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>新增交易</button>
       </div>
@@ -1975,6 +2027,7 @@ function renderJournal() {
   $('#j-csv-import')?.addEventListener('click', importCSV);
   $('#j-export-report')?.addEventListener('click', exportReport);
   $('#j-batch-toggle')?.addEventListener('click', toggleBatchMode);
+  $('#j-pos-sizer')?.addEventListener('click', () => openPositionSizer());
   $$('.j-vt-btn').forEach(b => b.addEventListener('click', () => { viewMode = b.dataset.view; saveViewPrefs(); renderJournal(); }));
   renderDashboard();
   // Quick filter handlers
@@ -1998,6 +2051,51 @@ function renderJournal() {
   else if (viewMode === 'calendar') renderCalendar();
   else if (viewMode === 'diary') renderDiary();
   else renderStats();
+}
+
+// ================================================================
+//  戰情 Cockpit — Van Tharp 三支柱：系統品質 / 期望值 / 風險預算
+// ================================================================
+function _renderCockpit() {
+  const closedPls = trades.filter(t => t.status === 'closed').map(t => ({ ...t, pl: calcPL(t) })).filter(t => t.pl);
+  const hasOpen = trades.some(t => t.status === 'open');
+  if (!closedPls.length && !hasOpen) return '';
+  const st = closedPls.length ? computeStats(closedPls) : null;
+  const cells = [];
+
+  // 系統品質（SQN + 評級）
+  if (st && st.sqn != null) {
+    const g = sqnGrade(st.sqn);
+    cells.push(`<button class="j-ck-cell" data-go="stats" type="button"><span class="j-ck-lbl">系統品質</span><span class="j-ck-val">SQN ${st.sqn.toFixed(2)} <span class="j-ck-grade ${g.cls}">${g.label}</span></span></button>`);
+  } else if (st) {
+    cells.push(`<button class="j-ck-cell" data-go="stats" type="button"><span class="j-ck-lbl">系統品質</span><span class="j-ck-val j-ck-muted">需停損資料</span></button>`);
+  }
+
+  // 期望值（平均 R）
+  if (st && st.rN >= 1) {
+    cells.push(`<button class="j-ck-cell" data-go="stats" type="button"><span class="j-ck-lbl">期望值</span><span class="j-ck-val ${st.rMean >= 0 ? 'tg' : 'tr'}">${st.rMean >= 0 ? '+' : ''}${st.rMean.toFixed(2)}R</span></button>`);
+  }
+
+  // 開倉風險預算
+  if (hasOpen) {
+    const byCur = computeOpenRisk();
+    const cfg = getRiskCfg();
+    let riskPctMax = null, nakedTotal = 0, hasRisk = false;
+    for (const m in byCur) {
+      nakedTotal += byCur[m].naked.length;
+      if (byCur[m].risk > 0) hasRisk = true;
+      const acct = cfg.acct[m] || 0;
+      if (acct > 0) { const p = byCur[m].risk / acct * 100; if (riskPctMax == null || p > riskPctMax) riskPctMax = p; }
+    }
+    let val, cls = '';
+    if (riskPctMax != null) { const cap = cfg.maxOpenRiskPct || 6; cls = riskPctMax > cap ? 'j-danger' : riskPctMax > cap * 0.75 ? 'j-warn' : 'j-ok'; val = `${riskPctMax.toFixed(1)}%`; }
+    else if (nakedTotal && !hasRisk) { val = `${nakedTotal} 檔裸部位`; cls = 'j-danger'; }
+    else { val = '未設帳戶'; cls = 'j-ck-muted'; }
+    cells.push(`<button class="j-ck-cell" data-go="holdings" type="button"><span class="j-ck-lbl">開倉風險</span><span class="j-ck-val ${cls}">${val}</span></button>`);
+  }
+
+  if (!cells.length) return '';
+  return `<div class="j-cockpit">${cells.join('')}</div>`;
 }
 
 // ================================================================
@@ -2064,8 +2162,18 @@ function renderDashboard() {
     statsHTML = mktPills.join(sep) + sep + pill('持倉', String(openCount), '');
   }
 
+  // 連敗熔斷提醒（Van Tharp）：連續虧損達門檻時警示，建議縮小部位或暫停
+  const _rcfg = getRiskCfg();
+  const lossStreak = currentLossStreak();
+  const showBreaker = lossStreak >= _rcfg.lossStreakAlert && lossStreak > _cbDismissedAt;
+  const breaker = showBreaker
+    ? `<div class="j-circuit-breaker" role="alert"><span class="j-cb-icon" aria-hidden="true">⚠️</span><span class="j-cb-text">連續虧損 <b>${lossStreak}</b> 筆 — 建議縮小部位或暫停交易，重新檢視系統與心理狀態</span><button class="j-cb-dismiss" id="j-cb-dismiss" type="button" aria-label="關閉提醒">&times;</button></div>`
+    : '';
+
   el.innerHTML = `
+  ${breaker}
   <div class="j-stats-strip">${statsHTML}${refreshBtn}</div>
+  ${_renderCockpit()}
   <div class="j-quick-filters" id="j-quick-filters">
     <button class="j-qf-chip" data-qf="all">全部<span class="j-qf-count">${trades.length}</span></button>
     <button class="j-qf-chip" data-qf="today">今日<span class="j-qf-count">${todayCount}</span></button>
@@ -2073,6 +2181,12 @@ function renderDashboard() {
     <button class="j-qf-chip" data-qf="winners">獲利<span class="j-qf-count">${winCount}</span></button>
     <button class="j-qf-chip" data-qf="losers">虧損<span class="j-qf-count">${lossCount}</span></button>
   </div>`;
+
+  // Bind circuit-breaker dismiss
+  $('#j-cb-dismiss')?.addEventListener('click', () => { _cbDismissedAt = lossStreak; renderDashboard(); });
+
+  // Bind cockpit cells → drill into view
+  $$('.j-ck-cell', el).forEach(c => c.addEventListener('click', () => { viewMode = c.dataset.go; saveViewPrefs(); renderJournal(); }));
 
   // Bind refresh quotes button
   $('#j-refresh-quotes')?.addEventListener('click', async () => {
@@ -2580,6 +2694,42 @@ function _renderHoldingsClusterBar(groupList) {
 }
 
 // ================================================================
+//  投組風險預算監控（Van Tharp 風險暴露）
+// ================================================================
+function _renderPortfolioRisk() {
+  const cfg = getRiskCfg();
+  const byCur = computeOpenRisk();
+  const curs = Object.keys(byCur);
+  if (!curs.length) return '';
+  const ML_SHORT = { tw: '台股', us: '美股', crypto: '加密' };
+  const cards = curs.map(m => {
+    const d = byCur[m];
+    const acct = cfg.acct[m] || 0;
+    const cap = cfg.maxOpenRiskPct || 6;
+    const pct = acct > 0 ? (d.risk / acct * 100) : null;
+    const over = pct != null && pct > cap;
+    const near = pct != null && !over && pct > cap * 0.75;
+    const barPct = pct != null ? Math.min(100, pct / cap * 100) : 0;
+    const barCls = over ? 'j-danger' : near ? 'j-warn' : 'j-ok';
+    const conc = d.risk > 0 && d.positions.length ? Math.max(...d.positions.map(p => p.risk)) / d.risk * 100 : 0;
+    const naked = d.naked.length;
+    const gauge = pct != null
+      ? `<div class="j-prk-gauge"><div class="j-prk-gauge-fill ${barCls}" style="width:${barPct.toFixed(0)}%"></div></div>
+         <div class="j-prk-budget"><span class="${barCls}">${pct.toFixed(1)}%</span><span class="j-prk-cap">／ 上限 ${cap}%</span></div>`
+      : `<button class="j-prk-setacct" data-mkt="${m}">設定帳戶資金 →</button>`;
+    return `<div class="j-prk-card${over ? ' j-prk-over' : ''}">
+      <div class="j-prk-head"><span class="j-badge j-badge-${m}">${ML_SHORT[m] || m}</span><span class="j-prk-label">開倉風險</span><span class="j-prk-risk">${fmtMoney(d.risk, m)}</span></div>
+      ${gauge}
+      <div class="j-prk-meta">
+        ${d.positions.length ? `<span title="最大單一部位佔總風險比重">最大集中 ${conc.toFixed(0)}%</span>` : ''}
+        ${naked ? `<span class="j-danger" title="無停損的部位風險無上限">⚠ ${naked} 檔裸部位</span>` : '<span class="j-ok">皆有停損</span>'}
+      </div>
+    </div>`;
+  }).join('');
+  return `<div class="j-prk-wrap"><div class="j-prk-title">投組風險預算</div><div class="j-prk-cards">${cards}</div></div>`;
+}
+
+// ================================================================
 //  Holdings (庫存)
 // ================================================================
 function renderHoldings() {
@@ -2662,6 +2812,9 @@ function renderHoldings() {
   const uplSummary = mktKeys.map(m => `<strong class="${uplByMkt[m] >= 0 ? 'tg' : 'tr'}">${fmtMoney(uplByMkt[m], m)}</strong>`).join(' ');
 
   let h = `<div class="j-summary-bar"><span>持倉 <strong>${openTrades.length}</strong> 筆（<strong>${groupList.length}</strong> 檔商品）</span>${mktKeys.length ? `<span>未實現淨損益：${uplSummary}</span>` : ''}</div>`;
+
+  // 投組風險預算監控（Van Tharp）
+  h += _renderPortfolioRisk();
 
   // AI 持倉行為分群（K-Means）
   h += _renderHoldingsClusterBar(groupList);
@@ -2784,6 +2937,9 @@ function renderHoldings() {
   h += '</div>';
 
   body.innerHTML = h;
+
+  // 投組風險：設定帳戶資金 → 開啟部位計算機
+  $$('.j-prk-setacct', body).forEach(btn => btn.addEventListener('click', () => openPositionSizer({ market: btn.dataset.mkt })));
 
   // Event handlers: expand/collapse group details (desktop table)
   $$('.j-hld-expand').forEach(btn => {
@@ -3707,6 +3863,20 @@ function computeStats(pls) {
   const rTrades = pls.filter(t=>{const en=parseFloat(t.entryPrice),sl=parseFloat(t.stopLoss);return !isNaN(en)&&!isNaN(sl)&&en!==sl;});
   const rMultiples = rTrades.map(t=>{const en=parseFloat(t.entryPrice),sl=parseFloat(t.stopLoss),risk=Math.abs(en-sl);return risk>0?t.pl.net/(risk*(parseFloat(t.quantity)||1)*((isFuturesType(t.type)||t.type==='options')?(parseFloat(t.contractMul)||1):1)):0;});
   const avgR = rMultiples.length?(rMultiples.reduce((s,r)=>s+r,0)/rMultiples.length).toFixed(2):'—';
+  // ── Van Tharp 系統品質：SQN（System Quality Number）+ 期望實現報酬（Expectunity）──
+  const rN = rMultiples.length;
+  const rMean = rN ? rMultiples.reduce((s,r)=>s+r,0)/rN : 0;
+  let rStd = 0;
+  if (rN >= 2) { const v = rMultiples.reduce((s,r)=>s+(r-rMean)**2,0)/(rN-1); rStd = Math.sqrt(v); }
+  // SQN = √(min(N,100)) × 平均R ÷ R標準差（Tharp 以 100 筆為上限，避免樣本數灌水）
+  const sqn = (rN >= 2 && rStd > 0) ? Math.sqrt(Math.min(rN, 100)) * rMean / rStd : null;
+  // 期望實現報酬：平均R × 月交易頻率 → 每月可期望賺得的 R 數（聖盃 Ch13 expectunity）
+  let tradesPerMonth = 0;
+  if (pls.length >= 2) {
+    const ds = pls.map(t => new Date(closedAttribDate(t)).getTime()).filter(n => !isNaN(n)).sort((a, b) => a - b);
+    if (ds.length >= 2) { const months = Math.max(1 / 30, (ds[ds.length - 1] - ds[0]) / (1000 * 60 * 60 * 24 * 30.44)); tradesPerMonth = pls.length / months; }
+  }
+  const expectunity = (sqn != null && tradesPerMonth > 0) ? rMean * tradesPerMonth : null; // R / 月
   const byT={},byM={},byTg={},byDow={},byAcct={},byRating={},bySymbol={};
   const byTime={morning:{c:0,n:0,w:0},afternoon:{c:0,n:0,w:0}};
   pls.forEach(t=>{
@@ -3734,7 +3904,7 @@ function computeStats(pls) {
   const lowDiscPL=lowDisc.length?lowDisc.reduce((s,t)=>s+t.pl.net,0)/lowDisc.length:0;
   const byStage={};
   pls.forEach(t=>{const s=t.pricingStage||'';if(s){if(!byStage[s])byStage[s]={c:0,n:0,w:0};byStage[s].c++;byStage[s].n+=t.pl.net;if(t.pl.net>0)byStage[s].w++;}});
-  return {tn,tf,tt,count:pls.length,w,l,wr,aw,al,pf,mw,ml,mcw,mcl,expectancy,maxDD,maxDDPct,avgHold,wHold,lHold,rMultiples,avgR,byT,byM,byTg,byDow,byTime,byAcct,byRating,bySymbol,byStage,rollingData,revengeTrades,revengeNet,afterLossCount,afterLossNet,afterLossList,revengeList,reviewed,avgDisc,avgTim,avgSiz,highDisc,lowDisc,highDiscPL,lowDiscPL,pls,sorted};
+  return {tn,tf,tt,count:pls.length,w,l,wr,aw,al,pf,mw,ml,mcw,mcl,expectancy,maxDD,maxDDPct,avgHold,wHold,lHold,rMultiples,avgR,rN,rMean,rStd,sqn,tradesPerMonth,expectunity,byT,byM,byTg,byDow,byTime,byAcct,byRating,bySymbol,byStage,rollingData,revengeTrades,revengeNet,afterLossCount,afterLossNet,afterLossList,revengeList,reviewed,avgDisc,avgTim,avgSiz,highDisc,lowDisc,highDiscPL,lowDiscPL,pls,sorted};
 }
 
 // ── Dimension table data source ──
@@ -3767,9 +3937,22 @@ function _renderDimTable(st, dim, fm) {
   }).join('')}</tbody></table>`;
 }
 
+// Van Tharp SQN 評級（以 SQN100 區間判定系統品質）
+// 註：cls 使用非 P&L 的固定語意色（j-ok/j-warn/j-danger），不隨漲跌紅綠對調而翻轉
+function sqnGrade(sqn) {
+  if (sqn == null) return { label: '—', cls: '', tier: 0 };
+  if (sqn >= 7.0) return { label: '聖盃級', cls: 'j-ok',     tier: 7 };
+  if (sqn >= 5.1) return { label: '超級',   cls: 'j-ok',     tier: 6 };
+  if (sqn >= 3.0) return { label: '優秀',   cls: 'j-ok',     tier: 5 };
+  if (sqn >= 2.5) return { label: '良好',   cls: 'j-ok',     tier: 4 };
+  if (sqn >= 2.0) return { label: '平均',   cls: '',         tier: 3 };
+  if (sqn >= 1.6) return { label: '低於平均', cls: 'j-warn',   tier: 2 };
+  return { label: '難以交易', cls: 'j-danger', tier: 1 };
+}
+
 // Render integrated stats page for a specific market
 function renderStatsPage(st, market, fm) {
-  const {tn,tf,tt,count,w,l,wr,aw,al,pf,mw,ml,mcw,mcl,expectancy,maxDD,maxDDPct,avgHold,wHold,lHold,rMultiples,avgR,byDow,byTime,byStage,rollingData,revengeTrades,revengeNet,afterLossCount,afterLossNet,afterLossList,revengeList,reviewed,avgDisc,avgTim,avgSiz,highDisc,lowDisc,highDiscPL,lowDiscPL,pls,sorted} = st;
+  const {tn,tf,tt,count,w,l,wr,aw,al,pf,mw,ml,mcw,mcl,expectancy,maxDD,maxDDPct,avgHold,wHold,lHold,rMultiples,avgR,rN,rMean,rStd,sqn,tradesPerMonth,expectunity,byDow,byTime,byStage,rollingData,revengeTrades,revengeNet,afterLossCount,afterLossNet,afterLossList,revengeList,reviewed,avgDisc,avgTim,avgSiz,highDisc,lowDisc,highDiscPL,lowDiscPL,pls,sorted} = st;
 
   // ── Hero KPIs ──
   const kpi = (label, val, cls, tip) => `<div class="j-kpi"${tip?` title="${tip}"`:''}><span class="j-kpi-lbl">${label}</span><span class="j-kpi-val ${cls||''}">${val}</span></div>`;
@@ -3807,6 +3990,26 @@ function renderStatsPage(st, market, fm) {
   const moreToggle = `<button class="j-kpi-more-toggle" id="j-kpi-toggle"><svg viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 4l4 4 4-4"/></svg> 更多指標</button>`;
 
   const sec1 = `<div class="j-stats-section">${hero}${moreToggle}${moreKpis}</div>`;
+
+  // ================================================================
+  //  系統品質（Van Tharp SQN / 期望實現報酬，以 R 為單位）
+  // ================================================================
+  let secSQN = '';
+  if (rN >= 2) {
+    const g = sqnGrade(sqn);
+    const sqnKpi = (label, val, cls, tip) => `<div class="j-kpi"${tip?` title="${esc(tip)}"`:''}><span class="j-kpi-lbl">${label}</span><span class="j-kpi-val ${cls||''}">${val}</span></div>`;
+    secSQN = `<div class="j-stats-section j-sqn-section">
+      <div class="j-section-title">系統品質 <span class="j-sqn-grade ${g.cls}" title="SQN 評級：2.0平均 / 2.5良好 / 3.0優秀 / 5+超級 / 7+聖盃">${g.label}</span></div>
+      <div class="j-sqn-kpis">
+        ${sqnKpi('SQN', sqn!=null?sqn.toFixed(2):'—', g.cls, 'SQN = √(min(N,100)) × 平均R ÷ R標準差\n衡量系統品質與一致性\n2.0平均 / 2.5良好 / 3.0優秀 / 5+超級 / 7+聖盃')}
+        ${sqnKpi('平均R', `${rMean>=0?'+':''}${rMean.toFixed(2)}R`, rMean>=0?'tg':'tr', `${rN} 筆有停損交易的平均 R 倍數\n即系統期望值（以 R 為單位）`)}
+        ${sqnKpi('R 標準差', rStd.toFixed(2), '', 'R 倍數的離散程度，越小代表系統越穩定、SQN 越高')}
+        ${sqnKpi('月頻率', tradesPerMonth.toFixed(1), '', '平均每月交易筆數（機會因素）')}
+        ${expectunity!=null?sqnKpi('期望實現報酬', `${expectunity>=0?'+':''}${expectunity.toFixed(2)}R/月`, expectunity>=0?'tg':'tr', '平均R × 月頻率 = 每月可期望賺得的 R 數\n（聖盃 Ch13：高頻低期望也可能勝過低頻高期望）'):''}
+      </div>
+      <div class="j-sqn-note">基於 ${rN} 筆設有停損的交易${rN<30?'（樣本 < 30，數值僅供參考；建議累積至 100 筆）':rN<100?'（建議累積至 100 筆使 SQN 更可靠）':''}</div>
+    </div>`;
+  }
 
   // ================================================================
   //  Insight badges
@@ -3894,7 +4097,7 @@ function renderStatsPage(st, market, fm) {
     </div></div>
   </div>`;
 
-  return sec1 + sec2 + sec3 + secCluster + sec4;
+  return sec1 + secSQN + sec2 + sec3 + secCluster + sec4;
 }
 
 // ================================================================
@@ -4155,6 +4358,193 @@ function renderStats() {
 }
 
 // ================================================================
+//  部位規模計算機（Van Tharp 固定風險百分比模型）
+// ================================================================
+window.openPositionSizer = openPositionSizer;
+function openPositionSizer(prefill) {
+  const cfg = getRiskCfg();
+  const mkt0 = (prefill && MKT_CURRENCY[prefill.market]) ? prefill.market : 'tw';
+  const overlay = $('#j-global-modal-overlay') || (() => { const o = document.createElement('div'); o.id = 'j-global-modal-overlay'; o.className = 'j-modal-overlay'; document.body.appendChild(o); return o; })();
+  const modal = $('#j-global-modal') || (() => { const m = document.createElement('div'); m.id = 'j-global-modal'; m.className = 'j-modal'; overlay.appendChild(m); return m; })();
+
+  const MKT_OPTS = [['tw', '台股'], ['us', '美股'], ['crypto', '加密']];
+  modal.innerHTML = `
+    <div class="j-modal-header"><h3 id="ps-title">部位規模計算機</h3><button class="j-modal-close" type="button" aria-label="關閉" id="ps-close">&times;</button></div>
+    <div class="j-modal-body">
+      <p class="j-ps-intro">固定風險百分比模型：<strong>部位 = (帳戶 × 風險%) ÷ 每單位風險</strong>。每筆風險建議 ≤ 帳戶 1–2%（Van Tharp）。</p>
+      <div class="j-ps-grid">
+        <div class="j-fg"><label for="ps-mkt">市場</label><select id="ps-mkt">${MKT_OPTS.map(([v, l]) => `<option value="${v}"${v === mkt0 ? ' selected' : ''}>${l}</option>`).join('')}</select></div>
+        <div class="j-fg"><label for="ps-acct">帳戶資金</label><input type="number" id="ps-acct" step="any" min="0" value="${cfg.acct[mkt0] || ''}" placeholder="例如 1000000"></div>
+        <div class="j-fg"><label for="ps-risk">每筆風險 %</label><input type="number" id="ps-risk" step="0.1" min="0.1" max="10" value="${cfg.riskPct}"></div>
+        <div class="j-fg"><label for="ps-entry">進場價</label><input type="number" id="ps-entry" step="any" min="0" value="${prefill?.entryPrice || ''}"></div>
+        <div class="j-fg"><label for="ps-stop">停損價</label><input type="number" id="ps-stop" step="any" min="0" value="${prefill?.stopLoss || ''}"></div>
+        <div class="j-fg"><label for="ps-mul">合約乘數</label><input type="number" id="ps-mul" step="any" min="1" value="${prefill?.contractMul || 1}"></div>
+      </div>
+      <div class="j-ps-result" id="ps-result"></div>
+    </div>
+    <div class="j-modal-footer">
+      <button class="j-btn-cancel" id="ps-cancel">關閉</button>
+      <button class="j-btn-save" id="ps-apply">套用到新交易</button>
+    </div>`;
+
+  a11yModal(modal, 'ps-title');
+  overlay.classList.add('open'); modal.classList.add('open');
+  lockScroll();
+  const release = trapFocus(modal);
+  let _closed = false;
+  const close = () => { if (_closed) return; _closed = true; overlay.classList.remove('open'); modal.classList.remove('open'); document.removeEventListener('keydown', kh); unlockScroll(); release(); };
+  const kh = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', kh);
+  overlay.onclick = (e) => { if (e.target === overlay) close(); };
+  $('#ps-close', modal).onclick = close;
+  $('#ps-cancel', modal).onclick = close;
+
+  const fields = ['ps-mkt', 'ps-acct', 'ps-risk', 'ps-entry', 'ps-stop', 'ps-mul'].map(id => $('#' + id, modal));
+  function recompute() {
+    const mkt = $('#ps-mkt', modal).value;
+    const acct = parseFloat($('#ps-acct', modal).value) || 0;
+    const riskPct = parseFloat($('#ps-risk', modal).value) || 0;
+    const entry = parseFloat($('#ps-entry', modal).value);
+    const stop = parseFloat($('#ps-stop', modal).value);
+    const mul = parseFloat($('#ps-mul', modal).value) || 1;
+    const fm = n => fmtMoney(n, mkt);
+    const res = $('#ps-result', modal);
+    if (!acct || !riskPct) { res.innerHTML = '<div class="j-ps-hint">輸入帳戶資金與風險 % 開始計算</div>'; return; }
+    const riskAmt = acct * riskPct / 100;
+    let sizeBlock = '';
+    if (!isNaN(entry) && !isNaN(stop) && entry > 0 && stop > 0 && entry !== stop) {
+      const perUnit = Math.abs(entry - stop);
+      const shares = Math.floor(riskAmt / (perUnit * mul));
+      const notional = entry * shares * mul;
+      const notionalPct = acct > 0 ? (notional / acct * 100) : 0;
+      const actualRisk = perUnit * shares * mul;
+      sizeBlock = `
+        <div class="j-ps-rows">
+          <div class="j-ps-row"><span>每單位風險</span><b>${fm(perUnit)}${mul > 1 ? ` × ${mul} = ${fm(perUnit * mul)}/口` : ''}</b></div>
+          <div class="j-ps-row j-ps-key"><span>建議部位</span><b class="j-ps-key-val">${shares.toLocaleString()} ${mkt === 'crypto' ? '單位' : (mul > 1 ? '口' : '股')}</b></div>
+          <div class="j-ps-row"><span>實際風險 (1R)</span><b>${fm(actualRisk)}</b></div>
+          <div class="j-ps-row"><span>名目部位價值</span><b>${fm(notional)} <span class="j-ps-sub">(${notionalPct.toFixed(1)}% 帳戶)</span></b></div>
+        </div>`;
+    } else {
+      sizeBlock = `<div class="j-ps-hint">輸入進場價與停損價以計算建議部位（風險金額 1R = ${fm(riskAmt)}）</div>`;
+    }
+    // 破產風險：連續虧損 N 次後帳戶剩餘
+    const ror = [5, 10, 15, 20].map(n => {
+      const remain = acct * Math.pow(1 - riskPct / 100, n);
+      const drop = (1 - remain / acct) * 100;
+      return `<div class="j-ps-ror-cell"><span class="j-ps-ror-n">${n} 連敗</span><span class="j-ps-ror-v ${drop > 50 ? 'j-danger' : drop > 25 ? 'j-warn' : ''}">-${drop.toFixed(0)}%</span></div>`;
+    }).join('');
+    res.innerHTML = sizeBlock +
+      `<div class="j-ps-ror"><div class="j-ps-ror-title">破產風險（帳戶縮水）· 每筆 ${riskPct}%</div><div class="j-ps-ror-grid">${ror}</div></div>`;
+  }
+  fields.forEach(f => { f.addEventListener('input', recompute); f.addEventListener('change', recompute); });
+  // 帳戶資金/風險% 變更即時記憶
+  $('#ps-acct', modal).addEventListener('change', () => { const mkt = $('#ps-mkt', modal).value; setRiskCfg({ acct: { [mkt]: parseFloat($('#ps-acct', modal).value) || 0 } }); });
+  $('#ps-risk', modal).addEventListener('change', () => setRiskCfg({ riskPct: parseFloat($('#ps-risk', modal).value) || 1 }));
+  $('#ps-mkt', modal).addEventListener('change', () => { const c = getRiskCfg(); const mkt = $('#ps-mkt', modal).value; $('#ps-acct', modal).value = c.acct[mkt] || ''; recompute(); });
+  $('#ps-apply', modal).onclick = () => {
+    const mkt = $('#ps-mkt', modal).value;
+    const acct = parseFloat($('#ps-acct', modal).value) || 0;
+    const riskPct = parseFloat($('#ps-risk', modal).value) || 0;
+    const entry = parseFloat($('#ps-entry', modal).value);
+    const stop = parseFloat($('#ps-stop', modal).value);
+    const mul = parseFloat($('#ps-mul', modal).value) || 1;
+    const pf = { ...newTrade(), market: mkt };
+    if (!isNaN(entry)) pf.entryPrice = String(entry);
+    if (!isNaN(stop)) pf.stopLoss = String(stop);
+    if (mul > 1) pf.contractMul = String(mul);
+    if (acct && riskPct && !isNaN(entry) && !isNaN(stop) && entry !== stop) {
+      pf.quantity = String(Math.floor((acct * riskPct / 100) / (Math.abs(entry - stop) * mul)));
+    }
+    close();
+    if (typeof openTradeForm === 'function') openTradeForm(null, pf);
+  };
+  requestAnimationFrame(() => $('#ps-acct', modal)?.focus());
+  recompute();
+}
+
+// ================================================================
+//  出場決策 4 問框架（KP FOMOSoc）
+// ================================================================
+window.openExitReview = openExitReview;
+function openExitReview(id) {
+  const t = trades.find(x => x.id === id);
+  if (!t) return;
+  const Qs = [
+    { key: 'q1', q: '1. 原始論點是否依然成立？', hint: t.thesis ? '當初論點：' + t.thesis : '（此交易未填寫論點，建議補上）', opts: [['成立', 'continue'], ['部分動搖', 'caution'], ['已被推翻', 'exit']] },
+    { key: 'q2', q: '2. 估值的安全邊際還剩多少？', hint: '賣出的理由應是「貴到不合理」，而非「漲多了」', opts: [['仍充足', 'continue'], ['偏薄', 'caution'], ['已透支未來', 'exit']] },
+    { key: 'q3', q: '3. 投組結構是否穩固？', hint: '單一部位是否因上漲而佔比過重，變成單一風險主導？', opts: [['健康分散', 'continue'], ['略集中', 'caution'], ['單一風險過大', 'trim']] },
+    { key: 'q4', q: '4. 手握現金，現價還會買嗎？', hint: 'KP 最後防線：絕對會→續抱；絕對不會→賣出；灰色→Hold', opts: [['絕對會', 'continue'], ['灰色地帶', 'hold'], ['絕對不會', 'exit']] },
+  ];
+  const overlay = $('#j-global-modal-overlay') || (() => { const o = document.createElement('div'); o.id = 'j-global-modal-overlay'; o.className = 'j-modal-overlay'; document.body.appendChild(o); return o; })();
+  const modal = $('#j-global-modal') || (() => { const m = document.createElement('div'); m.id = 'j-global-modal'; m.className = 'j-modal'; overlay.appendChild(m); return m; })();
+  const ans = {};
+  modal.innerHTML = `
+    <div class="j-modal-header"><h3 id="er-title">出場決策 — ${esc(t.symbol)}</h3><button class="j-modal-close" type="button" aria-label="關閉" id="er-close">&times;</button></div>
+    <div class="j-modal-body">
+      <p class="j-er-intro">紀律 &gt; 預測。依序自問四個問題，對抗「落袋為安」的情緒。</p>
+      ${Qs.map(Q => `<div class="j-er-q" data-key="${Q.key}">
+        <div class="j-er-qt">${Q.q}</div>
+        <div class="j-er-hint">${esc(Q.hint)}</div>
+        <div class="j-er-opts">${Q.opts.map(([label, val]) => `<button type="button" class="j-er-opt" data-key="${Q.key}" data-val="${val}">${label}</button>`).join('')}</div>
+      </div>`).join('')}
+      <div class="j-er-verdict" id="er-verdict"></div>
+    </div>
+    <div class="j-modal-footer">
+      <button class="j-btn-cancel" id="er-cancel">關閉</button>
+      <span style="flex:1"></span>
+      <button class="j-btn-save" id="er-save" disabled>記錄決策</button>
+    </div>`;
+  a11yModal(modal, 'er-title');
+  overlay.classList.add('open'); modal.classList.add('open');
+  lockScroll();
+  const release = trapFocus(modal);
+  let _closed = false;
+  const close = () => { if (_closed) return; _closed = true; overlay.classList.remove('open'); modal.classList.remove('open'); document.removeEventListener('keydown', kh); unlockScroll(); release(); };
+  const kh = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', kh);
+  overlay.onclick = (e) => { if (e.target === overlay) close(); };
+  $('#er-close', modal).onclick = close;
+  $('#er-cancel', modal).onclick = close;
+
+  function verdict() {
+    if (Object.keys(ans).length < 4) return null;
+    if (ans.q1 === 'exit' || ans.q4 === 'exit') return { text: '建議出場 — 論點已推翻或已不願在現價買進', cls: 'tr' };
+    if (ans.q2 === 'exit') return { text: '建議減碼 — 估值已透支未來', cls: 'ty' };
+    if (ans.q3 === 'trim') return { text: '建議部分再平衡 — 單一部位風險過度集中', cls: 'ty' };
+    if (ans.q4 === 'hold' || Object.values(ans).includes('caution')) return { text: '持有觀察 / 考慮減碼 — 部分訊號轉弱', cls: 'ty' };
+    return { text: '續抱（可考慮加碼）— 論點完好、邊際充足、結構健康', cls: 'tg' };
+  }
+  function refresh() {
+    $$('.j-er-opt', modal).forEach(b => b.classList.toggle('active', ans[b.dataset.key] === b.dataset.val));
+    const v = verdict();
+    const vEl = $('#er-verdict', modal);
+    if (v) { vEl.innerHTML = `<span class="j-er-verdict-label">綜合判斷</span><span class="${v.cls}">${v.text}</span>`; vEl.classList.add('show'); $('#er-save', modal).disabled = false; }
+    else { vEl.innerHTML = '<span class="j-er-verdict-hint">回答四個問題後顯示綜合判斷</span>'; vEl.classList.remove('show'); $('#er-save', modal).disabled = true; }
+  }
+  $$('.j-er-opt', modal).forEach(b => b.addEventListener('click', () => { ans[b.dataset.key] = b.dataset.val; refresh(); }));
+  const ANS_LABEL = { q1: { continue: '論點成立', caution: '論點動搖', exit: '論點推翻' }, q2: { continue: '邊際充足', caution: '邊際偏薄', exit: '邊際透支' }, q3: { continue: '結構健康', caution: '略集中', trim: '需再平衡' }, q4: { continue: '現金會買', hold: '現金觀望', exit: '現金不買' } };
+  $('#er-save', modal).onclick = async () => {
+    const v = verdict();
+    if (!v) return;
+    const summary = ['q1', 'q2', 'q3', 'q4'].map(k => ANS_LABEL[k][ans[k]]).join('、');
+    const block = `【出場決策 ${localDateStr()}】${summary} → ${v.text}`;
+    const newNotes = (t.notes ? t.notes + '\n' : '') + block;
+    try {
+      await api(`/trades/${id}`, { method: 'PUT', body: JSON.stringify({ ...t, notes: newNotes.slice(0, 5000) }) });
+      t.notes = newNotes;
+      const idx = trades.findIndex(x => x.id === id);
+      if (idx >= 0) trades[idx] = { ...trades[idx], notes: newNotes };
+      if (window._showToast) window._showToast('已記錄出場決策');
+    } catch { if (window._showToast) window._showToast('記錄失敗，請稍後再試'); }
+    close();
+    if (viewMode === 'holdings') renderHoldings(); else renderJournal();
+  };
+  refresh();
+  requestAnimationFrame(() => $('.j-er-opt', modal)?.focus());
+}
+
+// ================================================================
 //  Trade Form Modal
 // ================================================================
 window.openTradeForm = openTradeForm;
@@ -4241,6 +4631,7 @@ function openTradeForm(id, prefill) {
         <div class="j-tag-picker" id="jf-tags">${TAG_PRESETS.map(tag=>`<button type="button" class="j-tag-btn ${(t.tags||[]).includes(tag)?'active':''}" data-tag="${tag}">${tag}</button>`).join('')}${(t.tags||[]).filter(tag=>!TAG_PRESETS.includes(tag)).map(tag=>`<button type="button" class="j-tag-btn active" data-tag="${esc(tag)}">${esc(tag)}</button>`).join('')}</div>
         <input type="text" id="jf-custom-tag" placeholder="自訂標籤，按 Enter 新增" class="j-custom-tag-input" aria-label="自訂標籤">
       </div>
+      <div class="j-fg j-fg-wide" style="margin-top:10px"><label for="jf-thesis">交易論點 <span class="j-fg-hint">為何進場？停損是論點被推翻的價位</span></label><textarea id="jf-thesis" rows="2" placeholder="結構性轉變 / 型態突破 / 催化事件… 這個論點若被推翻就出場">${esc(t.thesis||'')}</textarea></div>
       <div class="j-fg j-fg-wide" style="margin-top:10px"><label for="jf-notes">策略筆記</label><textarea id="jf-notes" rows="4" placeholder="進出場理由、持有理由、市場在等什麼訊號...">${esc(t.notes||'')}</textarea></div>
       <div id="jf-offset-hint" class="j-offset-hint"></div>
       <div class="j-form-pl" id="jf-pl-preview"></div>
@@ -4666,6 +5057,7 @@ async function saveTrade() {
     fee:String(resolveFeeVal('jf-fee','jf-fee-mode')||''), tax:String(resolveFeeVal('jf-tax','jf-tax-mode')||''),
     tags:$$('.j-tag-btn.active:not(.j-tpl-btn)',$('#jf-tags')).map(b=>b.dataset.tag),
     notes:$('#jf-notes')?.value||'',
+    thesis:$('#jf-thesis')?.value||'',
     account:$('#jf-account')?.value.trim()||'',
     imageUrl:$('#jf-image-url')?.value.trim()||'',
     rating:parseInt($('#jf-rating-val')?.value)||0,
@@ -4800,9 +5192,10 @@ function openTradeDetail(id) {
   ${t.rating?`<div class="j-detail-item"><span class="j-dl">自評</span><span class="j-dv">${ratingHTML(t.rating)}</span></div>`:''}
   ${(t.reviewDiscipline||t.reviewTiming||t.reviewSizing)?`<div class="j-detail-review" style="grid-column:1/-1"><span class="j-dl">覆盤評分</span><div class="j-detail-rv-scores"><span>紀律 <strong>${t.reviewDiscipline||0}</strong>/5</span><span>時機 <strong>${t.reviewTiming||0}</strong>/5</span><span>倉位 <strong>${t.reviewSizing||0}</strong>/5</span></div></div>`:''}
   ${t.pricingStage?`<div class="j-detail-item" style="grid-column:1/-1"><span class="j-dl">定價階段</span><span class="j-dv">${({expansion:'估值擴張 (Multiple Expansion)',catchup:'基本面追趕 (Earnings Catch-up)',compression:'估值收縮 (Multiple Compression)',unknown:'不確定'})[t.pricingStage]||esc(t.pricingStage)}</span></div>`:''}
+  ${t.thesis?`<div class="j-detail-notes"><h4>交易論點</h4><div class="j-notes-content" style="white-space:pre-wrap">${esc(t.thesis)}</div></div>`:''}
   ${t.notes?`<div class="j-detail-notes"><h4>策略筆記</h4><div class="j-notes-content" style="white-space:pre-wrap">${esc(t.notes)}</div></div>`:''}
   ${t.imageUrl && /^https?:\/\//.test(t.imageUrl)?`<div class="j-detail-notes"><h4>交易截圖</h4><img src="${esc(t.imageUrl)}" class="j-detail-img" alt="交易截圖" loading="lazy" onerror="this.style.display='none'"></div>`:''}
-  </div><div class="j-modal-footer">${t.status==='open'?`<button class="j-btn-cancel j-detail-close-btn" id="jd-quick-close" style="color:var(--red);border-color:var(--red)">平倉</button>`:''}<button class="j-btn-cancel" id="jd-calc" title="在計算器中開啟">計算器</button><button class="j-btn-cancel" id="jd-dup" title="複製為新交易">複製</button><span style="flex:1"></span><button class="j-btn-cancel" id="jd-back">關閉</button><button class="j-btn-save" id="jd-edit">編輯</button></div>`;
+  </div><div class="j-modal-footer">${t.status==='open'?`<button class="j-btn-cancel" id="jd-exit-review" title="出場決策 4 問">出場決策</button><button class="j-btn-cancel j-detail-close-btn" id="jd-quick-close" style="color:var(--red);border-color:var(--red)">平倉</button>`:''}<button class="j-btn-cancel" id="jd-calc" title="在計算器中開啟">計算器</button><button class="j-btn-cancel" id="jd-dup" title="複製為新交易">複製</button><span style="flex:1"></span><button class="j-btn-cancel" id="jd-back">關閉</button><button class="j-btn-save" id="jd-edit">編輯</button></div>`;
   const _prevFocus = document.activeElement;
   a11yModal(modal, 'jd-title');
   overlay.classList.add('open');modal.classList.add('open');
@@ -4822,6 +5215,7 @@ function openTradeDetail(id) {
   $('#jd-close').addEventListener('click',cl);overlay.addEventListener('click',(e)=>{if(e.target===overlay)cl();});$('#jd-back').addEventListener('click',cl);
   $('#jd-edit').addEventListener('click',()=>{cl();setTimeout(()=>openTradeForm(id),100);});
   $('#jd-quick-close')?.addEventListener('click', () => { cl(); quickCloseTrade(id); });
+  $('#jd-exit-review')?.addEventListener('click', () => { cl(); openExitReview(id); });
   $('#jd-dup')?.addEventListener('click', () => { cl(); duplicateTrade(id); });
   $('#jd-calc')?.addEventListener('click', () => {
     cl();

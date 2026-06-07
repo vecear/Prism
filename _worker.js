@@ -48,6 +48,8 @@ async function ensureDB(db) {
       try { await db.prepare("CREATE INDEX IF NOT EXISTS idx_trades_user_date ON trades(user_id, date DESC)").run(); } catch (e) { /* column/table already exists */ }
       // v12 migration: close_date column for realized P&L attribution by close date
       try { await db.prepare("ALTER TABLE trades ADD COLUMN close_date TEXT NOT NULL DEFAULT ''").run(); } catch (e) { /* column/table already exists */ }
+      // v13 migration: thesis column for trade thesis (論點式停損 / 出場決策 Q1)
+      try { await db.prepare("ALTER TABLE trades ADD COLUMN thesis TEXT NOT NULL DEFAULT ''").run(); } catch (e) { /* column/table already exists */ }
       } catch (e) {
         dbInitPromise = null;
         throw e;
@@ -407,7 +409,7 @@ async function handleGetTrades(request, env) {
     fee: row.fee, tax: row.tax, tags: (() => { try { return JSON.parse(row.tags || '[]'); } catch { return []; } })(), notes: row.notes,
     account: row.account || '', imageUrl: row.image_url || '', rating: row.rating || 0,
     reviewDiscipline: row.review_discipline || 0, reviewTiming: row.review_timing || 0, reviewSizing: row.review_sizing || 0, pricingStage: row.pricing_stage || '',
-    closeDate: row.close_date || '',
+    closeDate: row.close_date || '', thesis: row.thesis || '',
     createdAt: row.created_at, updatedAt: row.updated_at,
   }));
   return jsonRes({ trades });
@@ -437,14 +439,14 @@ async function handleCreateTrade(request, env) {
   const now = new Date().toISOString();
   const db = env.DB;
   try {
-    await db.prepare(`INSERT INTO trades (id, user_id, date, market, type, symbol, name, direction, status, entry_price, exit_price, quantity, contract_mul, stop_loss, take_profit, fee, tax, tags, notes, account, image_url, rating, review_discipline, review_timing, review_sizing, pricing_stage, close_date, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(
+    await db.prepare(`INSERT INTO trades (id, user_id, date, market, type, symbol, name, direction, status, entry_price, exit_price, quantity, contract_mul, stop_loss, take_profit, fee, tax, tags, notes, account, image_url, rating, review_discipline, review_timing, review_sizing, pricing_stage, close_date, thesis, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(
       id, user.sub, body.date || now, market, type,
       String(body.symbol || '').slice(0, 20), String(body.name || '').slice(0, 100), direction, status,
       num(body.entryPrice), num(body.exitPrice), num(body.quantity),
       body.contractMul ? parseFloat(body.contractMul) || null : null, num(body.stopLoss), num(body.takeProfit),
       num(body.fee) ?? 0, num(body.tax) ?? 0, JSON.stringify(Array.isArray(body.tags) ? body.tags.slice(0, 20).map(t => String(t).slice(0, 50)) : []), String(body.notes || '').slice(0, 5000),
       String(body.account || '').slice(0, 50), imgUrl, num(body.rating) ?? 0,
-      num(body.reviewDiscipline) ?? 0, num(body.reviewTiming) ?? 0, num(body.reviewSizing) ?? 0, String(body.pricingStage || '').slice(0, 20), String(body.closeDate || '').slice(0, 30), now, now
+      num(body.reviewDiscipline) ?? 0, num(body.reviewTiming) ?? 0, num(body.reviewSizing) ?? 0, String(body.pricingStage || '').slice(0, 20), String(body.closeDate || '').slice(0, 30), String(body.thesis || '').slice(0, 2000), now, now
     ).run();
   } catch (e) {
     console.error('[Prism] Create trade error:', e);
@@ -475,14 +477,14 @@ async function handleUpdateTrade(request, env, tradeId) {
   const VALID_STATUS = ['open', 'closed'];
   const now = new Date().toISOString();
   try {
-    await db.prepare(`UPDATE trades SET date=?, market=?, type=?, symbol=?, name=?, direction=?, status=?, entry_price=?, exit_price=?, quantity=?, contract_mul=?, stop_loss=?, take_profit=?, fee=?, tax=?, tags=?, notes=?, account=?, image_url=?, rating=?, review_discipline=?, review_timing=?, review_sizing=?, pricing_stage=?, close_date=?, updated_at=? WHERE id=? AND user_id=?`).bind(
+    await db.prepare(`UPDATE trades SET date=?, market=?, type=?, symbol=?, name=?, direction=?, status=?, entry_price=?, exit_price=?, quantity=?, contract_mul=?, stop_loss=?, take_profit=?, fee=?, tax=?, tags=?, notes=?, account=?, image_url=?, rating=?, review_discipline=?, review_timing=?, review_sizing=?, pricing_stage=?, close_date=?, thesis=?, updated_at=? WHERE id=? AND user_id=?`).bind(
       body.date, VALID_MARKETS.includes(body.market) ? body.market : 'tw', VALID_TYPES.includes(body.type) ? body.type : 'stock',
       String(body.symbol || '').slice(0, 20), String(body.name || '').slice(0, 100), VALID_DIRS.includes(body.direction) ? body.direction : 'long', VALID_STATUS.includes(body.status) ? body.status : 'open',
       num(body.entryPrice), num(body.exitPrice), num(body.quantity),
       body.contractMul ? parseFloat(body.contractMul) || null : null, num(body.stopLoss), num(body.takeProfit),
       num(body.fee) ?? 0, num(body.tax) ?? 0, JSON.stringify(Array.isArray(body.tags) ? body.tags.slice(0, 20).map(t => String(t).slice(0, 50)) : []), String(body.notes || '').slice(0, 5000),
       String(body.account || '').slice(0, 50), imgUrl, num(body.rating) ?? 0,
-      num(body.reviewDiscipline) ?? 0, num(body.reviewTiming) ?? 0, num(body.reviewSizing) ?? 0, String(body.pricingStage || '').slice(0, 20), String(body.closeDate || '').slice(0, 30), now,
+      num(body.reviewDiscipline) ?? 0, num(body.reviewTiming) ?? 0, num(body.reviewSizing) ?? 0, String(body.pricingStage || '').slice(0, 20), String(body.closeDate || '').slice(0, 30), String(body.thesis || '').slice(0, 2000), now,
       tradeId, user.sub
     ).run();
   } catch (e) {

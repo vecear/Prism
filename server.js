@@ -96,6 +96,7 @@ const migrations = [
   "CREATE INDEX IF NOT EXISTS idx_trades_user_id ON trades(user_id)",
   "CREATE INDEX IF NOT EXISTS idx_trades_user_date ON trades(user_id, date DESC)",
   "ALTER TABLE trades ADD COLUMN close_date TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE trades ADD COLUMN thesis TEXT NOT NULL DEFAULT ''",
 ];
 for (const sql of migrations) {
   try { db.exec(sql); } catch {}
@@ -154,7 +155,7 @@ function mapTrade(row) {
     notes: row.notes, account: row.account || '', imageUrl: row.image_url || '',
     rating: row.rating || 0, reviewDiscipline: row.review_discipline || 0,
     reviewTiming: row.review_timing || 0, reviewSizing: row.review_sizing || 0,
-    pricingStage: row.pricing_stage || '', closeDate: row.close_date || '',
+    pricingStage: row.pricing_stage || '', closeDate: row.close_date || '', thesis: row.thesis || '',
     createdAt: row.created_at, updatedAt: row.updated_at,
   };
 }
@@ -285,7 +286,7 @@ function routeTrades(req, res, method, tradeId, body) {
     if (imgUrl && !imgUrl.startsWith('https://')) return jsonErr(res, 400, 'imageUrl 必須使用 HTTPS');
     const id = randomUUID();
     const now = new Date().toISOString();
-    db.prepare(`INSERT INTO trades (id, user_id, date, market, type, symbol, name, direction, status, entry_price, exit_price, quantity, contract_mul, stop_loss, take_profit, fee, tax, tags, notes, account, image_url, rating, review_discipline, review_timing, review_sizing, pricing_stage, close_date, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    db.prepare(`INSERT INTO trades (id, user_id, date, market, type, symbol, name, direction, status, entry_price, exit_price, quantity, contract_mul, stop_loss, take_profit, fee, tax, tags, notes, account, image_url, rating, review_discipline, review_timing, review_sizing, pricing_stage, close_date, thesis, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(id, USER_ID, body.date || now,
         VALID_MARKETS.includes(body.market) ? body.market : 'tw',
         VALID_TYPES.includes(body.type) ? body.type : 'stock',
@@ -300,7 +301,7 @@ function routeTrades(req, res, method, tradeId, body) {
         String(body.notes || '').slice(0, 5000), String(body.account || '').slice(0, 50),
         imgUrl,
         num(body.rating) ?? 0, num(body.reviewDiscipline) ?? 0, num(body.reviewTiming) ?? 0, num(body.reviewSizing) ?? 0,
-        String(body.pricingStage || '').slice(0, 20), String(body.closeDate || '').slice(0, 30), now, now);
+        String(body.pricingStage || '').slice(0, 20), String(body.closeDate || '').slice(0, 30), String(body.thesis || '').slice(0, 2000), now, now);
     return jsonOk(res, { id }, 201);
   }
 
@@ -316,7 +317,7 @@ function routeTrades(req, res, method, tradeId, body) {
     const imgUrl = String(body.imageUrl || '').slice(0, 500);
     if (imgUrl && !imgUrl.startsWith('https://')) return jsonErr(res, 400, 'imageUrl 必須使用 HTTPS');
     const now = new Date().toISOString();
-    db.prepare(`UPDATE trades SET date=?, market=?, type=?, symbol=?, name=?, direction=?, status=?, entry_price=?, exit_price=?, quantity=?, contract_mul=?, stop_loss=?, take_profit=?, fee=?, tax=?, tags=?, notes=?, account=?, image_url=?, rating=?, review_discipline=?, review_timing=?, review_sizing=?, pricing_stage=?, close_date=?, updated_at=? WHERE id=? AND user_id=?`)
+    db.prepare(`UPDATE trades SET date=?, market=?, type=?, symbol=?, name=?, direction=?, status=?, entry_price=?, exit_price=?, quantity=?, contract_mul=?, stop_loss=?, take_profit=?, fee=?, tax=?, tags=?, notes=?, account=?, image_url=?, rating=?, review_discipline=?, review_timing=?, review_sizing=?, pricing_stage=?, close_date=?, thesis=?, updated_at=? WHERE id=? AND user_id=?`)
       .run(body.date,
         VALID_MARKETS.includes(body.market) ? body.market : 'tw',
         VALID_TYPES.includes(body.type) ? body.type : 'stock',
@@ -331,7 +332,7 @@ function routeTrades(req, res, method, tradeId, body) {
         String(body.notes || '').slice(0, 5000), String(body.account || '').slice(0, 50),
         imgUrl,
         num(body.rating) ?? 0, num(body.reviewDiscipline) ?? 0, num(body.reviewTiming) ?? 0, num(body.reviewSizing) ?? 0,
-        String(body.pricingStage || '').slice(0, 20), String(body.closeDate || '').slice(0, 30), now,
+        String(body.pricingStage || '').slice(0, 20), String(body.closeDate || '').slice(0, 30), String(body.thesis || '').slice(0, 2000), now,
         tradeId, USER_ID);
     return jsonOk(res, { ok: true });
   }

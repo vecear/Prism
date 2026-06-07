@@ -50,10 +50,16 @@ Prism/
 | 設定面板 | `js/app.js` → `renderSettings()` | 報價來源、主題、字體、小數位等 |
 | 交易日誌 UI | `js/journal.js` | IIFE 模組，獨立的 state 管理 |
 | Modal 系統 | `js/journal.js` → `openTradeForm()` / `openTradeDetail()` | 共用 `#j-global-modal` + `#j-global-modal-overlay` |
+| 系統品質（SQN / 期望實現報酬） | `js/journal.js` → `computeStats()` / `sqnGrade()` / `renderStatsPage()` 的 `secSQN` | Van Tharp SQN = √(min(N,100))×平均R÷R標準差 + expectunity |
+| 部位規模計算機 | `js/journal.js` → `openPositionSizer()` | 固定風險百分比模型 + 破產風險表，可「套用到新交易」 |
+| 投組風險預算監控 | `js/journal.js` → `_renderPortfolioRisk()` / `computeOpenRisk()` | 持倉初始風險 vs 帳戶，裸部位（無停損）警示 |
+| 連敗熔斷 / 戰情 Cockpit | `js/journal.js` → `currentLossStreak()` / `_renderCockpit()` | dashboard 連敗提醒 + SQN/期望值/風險三支柱常駐列 |
+| 出場決策 4 問 | `js/journal.js` → `openExitReview()` | KP FOMOSoc 框架，結論寫入該筆 notes |
+| 風險設定（帳戶/風險%/熔斷門檻） | `js/journal.js` → `getRiskCfg()` / `setRiskCfg()` | localStorage key `prism_risk_cfg`（純前端，雙後端無關） |
 | Auth（雲端） | `js/journal.js` → header auth UI | JWT token 存 localStorage |
 | 雲端 API 路由 | `_worker.js` → `export default { fetch }` | 路由分發在底部 Router 區段 |
 | 本機 API + 靜態服務 | `server.js` → `routeXxx()` + 靜態檔案 fallback | HTML/sw.js 強制 no-cache |
-| DB 自動遷移（雲端） | `_worker.js` → `ensureDB()` | v1~v12 累積遷移 |
+| DB 自動遷移（雲端） | `_worker.js` → `ensureDB()` | v1~v13 累積遷移（v13 = `thesis` 交易論點欄位）|
 | 密碼雜湊/JWT | `_worker.js` | 內建實作 |
 | 券商交易檔解析 | `scripts/prism-parse-import.mjs` | 元大 CSV / 元富 HTML-XLS / 群益 XLSX → FIFO 配對 |
 
@@ -275,8 +281,9 @@ chub annotate <id> "note"  # 儲存學習筆記
 - Auth token 存在 `localStorage` key `prism_token`，使用者資訊在 `prism_user_info`
 - 前端在 `file://` 或 `localhost` 時自動將 API 導向 `https://prism-7t8.pages.dev`（雲端模式才有效；本機模式 server.js 直接服務 API）
 - Service Worker 在 localhost 開發時自動取消註冊以避免快取問題
-- DB 遷移是累積式的（v1~v12），雲端模式每次 API 請求都會執行 `ensureDB()`（結果有快取）
+- DB 遷移是累積式的（v1~v13），雲端模式每次 API 請求都會執行 `ensureDB()`（結果有快取）
 - 本機模式的 `prism.db` 使用 SQLite WAL 模式，實際資料在 `prism.db-wal`
+- **風險/品質語意色不可用 P&L 方向 class**：`.tg`/`.tr`（漲跌綠紅）會在「紅漲綠跌」模式被 `applyColorMode()` 對調，因此非 P&L 的警示/品質色（裸部位、超風險預算、SQN 評級、連敗熔斷）一律使用固定語意 class `.j-ok`（藍）/`.j-warn`（琥珀）/`.j-danger`（橘），不隨紅綠對調翻轉。P&L 方向數值（損益、平均 R、期望值）才用 `.tg`/`.tr`。
 
 ## Changelog Protocol
 

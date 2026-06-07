@@ -2513,10 +2513,65 @@ html[data-theme="paperDense"] select {
 .j-actions-wrap { display: flex; gap: var(--space-1); }
 
 /* Diary */
-.j-diary {
-  display: grid; grid-template-columns: 1fr 360px; gap: var(--space-6);
+.j-diary { display: block; }
+/* 編輯區頂列：標題/連續天數/已存 + 心情/紀律/書籤/儲存 */
+.j-diary-topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--space-4); flex-wrap: wrap; margin-bottom: var(--space-5);
 }
-@media (max-width: 1024px) { .j-diary { grid-template-columns: 1fr; } }
+.j-diary-topbar-left, .j-diary-topbar-right { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+.j-diary-topbar-left h4 { margin: 0; font-size: var(--text-lg); }
+.j-diary-streak-inline { display: inline-flex; align-items: center; gap: 3px; font-size: var(--text-xs); color: var(--amber); font-weight: 600; }
+.j-diary-sep { width: 1px; align-self: stretch; background: var(--line); margin: 0 var(--space-1); }
+/* 心情 emoji radiogroup */
+.j-mood-picker { display: inline-flex; gap: var(--space-1); }
+.j-mood-btn {
+  border: 1px solid transparent; background: none; cursor: pointer;
+  font-size: var(--text-xl); line-height: 1; padding: 3px var(--space-1);
+  border-radius: var(--radius-md); filter: grayscale(1); opacity: .5;
+  transition: opacity var(--dur) var(--ease-out), background var(--dur) var(--ease-out);
+}
+.j-mood-btn:hover { opacity: .85; }
+.j-mood-btn.active { filter: none; opacity: 1; background: var(--bg2); border-color: var(--line); }
+/* 紀律星級 radiogroup */
+.j-star { cursor: pointer; font-size: var(--text-lg); line-height: 1; color: var(--t3); transition: color var(--dur) var(--ease-out); }
+.j-star.j-star-on { color: var(--amber); }
+/* 頂列 inline 星級容器：覆寫 .j-diary-discipline 的區塊樣式（避免變成 bg2 方塊）*/
+.j-diary-checkin-inline .j-diary-discipline { display: inline-flex; gap: 1px; padding: 0; background: none; border-radius: 0; margin: 0; }
+.j-diary-star-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: var(--ctrl-md); height: var(--ctrl-md); border: 1px solid var(--line);
+  background: var(--bg1); border-radius: var(--radius-md); cursor: pointer; color: var(--t2);
+}
+.j-diary-star-btn.active { color: var(--amber); border-color: var(--amber); }
+/* 市況標籤列 */
+.j-diary-tags-bar { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-5); }
+.jd-tag-btn {
+  padding: var(--space-1) var(--space-3); border: 1px solid var(--line);
+  background: var(--bg1); color: var(--t2); border-radius: var(--radius-pill);
+  font-size: var(--text-xs); cursor: pointer; transition: background var(--dur) var(--ease-out), color var(--dur) var(--ease-out), border-color var(--dur) var(--ease-out);
+}
+.jd-tag-btn:hover { border-color: var(--accent); color: var(--accent); }
+.jd-tag-btn.active { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+/* 桌面三欄：盤前 / 盤後 / 資訊 */
+.j-diary-cols { display: grid; grid-template-columns: 1fr 1fr minmax(260px, 340px); gap: var(--space-5); align-items: start; }
+@media (max-width: 1024px) { .j-diary-cols { grid-template-columns: 1fr; } }
+/* 行動版分頁表單：桌面隱藏、≤768px 顯示（取代桌面三欄） */
+.j-diary-mobile-form { display: none; }
+.j-diary-tab-bar { display: flex; gap: var(--space-2); margin-bottom: var(--space-4); }
+.j-diary-tab {
+  flex: 1; padding: var(--space-2) var(--space-3); border: 1px solid var(--line);
+  background: var(--bg1); color: var(--t2); border-radius: var(--radius-md);
+  font-size: var(--text-sm); cursor: pointer;
+}
+.j-diary-tab.active { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.j-diary-tab-pane { display: none; }
+.j-diary-tab-pane.active { display: block; }
+@media (max-width: 768px) {
+  .j-diary-cols { display: none; }
+  .j-diary-mobile-form { display: block; }
+}
+.j-diary-list { margin-top: var(--space-7); }
 .j-diary-col {
   background: var(--bg1); border: 1px solid var(--line);
   border-radius: var(--radius-lg); padding: 22px;
@@ -3661,6 +3716,151 @@ html[data-theme="paperDense"] select {
 }
 .j-section-title::before { margin-right: 8px; }
 .j-section-title::after  { margin-left: 8px; }
+
+/* ── 系統品質 SQN ───────────────────────────────────── */
+.j-sqn-grade {
+  flex: 0 0 auto; font-size: var(--text-xs); font-weight: 700;
+  padding: 1px var(--space-2); border-radius: var(--radius-pill);
+  background: var(--bg2); border: 1px solid var(--line);
+}
+.j-sqn-grade.j-ok { color: var(--blue); border-color: var(--blue-soft); }
+.j-sqn-grade.j-danger { color: var(--orange); border-color: var(--amber-soft); }
+.j-sqn-grade.j-warn { color: var(--amber); border-color: var(--amber-soft); }
+.j-sqn-kpis {
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: var(--space-2);
+}
+.j-sqn-kpis .j-kpi {
+  background: var(--bg1); border: 1px solid var(--line);
+  border-radius: var(--radius-md); padding: var(--space-3) var(--space-2);
+  display: flex; flex-direction: column; gap: 2px; align-items: center; text-align: center;
+}
+.j-sqn-note { font-size: var(--text-xs); color: var(--t3); margin-top: var(--space-2); }
+@media (max-width: 768px) {
+  .j-sqn-kpis { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 420px) {
+  .j-sqn-kpis { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* 非 P&L 的固定語意色（不隨漲跌紅綠對調翻轉）：good=blue / caution=amber / danger=orange */
+.j-ok { color: var(--blue); }
+.j-warn { color: var(--amber); }
+.j-danger { color: var(--orange); }
+
+/* ── 連敗熔斷提醒 ─────────────────────────────────────── */
+.j-circuit-breaker {
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: var(--space-3) var(--space-4); margin-bottom: var(--space-3);
+  background: var(--amber-soft); border: 1px solid var(--amber);
+  border-radius: var(--radius-md); font-size: var(--text-sm); color: var(--t1);
+}
+.j-circuit-breaker .j-cb-icon { flex: 0 0 auto; font-size: var(--text-lg); }
+.j-circuit-breaker .j-cb-text { flex: 1; line-height: 1.4; }
+.j-circuit-breaker .j-cb-text b { color: var(--orange); }
+.j-cb-dismiss {
+  flex: 0 0 auto; background: none; border: none; cursor: pointer;
+  font-size: var(--text-xl); line-height: 1; color: var(--t3); padding: 0 var(--space-1);
+}
+.j-cb-dismiss:hover { color: var(--t1); }
+
+/* ── 投組風險預算監控 ─────────────────────────────────── */
+.j-prk-wrap { margin: var(--space-3) 0; }
+.j-prk-title { font-size: var(--text-xs); font-weight: 600; color: var(--t2); margin-bottom: var(--space-2); }
+.j-prk-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--space-3); }
+.j-prk-card {
+  background: var(--bg1); border: 1px solid var(--line);
+  border-radius: var(--radius-md); padding: var(--space-3) var(--space-4);
+  display: flex; flex-direction: column; gap: var(--space-2);
+}
+.j-prk-card.j-prk-over { border-color: var(--amber); background: var(--amber-soft); }
+.j-prk-head { display: flex; align-items: center; gap: var(--space-2); }
+.j-prk-label { font-size: var(--text-xs); color: var(--t3); }
+.j-prk-risk { margin-left: auto; font-weight: 700; font-variant-numeric: tabular-nums; }
+.j-prk-gauge { height: 6px; border-radius: var(--radius-pill); background: var(--bg3); overflow: hidden; }
+.j-prk-gauge-fill { height: 100%; border-radius: var(--radius-pill); }
+.j-prk-gauge-fill.j-ok { background: var(--blue); }
+.j-prk-gauge-fill.j-warn { background: var(--amber); }
+.j-prk-gauge-fill.j-danger { background: var(--orange); }
+.j-prk-budget { display: flex; align-items: baseline; gap: var(--space-2); font-size: var(--text-sm); font-weight: 700; font-variant-numeric: tabular-nums; }
+.j-prk-cap { font-size: var(--text-xs); font-weight: 400; color: var(--t3); }
+.j-prk-meta { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-3); font-size: var(--text-xs); color: var(--t2); }
+.j-prk-setacct { background: none; border: none; cursor: pointer; color: var(--accent); font-size: var(--text-xs); padding: 0; text-align: left; }
+.j-prk-setacct:hover { text-decoration: underline; }
+
+/* ── 部位規模計算機 ───────────────────────────────────── */
+.j-ps-intro { font-size: var(--text-sm); color: var(--t2); line-height: 1.5; margin: 0 0 var(--space-4); }
+.j-ps-intro strong { color: var(--t1); }
+.j-ps-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-3); }
+.j-ps-grid .j-fg { display: flex; flex-direction: column; gap: 3px; }
+.j-ps-grid label { font-size: var(--text-xs); color: var(--t2); }
+.j-ps-result { margin-top: var(--space-4); }
+.j-ps-hint { font-size: var(--text-sm); color: var(--t3); padding: var(--space-3) 0; }
+.j-ps-rows { display: flex; flex-direction: column; gap: var(--space-2); }
+.j-ps-row { display: flex; align-items: center; justify-content: space-between; font-size: var(--text-sm); padding: var(--space-2) var(--space-3); background: var(--bg1); border-radius: var(--radius-sm); }
+.j-ps-row span { color: var(--t2); }
+.j-ps-row b { font-variant-numeric: tabular-nums; }
+.j-ps-row.j-ps-key { background: var(--accent-bg); }
+.j-ps-row.j-ps-key b { font-size: var(--text-lg); }
+.j-ps-key-val { color: var(--accent); }
+.j-ps-sub { font-size: var(--text-xs); color: var(--t3); font-weight: 400; }
+.j-ps-ror { margin-top: var(--space-4); }
+.j-ps-ror-title { font-size: var(--text-xs); color: var(--t2); margin-bottom: var(--space-2); }
+.j-ps-ror-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-2); }
+.j-ps-ror-cell { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: var(--space-2); background: var(--bg1); border-radius: var(--radius-sm); }
+.j-ps-ror-n { font-size: var(--text-xs); color: var(--t3); }
+.j-ps-ror-v { font-size: var(--text-sm); font-weight: 700; font-variant-numeric: tabular-nums; }
+@media (max-width: 480px) {
+  .j-ps-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* ── 交易論點欄位提示 ─────────────────────────────────── */
+.j-fg-hint { font-size: var(--text-xs); color: var(--t3); font-weight: 400; margin-left: var(--space-2); }
+
+/* ── 出場決策 4 問 ────────────────────────────────────── */
+.j-er-intro { font-size: var(--text-sm); color: var(--t2); margin: 0 0 var(--space-4); }
+.j-er-q { padding: var(--space-3) 0; border-top: 1px solid var(--line); }
+.j-er-q:first-of-type { border-top: none; }
+.j-er-qt { font-size: var(--text-sm); font-weight: 600; color: var(--t1); }
+.j-er-hint { font-size: var(--text-xs); color: var(--t3); margin: 2px 0 var(--space-2); line-height: 1.4; }
+.j-er-opts { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.j-er-opt {
+  flex: 1 1 0; min-width: 80px; padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--line); border-radius: var(--radius-md);
+  background: var(--bg1); color: var(--t2); cursor: pointer;
+  font-size: var(--text-sm); transition: border-color var(--dur-fast), background var(--dur-fast);
+}
+.j-er-opt:hover { border-color: var(--accent); }
+.j-er-opt.active { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.j-er-verdict {
+  margin-top: var(--space-4); padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md); background: var(--bg1);
+  display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;
+  font-size: var(--text-base); font-weight: 600;
+}
+.j-er-verdict.show { background: var(--bg2); border: 1px solid var(--line); }
+.j-er-verdict-label { font-size: var(--text-xs); font-weight: 600; color: var(--t3); }
+.j-er-verdict-hint { font-size: var(--text-sm); font-weight: 400; color: var(--t3); }
+
+/* ── 戰情 Cockpit ─────────────────────────────────────── */
+.j-cockpit { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-2); }
+.j-ck-cell {
+  flex: 1 1 0; min-width: 120px; display: flex; flex-direction: column; gap: 2px;
+  padding: var(--space-2) var(--space-3); background: var(--bg1); border: 1px solid var(--line);
+  border-radius: var(--radius-md); cursor: pointer; text-align: left;
+  transition: border-color var(--dur-fast);
+}
+.j-ck-cell:hover { border-color: var(--accent); }
+.j-ck-lbl { font-size: var(--text-xs); color: var(--t3); }
+.j-ck-val { font-size: var(--text-base); font-weight: 700; font-variant-numeric: tabular-nums; display: flex; align-items: center; gap: var(--space-1); }
+.j-ck-val.j-ck-muted, .j-ck-muted { color: var(--t3); font-weight: 400; font-size: var(--text-sm); }
+.j-ck-grade { font-size: var(--text-xs); font-weight: 600; padding: 0 var(--space-1); border-radius: var(--radius-sm); background: var(--bg2); }
+.j-ck-grade.j-ok { color: var(--blue); }
+.j-ck-grade.j-danger { color: var(--orange); }
+.j-ck-grade.j-warn { color: var(--amber); }
+@media (max-width: 480px) {
+  .j-ck-cell { min-width: 90px; padding: var(--space-2); }
+  .j-ck-val { font-size: var(--text-sm); }
+}
 
 /* ── Sparkline ───────────────────────────────────────── */
 .j-sparkline-wrap {
