@@ -22,7 +22,7 @@ Prism/
 ├── js/
 │   ├── ml.js                         # ML 工具：K-Means、Spectral Clustering、Z-score、silhouette
 │   ├── app.js                        # 主模組：計算引擎、PriceService、UI 渲染、設定面板、Guide、Regime 偵測
-│   └── journal.js                    # 交易日誌：CRUD、5 視圖（list/calendar/stats/holdings/diary）、Auth UI、行為分群
+│   └── journal.js                    # 交易日誌：CRUD、5 視圖（list/calendar/stats/holdings/diary）、Auth UI、行為分群、Van Tharp 風險工具（SQN/部位計算/投組風險/出場四問/論點）
 ├── server.js                         # 本機單機 Node 伺服器（使用 node:sqlite）
 ├── _worker.js                        # Cloudflare Worker：API 路由、CORS proxy、DB 遷移
 ├── sw.js                             # Service Worker：離線快取策略
@@ -277,7 +277,7 @@ chub annotate <id> "note"  # 儲存學習筆記
 
 ## Important Notes
 
-- `js/app.js` 約 5,700 行，`js/journal.js` 約 3,500 行，`css/style.css` 約 3,800 行 — 讀取時需分段
+- `js/app.js` 約 5,700 行，`js/journal.js` 約 3,800 行，`css/style.css` 約 4,300 行 — 讀取時需分段
 - Auth token 存在 `localStorage` key `prism_token`，使用者資訊在 `prism_user_info`
 - 前端在 `file://` 或 `localhost` 時自動將 API 導向 `https://prism-7t8.pages.dev`（雲端模式才有效；本機模式 server.js 直接服務 API）
 - Service Worker 在 localhost 開發時自動取消註冊以避免快取問題

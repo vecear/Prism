@@ -28,9 +28,22 @@
 - 標籤、帳戶、星級評價、截圖 URL
 - **券商檔案匯入**：支援元大台股 CSV、元富 HTML-XLS、群益期貨 XLSX 自動 FIFO 配對
 
+### 風險管理系統（Van Tharp）
+
+依《交易·創造自己的聖盃》、Qullamaggie 動能策略、KP FOMOSoc 出場框架打造的紀律工具組：
+
+- **系統品質 SQN** — `√(min(N,100)) × 平均R ÷ R標準差` + 期望實現報酬（expectunity）+ 系統評級（平均/良好/優秀/超級/聖盃）
+- **部位規模計算機** — 固定風險百分比模型（部位 = 帳戶 × 風險% ÷ 每單位風險）+ 破產風險表，可一鍵套用到新交易
+- **投組風險預算監控** — 持倉初始風險 vs 帳戶資金、風險預算使用率、裸部位（無停損）警示
+- **連敗熔斷提醒** — 連續虧損達門檻時警示縮小部位或暫停
+- **戰情 Cockpit** — 系統品質 / 開倉風險 / 紀律狀態三支柱跨視圖常駐列
+- **交易論點 + 出場決策 4 問** — 論點式停損；出場前依序自問論點/邊際/結構/現金測試
+- **風險/品質語意色**採固定色（藍/琥珀/橘），不隨「紅漲綠跌」模式翻轉
+
 ### 設計系統
 
-- **5 種主題**：暖米白 (paper)、奶油象牙 (ivory)、緊湊紙感 (paperDense)、經典深色 (dark)、午夜藍 (midnight)、翡翠綠 (emerald)
+- **6 種主題**：暖米白 (paper)、奶油象牙 (ivory)、緊湊紙感 (paperDense)、經典深色 (dark)、午夜藍 (midnight)、翡翠綠 (emerald)
+- **紅綠雙模式**：綠漲紅跌 / 紅漲綠跌（台股慣例）即時切換
 - **完整 Design Tokens**：spacing/text/radius/duration/control-height scale，theme-aware shadows
 - **PWA**：可安裝至主畫面、離線可用 (Service Worker)
 - **RWD**：桌面/平板/手機全裝置優化
@@ -49,17 +62,19 @@ Prism 同時支援兩種部署模式：
 ```
 Prism/
 ├── index.html                       # 主頁面結構，所有 tab 的 HTML 骨架
-├── css/style.css                    # 全域樣式 + design tokens + 5 主題 (~3,800 行)
+├── css/style.css                    # 全域樣式 + design tokens + 6 主題 (~4,300 行)
 ├── js/
-│   ├── app.js                       # 計算引擎、即時報價、設定、Guide (~5,700 行)
-│   └── journal.js                   # 交易日誌、modal、CSV 匯入 UI (~3,500 行)
+│   ├── ml.js                        # ML 工具：K-Means、Spectral Clustering、Z-score
+│   ├── app.js                       # 計算引擎、即時報價、設定、Guide、Regime 偵測 (~5,700 行)
+│   └── journal.js                   # 交易日誌、Van Tharp 風險工具、modal、CSV 匯入 UI (~3,800 行)
 ├── server.js                        # Local-only Node 伺服器 (使用 node:sqlite)
-├── _worker.js                       # Cloudflare Pages Worker (API 路由、認證、CORS proxy)
+├── _worker.js                       # Cloudflare Pages Worker (API 路由、認證、CORS proxy、DB 遷移)
 ├── sw.js                            # Service Worker (stale-while-revalidate)
 ├── schema.sql                       # D1 schema 參考文件
 ├── manifest.json                    # PWA manifest
 ├── favicon.svg                      # 三稜鏡 SVG icon
-├── wrangler.toml                    # Cloudflare 設定
+├── wrangler.toml                    # Cloudflare 設定 (D1 binding + 選用 RATE_LIMIT_KV)
+├── _headers                         # Cloudflare Pages 安全標頭 (HTML 頁面 CSP/HSTS 等)
 ├── scripts/
 │   └── prism-parse-import.mjs       # 券商交易檔解析器 (元大/元富/群益)
 └── start.bat                        # Windows 一鍵啟動 local-only 模式
@@ -69,15 +84,16 @@ Prism/
 
 - **純 Vanilla**：HTML + CSS + Vanilla JavaScript，無框架、無建置工具
 - **即時計算**：表單輸入即時觸發計算，無送出按鈕
-- **Design Token 系統**：所有 spacing / typography / radius / shadows 透過 CSS variables 統一管理，5 種主題自動切換
+- **Design Token 系統**：所有 spacing / typography / radius / shadows 透過 CSS variables 統一管理，6 種主題自動切換
 
 ### 後端
 
 雲端模式（`_worker.js`）：
 - Cloudflare Pages Advanced Mode 處理 API 路由 + 靜態資源
-- D1 SQLite 自動遷移（v1 ~ v11）
+- D1 SQLite 自動遷移（v1 ~ v13；v12 = 平倉日歸期、v13 = 交易論點欄位）
 - JWT (HMAC-SHA256, 7d) + PBKDF2 (100,000 iterations) 雜湊
-- Rate Limiting、CORS 白名單、輸入驗證
+- Rate Limiting（選用 KV 跨實例）、CORS 白名單、輸入驗證
+- 安全標頭與 CSP：API 回應由 `_worker.js` 套用，HTML 頁面由 `_headers` 套用
 
 本機模式（`server.js`）：
 - Node.js 24+ 內建 `node:sqlite`，無需 npm install 額外 deps
@@ -94,6 +110,7 @@ Prism/
 | Finnhub | 美股即時報價 | 免費 API Key |
 | Binance | 加密貨幣即時報價 | 免費 |
 | TAIFEX 期交所 | 期貨保證金即時查詢 | 免費 |
+| FRED 聯準會 | 信用利差 / 通膨預期（Regime 偵測） | 免費 API Key |
 
 ## 開發
 
@@ -130,6 +147,8 @@ npm run deploy
 | 變數 | 說明 | 設定位置 |
 |------|------|---------|
 | `JWT_SECRET` | JWT 簽名密鑰 | Cloudflare Pages → Settings → Environment Variables |
+| `FRED_API_KEY` | FRED 經濟數據金鑰（信用利差/通膨預期；缺則該來源回 503） | Cloudflare Pages 環境變數 / 本機 `.env` |
+| `RATE_LIMIT_KV`（選用） | KV namespace 綁定，啟用跨實例認證限流；未綁定自動退回 in-memory | `wrangler.toml` `[[kv_namespaces]]` |
 
 ### 券商檔案匯入
 
@@ -156,13 +175,14 @@ npm run deploy
 | GET / PUT | `/api/app-state` | 計算器狀態 |
 | GET / PUT | `/api/daily-journal` | 每日日記 |
 | GET | `/api/proxy?url=` | CORS 代理（白名單） |
+| GET | `/api/fred?series=` | FRED 經濟數據代理（信用利差/通膨預期） |
 
 ## 資料庫 Schema
 
 | 資料表 | 用途 |
 |--------|------|
 | `users` | 使用者帳號（username + PBKDF2 hash）|
-| `trades` | 交易紀錄（含評分、標籤、帳戶、截圖 URL）|
+| `trades` | 交易紀錄（含停損/停利、評分、覆盤三軸、定價階段、平倉日、交易論點 thesis、標籤、帳戶、截圖 URL）|
 | `daily_journal` | 每日交易日記 |
 | `user_settings` | 使用者設定 |
 | `presets` | 商品預設值（乘數、保證金）|
