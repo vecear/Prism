@@ -46,6 +46,8 @@ async function ensureDB(db) {
       // v11 migration: indexes for trades table performance
       try { await db.prepare("CREATE INDEX IF NOT EXISTS idx_trades_user_id ON trades(user_id)").run(); } catch (e) { /* column/table already exists */ }
       try { await db.prepare("CREATE INDEX IF NOT EXISTS idx_trades_user_date ON trades(user_id, date DESC)").run(); } catch (e) { /* column/table already exists */ }
+      // v12 migration: close_date column for realized P&L attribution by close date
+      try { await db.prepare("ALTER TABLE trades ADD COLUMN close_date TEXT NOT NULL DEFAULT ''").run(); } catch (e) { /* column/table already exists */ }
       } catch (e) {
         dbInitPromise = null;
         throw e;
@@ -72,12 +74,15 @@ const SECURITY_HEADERS = {
   'X-Frame-Options': 'DENY',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
   'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
-  'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https:; font-src 'self';",
 };
+// connect-src 收斂：僅允許 'self' + PROXY_ALLOWED 白名單主機（取代過寬的 https:）。
+// 任何遺漏的外部端點仍會經前端 _proxyFetch 的 proxy fallback → 'self' 代理，優雅降級不破壞報價。
+// CSP 字串於模組載入時算一次（見 PROXY_ALLOWED 宣告後的 CSP_HEADER 常數），withCors 直接套用。
 function withCors(response, request) {
   const h = new Headers(response.headers);
   for (const [k, v] of Object.entries(corsHeaders(request))) h.set(k, v);
   for (const [k, v] of Object.entries(SECURITY_HEADERS)) h.set(k, v);
+  h.set('Content-Security-Policy', CSP_HEADER);
   return new Response(response.body, { status: response.status, headers: h });
 }
 function jsonRes(data, status = 200) {
@@ -90,6 +95,13 @@ function jsonErr(status, message) {
     status, headers: { 'Content-Type': 'application/json' },
   });
 }
+// 只允許有限數值或 null 入庫，過濾 NaN/Infinity/非數字字串
+const num = v => (v == null || v === '') ? null : (Number.isFinite(+v) ? +v : null);
+
+// 整體請求 body 上限，與本機 server.js readBody (MAX_BODY) 對齊。
+// 須 >= 最大的 per-field data 上限 (presets 131072)，避免合法的最大 payload 被誤拒。
+const MAX_BODY = 262144; // 256KB
+const bodyTooLarge = body => JSON.stringify(body).length > MAX_BODY;
 
 // ── JWT + Password (inline to avoid import issues with Pages bundler) ──
 const JWT_ALG = { name: 'HMAC', hash: 'SHA-256' };
@@ -191,9 +203,16 @@ async function getUser(request, env) {
 }
 
 // ── CORS Proxy (migrated from functions/api/proxy.js) ──
-const PROXY_ALLOWED = ['mis.twse.com.tw','mis.taifex.com.tw','query1.finance.yahoo.com','query2.finance.yahoo.com','finnhub.io','www.taifex.com.tw','openapi.taifex.com.tw','openapi.twse.com.tw','www.tpex.org.tw','www.sec.gov','api.nasdaq.com','production.dataviz.cnn.io','api.binance.com','fred.stlouisfed.org','squeezemetrics.com','api.alternative.me'];
+const PROXY_ALLOWED = ['mis.twse.com.tw','mis.taifex.com.tw','query1.finance.yahoo.com','query2.finance.yahoo.com','finnhub.io','www.taifex.com.tw','openapi.taifex.com.tw','openapi.twse.com.tw','www.tpex.org.tw','www.sec.gov','api.nasdaq.com','production.dataviz.cnn.io','api.binance.com','fred.stlouisfed.org','squeezemetrics.com'];
+
+// CSP 於模組載入時算一次（PROXY_ALLOWED 為常數，每回應結果不變）。withCors 直接套用此常數。
+// 注意：此 CSP 僅套用於 API 回應（JSON，不載字體故 style/font-src 不含 Google Fonts）；
+// HTML 頁面的 CSP 在根目錄 /_headers 檔（含 Google Fonts 於 style-src/font-src）。
+// 兩處的 connect-src 主機清單須與此 PROXY_ALLOWED 保持同步（新增報價來源時三處一起改）。
+const CSP_HEADER = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' " + PROXY_ALLOWED.map(h => 'https://' + h).join(' ') + "; font-src 'self';";
 
 async function handleProxy(request) {
+  if (!['GET', 'POST'].includes(request.method)) return jsonErr(405, 'Method not allowed');
   const url = new URL(request.url);
   const target = url.searchParams.get('url');
   if (!target) return jsonErr(400, 'Missing ?url= parameter');
@@ -215,7 +234,31 @@ async function handleProxy(request) {
     fetchOpts.headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
     fetchOpts.headers['Accept'] = 'text/html,application/xhtml+xml,application/xml;q=0.9,application/json,text/plain,*/*;q=0.8';
     fetchOpts.headers['Accept-Language'] = 'en-US,en;q=0.9';
-    const resp = await fetch(target, { ...fetchOpts, redirect: 'follow' });
+    // SSRF 防護：手動跟隨重導，每一跳都重新比對 PROXY_ALLOWED 白名單。
+    // 重導語意：依 RFC 7231，跟隨 3xx 時將後續請求改為 GET 並清除 body / Content-Type，
+    // 避免把原始 POST body 重送到重導目標（現況唯一 POST 代理目標 taifex 不重導，
+    // 但此處理確保白名單若擴充也不會發生 body 重送）。
+    let currentTarget = target;
+    let hopOpts = { ...fetchOpts, headers: { ...fetchOpts.headers } };
+    let resp;
+    for (let hop = 0; ; hop++) {
+      resp = await fetch(currentTarget, { ...hopOpts, redirect: 'manual' });
+      if (resp.status < 300 || resp.status >= 400) break;
+      const loc = resp.headers.get('Location');
+      if (!loc) break; // 無 Location，直接回傳此回應
+      if (hop >= 5) return jsonErr(502, 'Too many redirects');
+      let nextUrl;
+      try { nextUrl = new URL(loc, currentTarget); } catch { return jsonErr(502, 'Invalid redirect target'); }
+      if (nextUrl.protocol !== 'https:') return jsonErr(403, 'Redirect to non-HTTPS blocked');
+      if (!PROXY_ALLOWED.includes(nextUrl.hostname)) return jsonErr(403, 'Redirect host not allowed');
+      currentTarget = nextUrl.toString();
+      // 重導後改用 GET，丟棄 body 與 Content-Type
+      if (hopOpts.method !== 'GET') {
+        hopOpts.method = 'GET';
+        delete hopOpts.body;
+        delete hopOpts.headers['Content-Type'];
+      }
+    }
     const body = await resp.arrayBuffer();
     return new Response(body, {
       status: resp.status,
@@ -257,6 +300,13 @@ function checkRateLimit(key, maxRequests, windowMs) {
   const now = Date.now();
   const entry = _rateLimits.get(key);
   if (!entry || now - entry.start > windowMs) {
+    // 過期逐出：新建 entry 前，若 Map 過大（無 KV 時隨唯一 IP 單調成長），掃除已過期的 entry，
+    // 避免 in-memory fallback 路徑記憶體無上限累積。
+    if (_rateLimits.size > 5000) {
+      for (const [k, v] of _rateLimits) {
+        if (now - v.start > windowMs) _rateLimits.delete(k);
+      }
+    }
     _rateLimits.set(key, { start: now, count: 1 });
     return true;
   }
@@ -265,11 +315,28 @@ function checkRateLimit(key, maxRequests, windowMs) {
   return true;
 }
 
+// 跨實例 rate limit：優先用 KV（時間分桶固定視窗），未綁定或 KV 故障時退回 in-memory checkRateLimit。
+async function checkRateLimitKV(env, key, maxRequests, windowMs) {
+  const kv = env?.RATE_LIMIT_KV;
+  if (!kv) return checkRateLimit(key, maxRequests, windowMs);
+  try {
+    const bucket = Math.floor(Date.now() / windowMs);
+    const k = key + ':' + bucket;
+    const count = parseInt(await kv.get(k) || '0', 10);
+    if (count >= maxRequests) return false;
+    await kv.put(k, String(count + 1), { expirationTtl: Math.max(60, Math.ceil(windowMs / 1000) * 2) });
+    return true;
+  } catch {
+    // KV 故障不可擋掉所有登入：退回 in-memory。
+    return checkRateLimit(key, maxRequests, windowMs);
+  }
+}
+
 // ── API Route Handlers ──
 
 async function handleRegister(request, env) {
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-  if (!checkRateLimit(`reg:${ip}`, 5, 60000)) return jsonErr(429, '請求過於頻繁，請稍後再試');
+  if (!await checkRateLimitKV(env, `reg:${ip}`, 5, 60000)) return jsonErr(429, '請求過於頻繁，請稍後再試');
   let body;
   try { body = await request.json(); } catch { return jsonErr(400, '無效的請求格式'); }
   const { username, password } = body;
@@ -300,7 +367,7 @@ async function handleRegister(request, env) {
 
 async function handleLoginPost(request, env) {
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-  if (!checkRateLimit(`login:${ip}`, 10, 60000)) return jsonErr(429, '請求過於頻繁，請稍後再試');
+  if (!await checkRateLimitKV(env, `login:${ip}`, 10, 60000)) return jsonErr(429, '請求過於頻繁，請稍後再試');
   let body;
   try { body = await request.json(); } catch { return jsonErr(400, '無效的請求格式'); }
   const { username, password } = body;
@@ -340,6 +407,7 @@ async function handleGetTrades(request, env) {
     fee: row.fee, tax: row.tax, tags: (() => { try { return JSON.parse(row.tags || '[]'); } catch { return []; } })(), notes: row.notes,
     account: row.account || '', imageUrl: row.image_url || '', rating: row.rating || 0,
     reviewDiscipline: row.review_discipline || 0, reviewTiming: row.review_timing || 0, reviewSizing: row.review_sizing || 0, pricingStage: row.pricing_stage || '',
+    closeDate: row.close_date || '',
     createdAt: row.created_at, updatedAt: row.updated_at,
   }));
   return jsonRes({ trades });
@@ -352,7 +420,8 @@ async function handleCreateTrade(request, env) {
   try { body = await request.json(); } catch { return jsonErr(400, '無效的請求格式'); }
   if (JSON.stringify(body).length > 32768) return jsonErr(400, '交易資料過大');
   if (!body.symbol?.trim()) return jsonErr(400, '交易代號不可為空');
-  if (!body.entryPrice && body.entryPrice !== 0) return jsonErr(400, '進場價格不可為空');
+  if (!(parseFloat(body.entryPrice) > 0)) return jsonErr(400, '進場價格必須大於 0');
+  if (!(parseFloat(body.quantity) > 0)) return jsonErr(400, '數量必須大於 0');
   if (body.date && !/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2})?)?$/.test(body.date)) return jsonErr(400, '日期格式無效');
   const imgUrl = String(body.imageUrl || '').slice(0, 500);
   if (imgUrl && !imgUrl.startsWith('https://')) return jsonErr(400, 'imageUrl 必須使用 HTTPS');
@@ -368,14 +437,14 @@ async function handleCreateTrade(request, env) {
   const now = new Date().toISOString();
   const db = env.DB;
   try {
-    await db.prepare(`INSERT INTO trades (id, user_id, date, market, type, symbol, name, direction, status, entry_price, exit_price, quantity, contract_mul, stop_loss, take_profit, fee, tax, tags, notes, account, image_url, rating, review_discipline, review_timing, review_sizing, pricing_stage, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(
+    await db.prepare(`INSERT INTO trades (id, user_id, date, market, type, symbol, name, direction, status, entry_price, exit_price, quantity, contract_mul, stop_loss, take_profit, fee, tax, tags, notes, account, image_url, rating, review_discipline, review_timing, review_sizing, pricing_stage, close_date, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(
       id, user.sub, body.date || now, market, type,
       String(body.symbol || '').slice(0, 20), String(body.name || '').slice(0, 100), direction, status,
-      body.entryPrice ?? null, body.exitPrice ?? null, body.quantity ?? null,
-      body.contractMul ? parseFloat(body.contractMul) || null : null, body.stopLoss ?? null, body.takeProfit ?? null,
-      body.fee ?? 0, body.tax ?? 0, JSON.stringify(Array.isArray(body.tags) ? body.tags.slice(0, 20).map(t => String(t).slice(0, 50)) : []), String(body.notes || '').slice(0, 5000),
-      String(body.account || '').slice(0, 50), imgUrl, body.rating ?? 0,
-      body.reviewDiscipline ?? 0, body.reviewTiming ?? 0, body.reviewSizing ?? 0, String(body.pricingStage || '').slice(0, 20), now, now
+      num(body.entryPrice), num(body.exitPrice), num(body.quantity),
+      body.contractMul ? parseFloat(body.contractMul) || null : null, num(body.stopLoss), num(body.takeProfit),
+      num(body.fee) ?? 0, num(body.tax) ?? 0, JSON.stringify(Array.isArray(body.tags) ? body.tags.slice(0, 20).map(t => String(t).slice(0, 50)) : []), String(body.notes || '').slice(0, 5000),
+      String(body.account || '').slice(0, 50), imgUrl, num(body.rating) ?? 0,
+      num(body.reviewDiscipline) ?? 0, num(body.reviewTiming) ?? 0, num(body.reviewSizing) ?? 0, String(body.pricingStage || '').slice(0, 20), String(body.closeDate || '').slice(0, 30), now, now
     ).run();
   } catch (e) {
     console.error('[Prism] Create trade error:', e);
@@ -396,6 +465,8 @@ async function handleUpdateTrade(request, env, tradeId) {
   if (!body.date) return jsonErr(400, '日期不可為空');
   if (!/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2})?)?$/.test(body.date)) return jsonErr(400, '日期格式無效');
   if (!body.symbol?.trim()) return jsonErr(400, '交易代號不可為空');
+  if (!(parseFloat(body.entryPrice) > 0)) return jsonErr(400, '進場價格必須大於 0');
+  if (!(parseFloat(body.quantity) > 0)) return jsonErr(400, '數量必須大於 0');
   const imgUrl = String(body.imageUrl || '').slice(0, 500);
   if (imgUrl && !imgUrl.startsWith('https://')) return jsonErr(400, 'imageUrl 必須使用 HTTPS');
   const VALID_MARKETS = ['tw', 'us', 'crypto'];
@@ -404,14 +475,14 @@ async function handleUpdateTrade(request, env, tradeId) {
   const VALID_STATUS = ['open', 'closed'];
   const now = new Date().toISOString();
   try {
-    await db.prepare(`UPDATE trades SET date=?, market=?, type=?, symbol=?, name=?, direction=?, status=?, entry_price=?, exit_price=?, quantity=?, contract_mul=?, stop_loss=?, take_profit=?, fee=?, tax=?, tags=?, notes=?, account=?, image_url=?, rating=?, review_discipline=?, review_timing=?, review_sizing=?, pricing_stage=?, updated_at=? WHERE id=? AND user_id=?`).bind(
+    await db.prepare(`UPDATE trades SET date=?, market=?, type=?, symbol=?, name=?, direction=?, status=?, entry_price=?, exit_price=?, quantity=?, contract_mul=?, stop_loss=?, take_profit=?, fee=?, tax=?, tags=?, notes=?, account=?, image_url=?, rating=?, review_discipline=?, review_timing=?, review_sizing=?, pricing_stage=?, close_date=?, updated_at=? WHERE id=? AND user_id=?`).bind(
       body.date, VALID_MARKETS.includes(body.market) ? body.market : 'tw', VALID_TYPES.includes(body.type) ? body.type : 'stock',
       String(body.symbol || '').slice(0, 20), String(body.name || '').slice(0, 100), VALID_DIRS.includes(body.direction) ? body.direction : 'long', VALID_STATUS.includes(body.status) ? body.status : 'open',
-      body.entryPrice ?? null, body.exitPrice ?? null, body.quantity ?? null,
-      body.contractMul ? parseFloat(body.contractMul) || null : null, body.stopLoss ?? null, body.takeProfit ?? null,
-      body.fee ?? 0, body.tax ?? 0, JSON.stringify(Array.isArray(body.tags) ? body.tags.slice(0, 20).map(t => String(t).slice(0, 50)) : []), String(body.notes || '').slice(0, 5000),
-      String(body.account || '').slice(0, 50), imgUrl, body.rating ?? 0,
-      body.reviewDiscipline ?? 0, body.reviewTiming ?? 0, body.reviewSizing ?? 0, String(body.pricingStage || '').slice(0, 20), now,
+      num(body.entryPrice), num(body.exitPrice), num(body.quantity),
+      body.contractMul ? parseFloat(body.contractMul) || null : null, num(body.stopLoss), num(body.takeProfit),
+      num(body.fee) ?? 0, num(body.tax) ?? 0, JSON.stringify(Array.isArray(body.tags) ? body.tags.slice(0, 20).map(t => String(t).slice(0, 50)) : []), String(body.notes || '').slice(0, 5000),
+      String(body.account || '').slice(0, 50), imgUrl, num(body.rating) ?? 0,
+      num(body.reviewDiscipline) ?? 0, num(body.reviewTiming) ?? 0, num(body.reviewSizing) ?? 0, String(body.pricingStage || '').slice(0, 20), String(body.closeDate || '').slice(0, 30), now,
       tradeId, user.sub
     ).run();
   } catch (e) {
@@ -449,6 +520,7 @@ async function handleSaveSettings(request, env) {
   if (!user) return jsonErr(401, '未登入');
   let body;
   try { body = await request.json(); } catch { return jsonErr(400, '無效的請求格式'); }
+  if (bodyTooLarge(body)) return jsonErr(400, '請求資料過大');
   const now = new Date().toISOString();
   const data = JSON.stringify(body.settings || {});
   if (data.length > 65536) return jsonErr(400, '設定資料過大');
@@ -479,7 +551,7 @@ async function handleSaveDailyJournal(request, env) {
   const takeaway = String(body.takeaway || '').slice(0, 2000);
   const mood = Math.max(1, Math.min(5, parseInt(body.mood) || 3));
   const discipline = Math.max(0, Math.min(5, parseInt(body.discipline) || 0));
-  const tags = JSON.stringify(Array.isArray(body.tags) ? body.tags.slice(0, 20) : []);
+  const tags = JSON.stringify(Array.isArray(body.tags) ? body.tags.slice(0, 20).map(t => String(t).slice(0, 50)) : []);
   const starred = body.starred ? 1 : 0;
   await env.DB.prepare(`INSERT INTO daily_journal (user_id, date, mood, market_note, plan, review, discipline, tags, takeaway, starred, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(user_id, date) DO UPDATE SET mood=?, market_note=?, plan=?, review=?, discipline=?, tags=?, takeaway=?, starred=?, updated_at=?`).bind(
     user.sub, body.date, mood, marketNote, plan, review, discipline, tags, takeaway, starred, now,
@@ -503,6 +575,7 @@ async function handleSavePresets(request, env) {
   if (!user) return jsonErr(401, '未登入');
   let body;
   try { body = await request.json(); } catch { return jsonErr(400, '無效的請求格式'); }
+  if (bodyTooLarge(body)) return jsonErr(400, '請求資料過大');
   const data = JSON.stringify(body.presets || {});
   if (data.length > 131072) return jsonErr(400, '預設資料過大');
   const now = new Date().toISOString();
@@ -525,6 +598,7 @@ async function handleSaveTemplates(request, env) {
   if (!user) return jsonErr(401, '未登入');
   let body;
   try { body = await request.json(); } catch { return jsonErr(400, '無效的請求格式'); }
+  if (bodyTooLarge(body)) return jsonErr(400, '請求資料過大');
   const arr = Array.isArray(body.templates) ? body.templates.slice(0, 50) : [];
   const data = JSON.stringify(arr);
   if (data.length > 65536) return jsonErr(400, '範本資料過大');
@@ -548,6 +622,7 @@ async function handleSaveAppState(request, env) {
   if (!user) return jsonErr(401, '未登入');
   let body;
   try { body = await request.json(); } catch { return jsonErr(400, '無效的請求格式'); }
+  if (bodyTooLarge(body)) return jsonErr(400, '請求資料過大');
   const data = JSON.stringify(body.state || {});
   if (data.length > 32768) return jsonErr(400, '狀態資料過大');
   const now = new Date().toISOString();

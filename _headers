@@ -1,0 +1,10 @@
+# Cloudflare Pages 安全標頭：對所有路徑（含 HTML 文件，由 env.ASSETS 服務）套用。
+# 此 CSP 需於雲端部署後以瀏覽器 Network/Console 驗證不破壞字體與報價；
+# connect-src 任何遺漏會因前端 proxy fallback → self 而降級（報價仍可用但走自家 proxy）。
+# connect-src 主機清單須與 _worker.js 的 PROXY_ALLOWED 保持同步（新增端點時兩處一起改）。
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://mis.twse.com.tw https://mis.taifex.com.tw https://query1.finance.yahoo.com https://query2.finance.yahoo.com https://finnhub.io https://www.taifex.com.tw https://openapi.taifex.com.tw https://openapi.twse.com.tw https://www.tpex.org.tw https://www.sec.gov https://api.nasdaq.com https://production.dataviz.cnn.io https://api.binance.com https://fred.stlouisfed.org https://squeezemetrics.com

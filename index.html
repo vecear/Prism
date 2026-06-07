@@ -28,9 +28,10 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;600;700&family=Instrument+Serif&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=20260506d">
+  <link rel="stylesheet" href="css/style.css?v=20260607g">
 </head>
 <body>
+  <a class="skip-link" href="#main-content">跳至主內容</a>
   <div id="app">
     <!-- Sidebar -->
     <aside class="sidebar" id="sidebar">
@@ -46,7 +47,7 @@
         </div>
       </div>
       <div class="sidebar-group-label">主選單</div>
-      <button class="sidebar-item main-tab active" data-tab="journal">
+      <button class="sidebar-item main-tab active" data-tab="journal" aria-current="page">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/><line x1="12" y1="12" x2="12" y2="18"/></svg>
         <span class="label">交易紀錄</span>
         <span class="count" id="sb-journal-count" hidden></span>
@@ -109,14 +110,14 @@
         </div>
         <div class="ticker-bar-actions">
           <span class="ticker-time" id="ticker-time"></span>
-          <button class="ticker-toggle" id="btn-ticker-toggle" aria-label="展開報價">
+          <button class="ticker-toggle" id="btn-ticker-toggle" aria-label="展開報價" aria-expanded="false">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
           </button>
         </div>
       </div>
 
       <!-- Main content -->
-      <main class="main-content">
+      <main class="main-content" id="main-content" tabindex="-1">
 
         <!-- MARGIN TAB -->
         <section id="tab-margin" class="tab-content">
@@ -127,14 +128,14 @@
                 <span class="tag tag-accent" id="margin-region-tag">台灣</span>
               </div>
               <div class="controls-bar">
-                <div class="toggle-group" data-group="margin-market">
-                  <button class="toggle-btn active" data-value="tw">台灣市場</button>
-                  <button class="toggle-btn" data-value="us">美國市場</button>
+                <div class="toggle-group" data-group="margin-market" role="group">
+                  <button class="toggle-btn active" data-value="tw" aria-pressed="true">台灣市場</button>
+                  <button class="toggle-btn" data-value="us" aria-pressed="false">美國市場</button>
                 </div>
-                <div class="toggle-group direction-toggle" data-group="margin-direction">
-                  <button class="toggle-btn active" data-value="cash">現股</button>
-                  <button class="toggle-btn" data-value="long">融資 Long</button>
-                  <button class="toggle-btn" data-value="short">融券 Short</button>
+                <div class="toggle-group direction-toggle" data-group="margin-direction" role="group">
+                  <button class="toggle-btn active" data-value="cash" aria-pressed="true">現股</button>
+                  <button class="toggle-btn" data-value="long" aria-pressed="false">融資 Long</button>
+                  <button class="toggle-btn" data-value="short" aria-pressed="false">融券 Short</button>
                 </div>
               </div>
               <div id="margin-inputs"></div>
@@ -154,17 +155,17 @@
                 <span class="tag tag-accent" id="futures-region-tag">台灣 · 指數</span>
               </div>
               <div class="controls-bar">
-                <div class="toggle-group" data-group="futures-market">
-                  <button class="toggle-btn active" data-value="tw">台灣</button>
-                  <button class="toggle-btn" data-value="us">美國</button>
+                <div class="toggle-group" data-group="futures-market" role="group">
+                  <button class="toggle-btn active" data-value="tw" aria-pressed="true">台灣</button>
+                  <button class="toggle-btn" data-value="us" aria-pressed="false">美國</button>
                 </div>
-                <div class="toggle-group direction-toggle" data-group="futures-direction">
-                  <button class="toggle-btn active" data-value="long">做多 Buy</button>
-                  <button class="toggle-btn" data-value="short">做空 Sell</button>
+                <div class="toggle-group direction-toggle" data-group="futures-direction" role="group">
+                  <button class="toggle-btn active" data-value="long" aria-pressed="true">做多 Buy</button>
+                  <button class="toggle-btn" data-value="short" aria-pressed="false">做空 Sell</button>
                 </div>
-                <div class="toggle-group" data-group="futures-product">
-                  <button class="toggle-btn active" data-value="index">指數</button>
-                  <button class="toggle-btn" data-value="stock">個股期</button>
+                <div class="toggle-group" data-group="futures-product" role="group">
+                  <button class="toggle-btn active" data-value="index" aria-pressed="true">指數</button>
+                  <button class="toggle-btn" data-value="stock" aria-pressed="false">個股期</button>
                 </div>
               </div>
               <div id="futures-inputs"></div>
@@ -184,17 +185,17 @@
                 <span class="tag tag-accent" id="options-region-tag">買方 · Call</span>
               </div>
               <div class="controls-bar">
-                <div class="toggle-group" data-group="options-market">
-                  <button class="toggle-btn active" data-value="tw">台指選</button>
-                  <button class="toggle-btn" data-value="us">SPX/SPY</button>
+                <div class="toggle-group" data-group="options-market" role="group">
+                  <button class="toggle-btn active" data-value="tw" aria-pressed="true">台指選</button>
+                  <button class="toggle-btn" data-value="us" aria-pressed="false">SPX/SPY</button>
                 </div>
-                <div class="toggle-group direction-toggle" data-group="options-side">
-                  <button class="toggle-btn active" data-value="buyer">買方 Buyer</button>
-                  <button class="toggle-btn" data-value="seller">賣方 Seller</button>
+                <div class="toggle-group direction-toggle" data-group="options-side" role="group">
+                  <button class="toggle-btn active" data-value="buyer" aria-pressed="true">買方 Buyer</button>
+                  <button class="toggle-btn" data-value="seller" aria-pressed="false">賣方 Seller</button>
                 </div>
-                <div class="toggle-group" data-group="options-product">
-                  <button class="toggle-btn active" data-value="index">指數</button>
-                  <button class="toggle-btn" data-value="stock">個股</button>
+                <div class="toggle-group" data-group="options-product" role="group">
+                  <button class="toggle-btn active" data-value="index" aria-pressed="true">指數</button>
+                  <button class="toggle-btn" data-value="stock" aria-pressed="false">個股</button>
                 </div>
               </div>
               <div id="options-inputs"></div>
@@ -214,13 +215,13 @@
                 <span class="tag tag-amber" id="crypto-region-tag">BTC</span>
               </div>
               <div class="controls-bar">
-                <div class="toggle-group direction-toggle" data-group="crypto-mode">
-                  <button class="toggle-btn active" data-value="spot">現貨 Spot</button>
-                  <button class="toggle-btn" data-value="perp">合約 Perp</button>
+                <div class="toggle-group direction-toggle" data-group="crypto-mode" role="group">
+                  <button class="toggle-btn active" data-value="spot" aria-pressed="true">現貨 Spot</button>
+                  <button class="toggle-btn" data-value="perp" aria-pressed="false">合約 Perp</button>
                 </div>
-                <div class="toggle-group direction-toggle" data-group="crypto-direction">
-                  <button class="toggle-btn active" data-value="long">做多</button>
-                  <button class="toggle-btn" data-value="short">做空</button>
+                <div class="toggle-group direction-toggle" data-group="crypto-direction" role="group">
+                  <button class="toggle-btn active" data-value="long" aria-pressed="true">做多</button>
+                  <button class="toggle-btn" data-value="short" aria-pressed="false">做空</button>
                 </div>
               </div>
               <div id="crypto-inputs"></div>
@@ -257,7 +258,7 @@
 
   <!-- Mobile bottom tab bar -->
   <nav class="mobile-tabbar" id="mobile-tabbar">
-    <button class="mtab main-tab active" data-tab="journal">
+    <button class="mtab main-tab active" data-tab="journal" aria-current="page">
       <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/><line x1="12" y1="12" x2="12" y2="18"/></svg>
       <span class="label">紀錄</span>
     </button>
@@ -327,6 +328,14 @@
       // Migrate old theme keys
       if (theme === 'warm' || theme === 'light') theme = 'paper';
       document.documentElement.setAttribute('data-theme', theme);
+      // Sync browser UI theme-color with selected theme's --bg0
+      var themeBg = {
+        paper: '#faf7f0', ivory: '#fbf8f1',
+        paperDense: '#f8f5ed', compact: '#f8f5ed',
+        dark: '#0e1117', midnight: '#0a1930', emerald: '#071f1b'
+      };
+      var tcMeta = document.querySelector('meta[name="theme-color"]');
+      if (tcMeta && themeBg[theme]) tcMeta.setAttribute('content', themeBg[theme]);
       if (s && s.colorMode === 'red-up') {
         // Swap green/red variables for 紅漲綠跌
         var e = document.documentElement.style;
@@ -335,8 +344,11 @@
         var r = cs.getPropertyValue('--red').trim();
         var gs = cs.getPropertyValue('--green-soft').trim();
         var rs = cs.getPropertyValue('--red-soft').trim();
+        var gd = cs.getPropertyValue('--green-d').trim();
+        var rd = cs.getPropertyValue('--red-d').trim();
         e.setProperty('--green', r); e.setProperty('--red', g);
         e.setProperty('--green-soft', rs); e.setProperty('--red-soft', gs);
+        e.setProperty('--green-d', rd); e.setProperty('--red-d', gd);
       }
     } catch (e) {}
   })();
@@ -347,12 +359,16 @@
       var sz = 180;
       var c = document.createElement('canvas'); c.width = sz; c.height = sz;
       var x = c.getContext('2d'), r = sz * 0.1875;
+      // Read live theme colors so icon matches current theme + meta theme-color
+      var ics = getComputedStyle(document.documentElement);
+      var bg = ics.getPropertyValue('--bg0').trim() || '#faf7f0';
+      var ac = ics.getPropertyValue('--accent').trim() || '#c2410c';
       x.beginPath(); x.moveTo(r,0); x.lineTo(sz-r,0); x.quadraticCurveTo(sz,0,sz,r);
       x.lineTo(sz,sz-r); x.quadraticCurveTo(sz,sz,sz-r,sz); x.lineTo(r,sz);
       x.quadraticCurveTo(0,sz,0,sz-r); x.lineTo(0,r); x.quadraticCurveTo(0,0,r,0);
-      x.closePath(); x.fillStyle='#faf7f0'; x.fill();
+      x.closePath(); x.fillStyle=bg; x.fill();
       var cx=sz/2, top=sz*0.14, bot=sz*0.86, left=sz*0.14, right=sz*0.86;
-      x.strokeStyle='#c2410c'; x.lineWidth=sz*0.062; x.lineJoin='round';
+      x.strokeStyle=ac; x.lineWidth=sz*0.062; x.lineJoin='round';
       x.beginPath(); x.moveTo(cx,top); x.lineTo(right,bot); x.lineTo(left,bot); x.closePath(); x.stroke();
       x.globalAlpha=0.35;
       x.beginPath(); x.moveTo(cx,top); x.lineTo(sz*0.31,bot); x.stroke();
@@ -374,8 +390,8 @@
     }
   }
   </script>
-  <script src="js/ml.js?v=20260506a" defer></script>
-  <script src="js/app.js?v=20260506d" defer></script>
-  <script src="js/journal.js?v=20260506a" defer></script>
+  <script src="js/ml.js?v=20260606a" defer></script>
+  <script src="js/app.js?v=20260607h" defer></script>
+  <script src="js/journal.js?v=20260607h" defer></script>
 </body>
 </html>

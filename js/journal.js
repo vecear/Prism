@@ -14,12 +14,55 @@ const USER_KEY = 'prism_user_info';
 const $ = (s, c = document) => c.querySelector(s);
 const $$ = (s, c = document) => [...c.querySelectorAll(s)];
 
-// XSS escape helper
+// XSS escape helper — escapes <>& (textContent) plus "/' so output is safe in
+// both text and double/single-quoted attribute contexts (e.g. aria-label/title/data-*).
 function esc(str) {
   if (!str) return '';
   const d = document.createElement('div');
   d.textContent = str;
-  return d.innerHTML;
+  return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// ── Modal a11y / scroll-lock helpers ──
+let _scrollLockCount = 0, _scrollLockY = 0;
+function lockScroll() {
+  if (_scrollLockCount === 0) {
+    _scrollLockY = window.scrollY || document.documentElement.scrollTop || 0;
+    document.body.style.overflow = 'hidden';
+  }
+  _scrollLockCount++;
+}
+function unlockScroll() {
+  _scrollLockCount = Math.max(0, _scrollLockCount - 1);
+  if (_scrollLockCount === 0) {
+    document.body.style.overflow = '';
+    window.scrollTo(0, _scrollLockY);
+  }
+}
+// 為 Modal 容器套用 dialog 語義；labelId 指向標題元素
+function a11yModal(modal, labelId) {
+  if (!modal) return;
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  if (labelId) modal.setAttribute('aria-labelledby', labelId);
+}
+// Focus trap：記錄開啟前焦點、限制 Tab 在 modal 內循環，回傳 release()（解除並還原焦點）
+function trapFocus(modal) {
+  const prevFocus = document.activeElement;
+  const FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+  const keyH = (e) => {
+    if (e.key !== 'Tab') return;
+    const items = [...modal.querySelectorAll(FOCUSABLE)].filter(el => el.offsetParent !== null || el === document.activeElement);
+    if (!items.length) return;
+    const first = items[0], last = items[items.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  };
+  modal.addEventListener('keydown', keyH);
+  return function release() {
+    modal.removeEventListener('keydown', keyH);
+    if (prevFocus && typeof prevFocus.focus === 'function') prevFocus.focus();
+  };
 }
 
 // ── State ──
@@ -30,7 +73,7 @@ localStorage.setItem(TOKEN_KEY, 'local');
 localStorage.setItem(USER_KEY, JSON.stringify(currentUser));
 let trades = [];
 let editingId = null;
-let filterState = { market: 'all', type: 'all', tag: 'all', account: 'all', status: 'all', search: '', dateFrom: '', dateTo: '' };
+let filterState = { market: 'all', type: 'all', tag: 'all', account: 'all', status: 'all', search: '', dateFrom: '', dateTo: '', calAttrib: false };
 let sortState = { field: 'date', asc: false };
 let viewMode = 'list'; // 'list' | 'calendar' | 'stats'
 let statsMarketFilter = 'all'; // 'all' | 'tw' | 'us' | 'crypto'
@@ -39,6 +82,24 @@ let liveQuotes = {}; // { "symbol|market": { price, time } }
 let alertDismissed = {}; // dismissed SL/TP alerts this session
 let calMonth = null; // for calendar view: { year, month }
 let quickFilter = 'all'; // 'all' | 'today' | 'open' | 'winners' | 'losers'
+
+// ── 視圖偏好持久化（viewMode + sortState）──
+const VIEW_PREFS_KEY = 'j-view-prefs';
+const VALID_VIEW_MODES = ['list', 'calendar', 'stats', 'holdings', 'diary'];
+function saveViewPrefs() {
+  try { localStorage.setItem(VIEW_PREFS_KEY, JSON.stringify({ viewMode, sortState })); } catch {}
+}
+function restoreViewPrefs() {
+  try {
+    const raw = localStorage.getItem(VIEW_PREFS_KEY);
+    if (!raw) return;
+    const p = JSON.parse(raw);
+    if (p && VALID_VIEW_MODES.includes(p.viewMode)) viewMode = p.viewMode;
+    if (p && p.sortState && typeof p.sortState.field === 'string') {
+      sortState = { field: p.sortState.field, asc: !!p.sortState.asc };
+    }
+  } catch {}
+}
 
 // ── API helpers ──
 async function api(path, opts = {}) {
@@ -55,8 +116,12 @@ async function loadTrades() {
   try { const data = await api('/trades'); trades = data.trades || []; }
   catch (e) { console.warn('[Journal] Load trades failed:', e.message); trades = []; }
   liveQuotes = {}; // 重新載入時清除舊報價
+  // 遷移旗標綁定當前使用者，避免雲端模式同瀏覽器第二個帳號被跳過
+  const _uid = currentUser?.id ?? 1;
+  const nameCleanedKey = `j-name-cleaned:${_uid}`;
+  const typeMigratedKey = `j-type-migrated:${_uid}`;
   // One-time cleanup: strip price/quote junk from trade names
-  if (trades.length && !localStorage.getItem('j-name-cleaned')) {
+  if (trades.length && !localStorage.getItem(nameCleanedKey)) {
     const dirtyTrades = [];
     for (const t of trades) {
       if (!t.name) continue;
@@ -69,10 +134,10 @@ async function loadTrades() {
         api(`/trades/${t.id}`, { method: 'PUT', body: JSON.stringify(t) }).catch(() => {})
       ));
     }
-    localStorage.setItem('j-name-cleaned', '1');
+    localStorage.setItem(nameCleanedKey, '1');
   }
   // One-time migration: fix trades with wrong type (stock → correct futures/crypto type)
-  if (trades.length && !localStorage.getItem('j-type-migrated')) {
+  if (trades.length && !localStorage.getItem(typeMigratedKey)) {
     try {
       const res = await api('/migrate-trades', { method: 'POST', body: '{}' });
       if (res.fixed > 0) {
@@ -82,11 +147,38 @@ async function loadTrades() {
         trades = data.trades || [];
       }
     } catch (e) { console.warn('[Journal] Type migration failed:', e.message); }
-    localStorage.setItem('j-type-migrated', '1');
+    localStorage.setItem(typeMigratedKey, '1');
   }
 }
 
 function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
+
+// 星級自評：radiogroup + roving tabindex + 鍵盤支援（方向鍵/Enter/Space）
+// stars: NodeList/陣列（依星數遞增排序）；onChange(rate) 於選值改變時呼叫
+function wireStarRating(stars, onChange) {
+  const arr = Array.from(stars);
+  if (!arr.length) return;
+  const apply = (rate, focus) => {
+    arr.forEach((st, i) => {
+      const on = i < rate;
+      st.textContent = on ? '★' : '☆';
+      st.classList.toggle('j-star-on', on);
+      st.setAttribute('aria-checked', (i + 1) === rate ? 'true' : 'false');
+      st.tabIndex = (i + 1) === (rate || 1) ? 0 : -1;
+    });
+    if (focus) arr[Math.max(0, rate - 1)]?.focus();
+    onChange(rate);
+  };
+  arr.forEach((s, idx) => {
+    s.addEventListener('click', () => apply(parseInt(s.dataset.rate), false));
+    s.addEventListener('keydown', e => {
+      const cur = parseInt(s.dataset.rate);
+      if (e.key === 'ArrowRight' || e.key === 'ArrowUp') { e.preventDefault(); apply(Math.min(arr.length, cur + 1), true); }
+      else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') { e.preventDefault(); apply(Math.max(1, cur - 1), true); }
+      else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); apply(cur, false); }
+    });
+  });
+}
 // ── Format helpers ──
 function fmtNum(n, d = 0) { return n == null || isNaN(n) || !isFinite(n) ? '—' : Number(n).toLocaleString('zh-TW', { minimumFractionDigits: d, maximumFractionDigits: d }); }
 function getPriceOpts(market, type) {
@@ -159,6 +251,17 @@ function localISOString() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}T${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
 }
+// 本地日期字串 YYYY-MM-DD（與 localISOString 同時區，避免 toISOString 的 UTC 跨日邊界錯置）
+function localDateStr(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+// 已平倉交易『實現損益歸屬日期』(YYYY-MM-DD)：優先用平倉日 closeDate，
+// 其次回退 updatedAt（舊資料無 closeDate），最後回退進場日 date。
+// 僅用於已實現損益歸期；未平倉交易與持倉天數計算不使用此函數。
+function closedAttribDate(t) {
+  const src = t.closeDate || t.updatedAt || t.date || '';
+  return String(src).slice(0, 10);
+}
 
 // ── Type system with futures subcategories ──
 const TYPE_LABELS = {
@@ -169,6 +272,19 @@ const TYPE_LABELS = {
 };
 function isFuturesType(type) {
   return ['futures','index_futures','stock_futures','commodity_futures','crypto_contract'].includes(type);
+}
+// 分群用商品類型分桶（細分期貨/選擇權/ETF/加密現貨對得上）：0=股票, 0.2=ETF, 0.5=加密現貨, 0.6=期貨/合約, 0.8=選擇權, 1=加密合約
+function typeBucketNum(type) {
+  if (type === 'options') return 0.8;
+  if (type === 'crypto_contract') return 1;
+  if (isFuturesType(type)) return 0.6;
+  if (type === 'crypto_spot') return 0.5;
+  if (type === 'etf') return 0.2;
+  return 0; // stock 及其他
+}
+// 分群用市場偵測（與 resolveQuoteSymbol 一致：symbol 以 USDT 結尾視為 crypto）
+function isCryptoTrade(t) {
+  return t.market === 'crypto' || /USDT$/i.test(String(t.symbol || '').replace(/[\/-]/g, ''));
 }
 function getContractMul(t) {
   const rawMul = parseFloat(t.contractMul);
@@ -322,22 +438,28 @@ function getLiveQuoteKey(t) { return `${t.symbol}|${t.market}`; }
 // ── CSV Export ──
 function exportCSV() {
   const cols = ['date','market','type','symbol','name','direction','status','entryPrice','exitPrice','quantity','contractMul','stopLoss','takeProfit','fee','tax','account','rating','tags','notes','pricingStage'];
+  const filtered = getFilteredTrades();
   const rows = [cols.join(',')];
-  for (const t of getFilteredTrades()) {
+  for (const t of filtered) {
     rows.push(cols.map(c => {
       let v = t[c] ?? '';
       if (c === 'tags') v = (t.tags || []).join(';');
-      v = String(v).replace(/"/g, '""');
-      return /[,"\n]/.test(v) ? `"${v}"` : v;
+      v = String(v);
+      // CSV 公式注入中和：trim 後以 = + - @ 開頭『且非純數值』者前置單引號，避免試算表將其當公式執行
+      // （純數字含負數如 -5 保持數值型態，不影響試算表數值分析）
+      const _tv = v.trim();
+      if (/^[=+\-@]/.test(_tv) && !(_tv !== '' && Number.isFinite(Number(_tv)))) v = "'" + v;
+      v = v.replace(/"/g, '""');
+      return /[,"\n\r]/.test(v) ? `"${v}"` : v;
     }).join(','));
   }
   const blob = new Blob(['\uFEFF' + rows.join('\n')], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `prism-trades-${new Date().toISOString().slice(0,10)}.csv`;
+  a.download = `prism-trades-${localDateStr()}.csv`;
   a.click();
   URL.revokeObjectURL(a.href);
-  if(window._showToast)window._showToast(`已匯出 ${getFilteredTrades().length} 筆交易`);
+  if(window._showToast)window._showToast(`已匯出目前篩選 ${filtered.length} 筆（共 ${trades.length} 筆）`);
 }
 
 // ── CSV / XLSX Import (broker format support: 元大 / 群益 等) ──
@@ -746,7 +868,7 @@ function _showImportPreview(parsed, headerCells, colMap) {
   let modal = $('#j-import-modal');
   if (!modal) { modal = document.createElement('div'); modal.id = 'j-import-modal'; modal.className = 'j-modal'; modal.style.maxWidth = '900px'; document.body.appendChild(modal); }
 
-  const mapped = Object.entries(colMap).filter(([k]) => !k.startsWith('_')).map(([field, idx]) => `<span class="j-imp-chip">${headerCells[idx].trim()} → ${field}</span>`).join(' ');
+  const mapped = Object.entries(colMap).filter(([k]) => !k.startsWith('_')).map(([field, idx]) => `<span class="j-imp-chip">${esc(headerCells[idx].trim())} → ${esc(field)}</span>`).join(' ');
   const preview = parsed.slice(0, 8);
   const previewCols = ['date','symbol','name','direction','entryPrice','quantity','fee','tax'];
   const colLabels = {date:'日期',symbol:'代號',name:'名稱',direction:'方向',entryPrice:'價格',quantity:'數量',fee:'手續費',tax:'稅'};
@@ -759,7 +881,7 @@ function _showImportPreview(parsed, headerCells, colMap) {
   };
 
   modal.innerHTML = `
-    <div class="j-modal-header"><h3>匯入預覽</h3><button class="j-modal-close" id="j-imp-close">&times;</button></div>
+    <div class="j-modal-header"><h3 id="j-imp-title">匯入預覽</h3><button class="j-modal-close" type="button" aria-label="關閉" id="j-imp-close">&times;</button></div>
     <div class="j-modal-body">
       <div class="j-imp-info">
         <div style="margin-bottom:8px"><strong>${parsed.length}</strong> 筆交易</div>
@@ -767,7 +889,7 @@ function _showImportPreview(parsed, headerCells, colMap) {
       </div>
       <div class="j-imp-table-wrap">
         <table class="j-imp-table">
-          <thead><tr>${previewCols.map(c=>`<th>${colLabels[c]}</th>`).join('')}</tr></thead>
+          <thead><tr>${previewCols.map(c=>`<th scope="col">${colLabels[c]}</th>`).join('')}</tr></thead>
           <tbody>
             ${preview.map(t => `<tr>${previewCols.map(c => `<td>${fmtV(c, t[c])}</td>`).join('')}</tr>`).join('')}
             ${parsed.length > 8 ? `<tr><td colspan="${previewCols.length}" style="text-align:center;color:var(--t3)">…還有 ${parsed.length - 8} 筆</td></tr>` : ''}
@@ -785,11 +907,16 @@ function _showImportPreview(parsed, headerCells, colMap) {
       <button class="j-btn-primary" id="j-imp-confirm">匯入 ${parsed.length} 筆</button>
     </div>`;
 
+  a11yModal(modal, 'j-imp-title');
   overlay.classList.add('open');
   modal.classList.add('open');
+  lockScroll();
+  const releaseFocus = trapFocus(modal);
+  requestAnimationFrame(() => $('#j-imp-confirm')?.focus());
 
-  const close = () => { overlay.classList.remove('open'); modal.classList.remove('open'); };
-  const escH = e => { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', escH); } };
+  let _closed = false;
+  const escH = e => { if (e.key === 'Escape') close(); };
+  const close = () => { if (_closed) return; _closed = true; overlay.classList.remove('open'); modal.classList.remove('open'); unlockScroll(); releaseFocus(); document.removeEventListener('keydown', escH); };
   document.addEventListener('keydown', escH);
   $('#j-imp-close').onclick = close;
   $('#j-imp-cancel').onclick = close;
@@ -945,11 +1072,11 @@ function quickCloseTrade(id) {
   if (!modal) { modal = document.createElement('div'); modal.id = 'j-close-modal'; modal.className = 'j-modal'; modal.style.maxWidth = '400px'; document.body.appendChild(modal); }
 
   modal.innerHTML = `
-    <div class="j-modal-header"><h3>平倉 — ${esc(t.symbol)} ${DL[t.direction]}</h3><button class="j-modal-close" id="j-close-cancel">✕</button></div>
+    <div class="j-modal-header"><h3 id="j-close-title">平倉 — ${esc(t.symbol)} ${DL[t.direction]}</h3><button class="j-modal-close" type="button" aria-label="關閉" id="j-close-cancel">✕</button></div>
     <div class="j-modal-body">
       <div style="font-size:.82rem;color:var(--t3);margin-bottom:10px">進場 ${fmtPrice(parseFloat(t.entryPrice), t.market, t.type)} × ${totalQty}</div>
-      <div class="j-form-row"><label>出場價格</label><input type="number" id="j-close-price" value="${defaultPrice}" step="any" class="j-input" placeholder="輸入平倉價格"></div>
-      <div class="j-form-row"><label>平倉數量</label><input type="number" id="j-close-qty" value="${totalQty}" step="any" min="0" max="${totalQty}" class="j-input"><span style="font-size:.78rem;color:var(--t3);margin-top:2px">持倉 ${totalQty}，留空=全部平倉</span></div>
+      <div class="j-form-row"><label for="j-close-price">出場價格</label><input type="number" id="j-close-price" value="${defaultPrice}" step="any" class="j-input" placeholder="輸入平倉價格"></div>
+      <div class="j-form-row"><label for="j-close-qty">平倉數量</label><input type="number" id="j-close-qty" value="${totalQty}" step="any" min="0" max="${totalQty}" class="j-input"><span style="font-size:.78rem;color:var(--t3);margin-top:2px">持倉 ${totalQty}，留空=全部平倉</span></div>
       <div id="j-close-preview" style="margin-top:10px"></div>
       <div class="j-form-actions" style="margin-top:14px">
         <button class="j-btn j-btn-primary" id="j-close-exec">確認平倉</button>
@@ -957,8 +1084,12 @@ function quickCloseTrade(id) {
       </div>
     </div>`;
 
+  a11yModal(modal, 'j-close-title');
   overlay.classList.add('open'); modal.classList.add('open');
-  const close = () => { overlay.classList.remove('open'); modal.classList.remove('open'); };
+  lockScroll();
+  const releaseFocus = trapFocus(modal);
+  let _closed = false;
+  const close = () => { if (_closed) return; _closed = true; overlay.classList.remove('open'); modal.classList.remove('open'); modal.removeEventListener('keydown', _closeKeydown); unlockScroll(); releaseFocus(); };
   $('#j-close-cancel').onclick = close;
   $('#j-close-cancel2').onclick = close;
   overlay.onclick = e => { if (e.target === overlay) close(); };
@@ -1013,7 +1144,7 @@ function quickCloseTrade(id) {
       if (closeQty >= totalQty) {
         // Full close
         const ef = calcExitFees(t.market, t.type, exitPrice, totalQty, parseFloat(t.contractMul) || 1, t.direction, t.symbol);
-        const data = { ...t, exitPrice, status: 'closed',
+        const data = { ...t, exitPrice, status: 'closed', closeDate: t.closeDate || localISOString(),
           fee: String((parseFloat(t.fee) || 0) + (parseFloat(ef.fee) || 0)),
           tax: String((parseFloat(t.tax) || 0) + (parseFloat(ef.tax) || 0)) };
         await api(`/trades/${id}`, { method: 'PUT', body: JSON.stringify(data) });
@@ -1023,12 +1154,12 @@ function quickCloseTrade(id) {
         // Partial close
         const origFee = parseFloat(t.fee) || 0, origTax = parseFloat(t.tax) || 0;
         const feeRatio = closeQty / totalQty;
-        const closedFee = Math.floor(origFee * feeRatio), closedTax = Math.floor(origTax * feeRatio);
+        // 與 FIFO 沖銷路徑一致採 Math.round；剩餘端以 orig-closed 補齊確保守恆
+        const closedFee = Math.round(origFee * feeRatio), closedTax = Math.round(origTax * feeRatio);
         const ef = calcExitFees(t.market, t.type, exitPrice, closeQty, parseFloat(t.contractMul) || 1, t.direction, t.symbol);
-        const closedData = { ...t, id: undefined, quantity: closeQty, exitPrice, status: 'closed',
+        const closedData = { ...t, id: undefined, quantity: closeQty, exitPrice, status: 'closed', closeDate: t.closeDate || localISOString(),
           fee: String(closedFee + (parseFloat(ef.fee) || 0)),
-          tax: String(closedTax + (parseFloat(ef.tax) || 0)),
-          date: localISOString() };
+          tax: String(closedTax + (parseFloat(ef.tax) || 0)) };
         const remainData = { ...t, quantity: totalQty - closeQty,
           fee: origFee - closedFee, tax: origTax - closedTax };
         await api('/trades', { method: 'POST', body: JSON.stringify(closedData) });
@@ -1073,6 +1204,9 @@ function showSLTPAlert(msg, tradeId) {
   // In-app toast
   const toast = document.createElement('div');
   toast.className = 'j-toast j-toast-alert';
+  toast.setAttribute('role', 'alert');
+  toast.setAttribute('aria-live', 'assertive');
+  toast.setAttribute('aria-atomic', 'true');
   toast.innerHTML = `<span>${esc(msg)}</span><button class="j-toast-btn" data-action="close-trade">平倉</button>`;
   document.body.appendChild(toast);
   requestAnimationFrame(() => toast.classList.add('show'));
@@ -1095,7 +1229,7 @@ function showSLTPAlert(msg, tradeId) {
 function duplicateTrade(id) {
   const t = trades.find(x => x.id === id);
   if (!t) return;
-  const nt = { ...t, id: null, date: localISOString(), status: 'open', exitPrice: '', rating: 0 };
+  const nt = { ...t, id: null, date: localISOString(), status: 'open', exitPrice: '', rating: 0, closeDate: '' };
   openTradeForm(null, nt);
 }
 
@@ -1117,7 +1251,7 @@ async function offsetClose(symbol, market, direction) {
 
   const DL = { long: '做多', short: '做空' };
   modal.innerHTML = `
-    <div class="j-modal-header"><h3>沖銷平倉 — ${esc(symbol)} ${DL[direction]}</h3><button class="j-modal-close" id="j-offset-cancel">✕</button></div>
+    <div class="j-modal-header"><h3 id="j-offset-title">沖銷平倉 — ${esc(symbol)} ${DL[direction]}</h3><button class="j-modal-close" type="button" aria-label="關閉" id="j-offset-cancel">✕</button></div>
     <div class="j-modal-body">
       <p style="font-size:.85rem;color:var(--t2);margin-bottom:12px">系統將依 FIFO（先進先出）順序自動沖銷持倉</p>
       <div class="j-offset-holdings" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
@@ -1125,8 +1259,8 @@ async function offsetClose(symbol, market, direction) {
         ${openList.map(t => `<tr><td>${fmtDate(t.date)}</td><td>${fmtPrice(parseFloat(t.entryPrice), market, t.type)}</td><td>${t.quantity}</td></tr>`).join('')}
         </tbody></table>
       </div>
-      <div class="j-form-row"><label>出場價格</label><input type="number" id="j-offset-price" value="${defaultPrice}" step="any" class="j-input" placeholder="出場價格"></div>
-      <div class="j-form-row"><label>沖銷數量</label><input type="number" id="j-offset-qty" value="${totalQty}" step="any" max="${totalQty}" class="j-input" placeholder="最多 ${totalQty}"><span style="font-size:.78rem;color:var(--t3);margin-top:2px">持倉共 ${totalQty}，留空或填滿=全部沖銷</span></div>
+      <div class="j-form-row"><label for="j-offset-price">出場價格</label><input type="number" id="j-offset-price" value="${defaultPrice}" step="any" class="j-input" placeholder="出場價格"></div>
+      <div class="j-form-row"><label for="j-offset-qty">沖銷數量</label><input type="number" id="j-offset-qty" value="${totalQty}" step="any" max="${totalQty}" class="j-input" placeholder="最多 ${totalQty}"><span style="font-size:.78rem;color:var(--t3);margin-top:2px">持倉共 ${totalQty}，留空或填滿=全部沖銷</span></div>
       <div id="j-offset-preview" style="margin-top:12px"></div>
       <div class="j-form-actions" style="margin-top:16px">
         <button class="j-btn j-btn-primary" id="j-offset-exec">確認沖銷</button>
@@ -1134,20 +1268,25 @@ async function offsetClose(symbol, market, direction) {
       </div>
     </div>`;
 
+  a11yModal(modal, 'j-offset-title');
   overlay.classList.add('open');
   modal.classList.add('open');
+  lockScroll();
+  const releaseFocus = trapFocus(modal);
   requestAnimationFrame(() => $('#j-offset-price')?.focus());
 
-  const close = () => { overlay.classList.remove('open'); modal.classList.remove('open'); };
+  let _closed = false;
+  const close = () => { if (_closed) return; _closed = true; overlay.classList.remove('open'); modal.classList.remove('open'); modal.removeEventListener('keydown', _offsetKeydown); unlockScroll(); releaseFocus(); };
   $('#j-offset-cancel').onclick = close;
   $('#j-offset-cancel2').onclick = close;
   overlay.onclick = e => { if (e.target === overlay) close(); };
 
   // Enter-to-submit & Escape-to-close
-  modal.addEventListener('keydown', e => {
+  const _offsetKeydown = e => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#j-offset-exec')?.click(); }
     if (e.key === 'Escape') close();
-  });
+  };
+  modal.addEventListener('keydown', _offsetKeydown);
 
   // Preview logic
   function buildPreview() {
@@ -1218,7 +1357,7 @@ async function offsetClose(symbol, market, direction) {
         if (op.type === 'close') {
           // Fully close this trade — add exit-side fees
           const ef = calcExitFees(t.market, t.type, exitPrice, tQty, parseFloat(t.contractMul) || 1, t.direction, t.symbol);
-          const data = { ...t, exitPrice, status: 'closed',
+          const data = { ...t, exitPrice, status: 'closed', closeDate: t.closeDate || localISOString(),
             fee: String(origFee + (parseFloat(ef.fee) || 0)),
             tax: String(origTax + (parseFloat(ef.tax) || 0)) };
           await api(`/trades/${t.id}`, { method: 'PUT', body: JSON.stringify(data) });
@@ -1228,7 +1367,7 @@ async function offsetClose(symbol, market, direction) {
           const closedFee = Math.round(origFee * ratio);
           const closedTax = Math.round(origTax * ratio);
           const ef = calcExitFees(t.market, t.type, exitPrice, op.used, parseFloat(t.contractMul) || 1, t.direction, t.symbol);
-          const closedData = { ...t, id: undefined, quantity: op.used, exitPrice, status: 'closed', fee: String(closedFee + (parseFloat(ef.fee) || 0)), tax: String(closedTax + (parseFloat(ef.tax) || 0)) };
+          const closedData = { ...t, id: undefined, quantity: op.used, exitPrice, status: 'closed', closeDate: t.closeDate || localISOString(), fee: String(closedFee + (parseFloat(ef.fee) || 0)), tax: String(closedTax + (parseFloat(ef.tax) || 0)) };
           const remainData = { ...t, quantity: op.leftover, fee: origFee - closedFee, tax: origTax - closedTax };
           await api('/trades', { method: 'POST', body: JSON.stringify(closedData) });
           await api(`/trades/${t.id}`, { method: 'PUT', body: JSON.stringify(remainData) });
@@ -1277,7 +1416,10 @@ async function _doBatchDelete() {
 
 async function batchAddTag() {
   if (!batchSelected.size) return;
-  const tag = prompt('新增標籤：');
+  // 帶入既有標籤（含預設）作為可點選 preset
+  const existing = [...new Set(trades.flatMap(t => t.tags || []))];
+  const presets = [...new Set([...TAG_PRESETS, ...existing])];
+  const tag = await _promptDialog({ title: '批次新增標籤', placeholder: '輸入標籤名稱', presets, confirmText: '新增' });
   if (!tag?.trim()) return;
   try {
     for (const id of batchSelected) {
@@ -1305,12 +1447,13 @@ async function batchClose() {
     const lq = liveQuotes[getLiveQuoteKey(t)];
     if (!lq?.price) { skippedCount++; continue; }
     const ef = calcExitFees(t.market, t.type, lq.price, parseFloat(t.quantity), parseFloat(t.contractMul) || 1, t.direction, t.symbol);
-    closeJobs.push({ id, data: { ...t, exitPrice: lq.price, status: 'closed',
+    closeJobs.push({ id, data: { ...t, exitPrice: lq.price, status: 'closed', closeDate: t.closeDate || localISOString(),
       fee: String((parseFloat(t.fee) || 0) + (parseFloat(ef.fee) || 0)),
       tax: String((parseFloat(t.tax) || 0) + (parseFloat(ef.tax) || 0)) } });
   }
   if (!closeJobs.length) { if(window._showToast)window._showToast('無法取得即時報價'); return; }
-  _confirmDialog(`以即時報價平倉 <strong>${closeJobs.length}</strong> 筆持倉？`, async () => {
+  const skipNote = skippedCount > 0 ? `<br><span style="color:var(--amber)">另 ${skippedCount} 筆無即時報價將略過</span>` : '';
+  _confirmDialog(`以即時報價平倉 <strong>${closeJobs.length}</strong> 筆持倉？${skipNote}`, async () => {
     let closed = 0;
     for (const job of closeJobs) {
       try {
@@ -1437,7 +1580,7 @@ function exportReport() {
   const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `prism-report-${new Date().toISOString().slice(0, 10)}.html`;
+  a.download = `prism-report-${localDateStr()}.html`;
   a.click();
   URL.revokeObjectURL(a.href);
 }
@@ -1544,6 +1687,11 @@ async function fetchOpenTradeQuotes(force = false) {
         const r = await PriceService._proxyFetch(url, 5000);
         const data = await r.json();
         if (data.price) q = { price: parseFloat(data.price) };
+        if (!q || !q.price) {
+          // Binance 被地理封鎖或代理失敗時，回退 Yahoo（與 app.js fetchCryptoPrice 對齊）
+          const base = target.symbol.replace(/USDT$/i, '');
+          q = await PriceService.yahoo.fetchQuote(base + '-USD');
+        }
       } else if (target.method === 'yahoo') {
         q = await PriceService.yahoo.fetchQuote(target.symbol);
       } else {
@@ -1802,18 +1950,18 @@ function renderJournal() {
     <div class="j-toolbar">
       <div class="j-tb-row j-tb-actions">
         <div class="j-view-toggle">
-          <button class="j-vt-btn ${viewMode === 'list' ? 'active' : ''}" data-view="list"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>交易</button>
-          <button class="j-vt-btn ${viewMode === 'calendar' ? 'active' : ''}" data-view="calendar"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>日曆</button>
-          <button class="j-vt-btn ${viewMode === 'stats' ? 'active' : ''}" data-view="stats"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>統計</button>
-          <button class="j-vt-btn ${viewMode === 'holdings' ? 'active' : ''}" data-view="holdings"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>庫存</button>
-          <button class="j-vt-btn ${viewMode === 'diary' ? 'active' : ''}" data-view="diary"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>日記</button>
+          <button class="j-vt-btn ${viewMode === 'list' ? 'active' : ''}" data-view="list" ${viewMode === 'list' ? 'aria-current="page"' : ''}><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>交易</button>
+          <button class="j-vt-btn ${viewMode === 'calendar' ? 'active' : ''}" data-view="calendar" ${viewMode === 'calendar' ? 'aria-current="page"' : ''}><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>日曆</button>
+          <button class="j-vt-btn ${viewMode === 'stats' ? 'active' : ''}" data-view="stats" ${viewMode === 'stats' ? 'aria-current="page"' : ''}><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>統計</button>
+          <button class="j-vt-btn ${viewMode === 'holdings' ? 'active' : ''}" data-view="holdings" ${viewMode === 'holdings' ? 'aria-current="page"' : ''}><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>庫存</button>
+          <button class="j-vt-btn ${viewMode === 'diary' ? 'active' : ''}" data-view="diary" ${viewMode === 'diary' ? 'aria-current="page"' : ''}><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>日記</button>
         </div>
         <div class="j-tb-divider"></div>
         <div class="j-csv-btns">
-          <button class="j-act-btn" id="j-csv-export" title="匯出 CSV"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
-          <button class="j-act-btn" id="j-csv-import" title="匯入 CSV"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button>
-          <button class="j-act-btn" id="j-export-report" title="匯出報表"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></button>
-          <button class="j-act-btn ${batchMode?'active':''}" id="j-batch-toggle" title="批次操作"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg></button>
+          <button class="j-act-btn" id="j-csv-export" title="匯出 CSV" aria-label="匯出 CSV"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
+          <button class="j-act-btn" id="j-csv-import" title="匯入 CSV" aria-label="匯入 CSV"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button>
+          <button class="j-act-btn" id="j-export-report" title="匯出報表" aria-label="匯出報表"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></button>
+          <button class="j-act-btn ${batchMode?'active':''}" id="j-batch-toggle" title="批次操作" aria-label="批次操作"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg></button>
         </div>
         <button class="j-add-btn" id="j-add" title="新增交易 (N)"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>新增交易</button>
       </div>
@@ -1827,20 +1975,24 @@ function renderJournal() {
   $('#j-csv-import')?.addEventListener('click', importCSV);
   $('#j-export-report')?.addEventListener('click', exportReport);
   $('#j-batch-toggle')?.addEventListener('click', toggleBatchMode);
-  $$('.j-vt-btn').forEach(b => b.addEventListener('click', () => { viewMode = b.dataset.view; renderJournal(); }));
+  $$('.j-vt-btn').forEach(b => b.addEventListener('click', () => { viewMode = b.dataset.view; saveViewPrefs(); renderJournal(); }));
   renderDashboard();
   // Quick filter handlers
   $$('.j-qf-chip').forEach(b => {
-    if (b.dataset.qf === quickFilter) b.classList.add('active');
+    const on = b.dataset.qf === quickFilter;
+    if (on) b.classList.add('active');
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
     b.addEventListener('click', () => {
       quickFilter = b.dataset.qf;
-      $$('.j-qf-chip').forEach(x => x.classList.toggle('active', x.dataset.qf === quickFilter));
+      $$('.j-qf-chip').forEach(x => { const a = x.dataset.qf === quickFilter; x.classList.toggle('active', a); x.setAttribute('aria-pressed', a ? 'true' : 'false'); });
       if (viewMode === 'list') renderTradeList();
       else if (viewMode === 'holdings') renderHoldings();
       else if (viewMode === 'stats') renderStats();
     });
   });
   renderFilters();
+  // 離開日記視圖時清除殘留的自動儲存計時器
+  if (viewMode !== 'diary' && _diaryAutoSaveTimer) { clearTimeout(_diaryAutoSaveTimer); _diaryAutoSaveTimer = null; }
   if (viewMode === 'list') renderTradeList();
   else if (viewMode === 'holdings') renderHoldings();
   else if (viewMode === 'calendar') renderCalendar();
@@ -1854,8 +2006,8 @@ function renderJournal() {
 function renderDashboard() {
   const el = $('#j-dashboard');
   if (!el) return;
-  const now = new Date(), todayStr = now.toISOString().slice(0, 10);
-  const weekAgo = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6).toISOString().slice(0, 10);
+  const now = new Date(), todayStr = localDateStr(now);
+  const weekAgo = localDateStr(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6));
   const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
 
   const closed = trades.filter(t => t.status === 'closed');
@@ -1868,9 +2020,10 @@ function renderDashboard() {
   for (const m of activeMarkets) {
     const mc = closed.filter(t => t.market === m);
     const calcNet = list => list.map(t => calcPL(t)).filter(Boolean).reduce((s, p) => s + p.net, 0);
-    const today = calcNet(mc.filter(t => t.date?.slice(0, 10) === todayStr));
-    const week = calcNet(mc.filter(t => t.date?.slice(0, 10) >= weekAgo));
-    const month = calcNet(mc.filter(t => t.date?.slice(0, 10) >= monthStart));
+    // 已實現損益歸期改用平倉日（closedAttribDate），而非進場日
+    const today = calcNet(mc.filter(t => closedAttribDate(t) === todayStr));
+    const week = calcNet(mc.filter(t => closedAttribDate(t) >= weekAgo));
+    const month = calcNet(mc.filter(t => closedAttribDate(t) >= monthStart));
     let unreal = 0;
     trades.filter(t => t.status === 'open' && t.market === m).forEach(t => {
       const lq = liveQuotes[getLiveQuoteKey(t)]; if (lq?.price) { const u = calcUnrealizedPL(t, lq.price); if (u) unreal += u.net; }
@@ -1886,10 +2039,10 @@ function renderDashboard() {
   const ML_SHORT = { tw: '台股', us: '美股', crypto: '加密' };
   const mktRows = Object.entries(dashByMkt);
   const hasOpen = openCount > 0;
-  const refreshBtn = hasOpen ? `<button class="j-refresh-quotes-btn" id="j-refresh-quotes" title="更新未平倉報價"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 4v6h6"/><path d="M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg></button>` : '';
+  const refreshBtn = hasOpen ? `<button class="j-refresh-quotes-btn" id="j-refresh-quotes" title="更新未平倉報價" aria-label="更新未平倉報價"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 4v6h6"/><path d="M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg></button>` : '';
 
   // Build inline stat pills
-  const pill = (label, val, c, action) => `<span class="j-stat-pill${action?' j-stat-clickable':''}" ${action?`data-action="${action}"`:''} ${action?'title="點擊篩選"':''}><span class="j-stat-lbl">${label}</span><span class="j-stat-val ${c}">${val}</span></span>`;
+  const pill = (label, val, c, action) => `<span class="j-stat-pill${action?' j-stat-clickable':''}" ${action?`data-action="${action}" role="button" tabindex="0" aria-label="${esc(label)} ${esc(String(val))}，點擊篩選" title="點擊篩選"`:''}><span class="j-stat-lbl">${label}</span><span class="j-stat-val ${c}">${val}</span></span>`;
   const sep = '<span class="j-stat-sep">\u00b7</span>';
 
   let statsHTML;
@@ -1938,17 +2091,22 @@ function renderDashboard() {
   });
 
   // Stat pill click → filter
-  $$('.j-stat-clickable', el).forEach(p => p.addEventListener('click', () => {
-    const a = p.dataset.action;
-    if (a === 'today') { quickFilter = 'today'; }
-    else if (a === 'week') { const wa = new Date(); wa.setDate(wa.getDate()-6); filterState.dateFrom = wa.toISOString().slice(0,10); filterState.dateTo = new Date().toISOString().slice(0,10); quickFilter = 'all'; }
-    else if (a === 'month') { const n = new Date(); filterState.dateFrom = `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-01`; filterState.dateTo = n.toISOString().slice(0,10); quickFilter = 'all'; }
-    else if (a === 'open') { quickFilter = 'open'; }
-    viewMode = 'list';
-    renderFilters(); renderDashboard();
-    $$('.j-qf-chip').forEach(x => x.classList.toggle('active', x.dataset.qf === quickFilter));
-    if (viewMode === 'list') renderTradeList(); else if (viewMode === 'holdings') renderHoldings();
-  }));
+  $$('.j-stat-clickable', el).forEach(p => {
+    p.addEventListener('click', () => {
+      const a = p.dataset.action;
+      // pill 值以平倉日歸集（closedAttribDate），故下鑽沿用 calAttrib union（已平倉以
+      // 進場日OR平倉日落入範圍、未平倉以進場日），避免歸期語意斷裂。
+      if (a === 'today') { const td = localDateStr(); filterState.dateFrom = td; filterState.dateTo = td; filterState.calAttrib = true; quickFilter = 'all'; }
+      else if (a === 'week') { const wa = new Date(); wa.setDate(wa.getDate()-6); filterState.dateFrom = localDateStr(wa); filterState.dateTo = localDateStr(); filterState.calAttrib = true; quickFilter = 'all'; }
+      else if (a === 'month') { const n = new Date(); filterState.dateFrom = `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-01`; filterState.dateTo = localDateStr(n); filterState.calAttrib = true; quickFilter = 'all'; }
+      else if (a === 'open') { quickFilter = 'open'; }
+      viewMode = 'list';
+      renderFilters(); renderDashboard();
+      $$('.j-qf-chip').forEach(x => { const a = x.dataset.qf === quickFilter; x.classList.toggle('active', a); x.setAttribute('aria-pressed', a ? 'true' : 'false'); });
+      if (viewMode === 'list') renderTradeList(); else if (viewMode === 'holdings') renderHoldings();
+    });
+    p.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); p.click(); } });
+  });
 }
 
 // ================================================================
@@ -1963,21 +2121,33 @@ function renderCalendar() {
   const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
 
-  // Group trades by day
+  // Group trades by day（套用市場/帳戶/標籤/搜尋等篩選，但日期維度改用 calMonth 限月）
+  // dayMap：以進場日歸入日格（用於筆數與開倉活動顯示）
+  // closedByDay：已平倉交易以平倉日（closedAttribDate）歸入日格（用於已實現損益）
   const dayMap = {};
+  const closedByDay = {};
   const prefix = `${year}-${String(month + 1).padStart(2, '0')}`;
-  for (const t of trades) {
-    if (!t.date?.startsWith(prefix)) continue;
-    const day = parseInt(t.date.slice(8, 10));
-    if (!dayMap[day]) dayMap[day] = [];
-    dayMap[day].push(t);
+  for (const t of getFilteredTrades({ skipDateRange: true })) {
+    if (t.date?.startsWith(prefix)) {
+      const day = parseInt(t.date.slice(8, 10));
+      if (!dayMap[day]) dayMap[day] = [];
+      dayMap[day].push(t);
+    }
+    if (t.status === 'closed') {
+      const cad = closedAttribDate(t);
+      if (cad.startsWith(prefix)) {
+        const cday = parseInt(cad.slice(8, 10));
+        if (!closedByDay[cday]) closedByDay[cday] = [];
+        closedByDay[cday].push(t);
+      }
+    }
   }
 
   let html = `<div class="j-cal-wrap">
     <div class="j-cal-header">
-      <button class="j-dt-nav" id="j-cal-prev">&lsaquo;</button>
+      <button class="j-dt-nav" type="button" id="j-cal-prev" aria-label="上個月">&lsaquo;</button>
       <span class="j-cal-title">${year} 年 ${month + 1} 月</span>
-      <button class="j-dt-nav" id="j-cal-next">&rsaquo;</button>
+      <button class="j-dt-nav" type="button" id="j-cal-next" aria-label="下個月">&rsaquo;</button>
     </div>
     <div class="j-cal-grid">
       <div class="j-cal-wh">日</div><div class="j-cal-wh">一</div><div class="j-cal-wh">二</div><div class="j-cal-wh">三</div><div class="j-cal-wh">四</div><div class="j-cal-wh">五</div><div class="j-cal-wh">六</div>`;
@@ -1986,7 +2156,8 @@ function renderCalendar() {
 
   for (let d = 1; d <= daysInMonth; d++) {
     const dayTrades = dayMap[d] || [];
-    const closed = dayTrades.filter(t => t.status === 'closed');
+    // 已實現損益歸到平倉日：用 closedByDay（平倉日）而非 dayTrades（進場日）的已平倉子集
+    const closed = closedByDay[d] || [];
     const plByMkt = {};
     closed.forEach(t => { const pl = calcPL(t); if (pl) { if (!plByMkt[t.market]) plByMkt[t.market] = 0; plByMkt[t.market] += pl.net; } });
     const mks = Object.keys(plByMkt);
@@ -1996,7 +2167,9 @@ function renderCalendar() {
     const plHTML = mks.length <= 1
       ? (closed.length ? `<span class="j-cal-pl ${totalPL >= 0 ? 'tg' : 'tr'}">${fmtMoney(totalPL, mks[0] || 'tw')}</span>` : '')
       : mks.map(m => `<span class="j-cal-pl ${plByMkt[m] >= 0 ? 'tg' : 'tr'}">${fmtMoney(plByMkt[m], m)}</span>`).join('');
-    html += `<div class="j-cal-cell ${cls} ${isToday ? 'j-cal-today' : ''}" data-day="${d}">
+    const plLabel = closed.length ? `，淨損益 ${mks.map(m => fmtMoney(plByMkt[m], m)).join('、')}` : '';
+    const cellLabel = `${year} 年 ${month + 1} 月 ${d} 日${dayTrades.length ? `，${dayTrades.length} 筆交易` : ''}${plLabel}`;
+    html += `<div class="j-cal-cell ${cls} ${isToday ? 'j-cal-today' : ''}" data-day="${d}" role="button" tabindex="0" aria-label="${esc(cellLabel)}">
       <span class="j-cal-day">${d}</span>
       ${dayTrades.length ? `<span class="j-cal-count">${dayTrades.length}筆</span>` : ''}
       ${plHTML}
@@ -2015,8 +2188,14 @@ function renderCalendar() {
       cell.classList.add('cal-cell-tap');
       filterState.dateFrom = dateStr;
       filterState.dateTo = dateStr;
+      // 下鑽歸期模式：與日格一致——已平倉交易依平倉日(closedAttribDate)歸入日格 D，
+      // 故下鑽列表對已平倉交易亦以 closedAttribDate 比對日期範圍（未平倉仍用進場日 t.date）
+      filterState.calAttrib = true;
       viewMode = 'list';
       setTimeout(() => renderJournal(), 150);
+    });
+    cell.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); cell.click(); }
     });
   });
 }
@@ -2029,7 +2208,7 @@ function _dateRangeValue() {
   if (!dateFrom && !dateTo) return 'all';
   // Check preset matches
   const today = new Date(), y = today.getFullYear(), m = today.getMonth(), d = today.getDate();
-  const fmt = dt => dt.toISOString().slice(0,10);
+  const fmt = localDateStr;
   const presets = {
     '7d':  [fmt(new Date(y,m,d-6)), fmt(today)],
     '30d': [fmt(new Date(y,m,d-29)), fmt(today)],
@@ -2044,7 +2223,9 @@ function _dateRangeValue() {
 }
 function _applyDatePreset(val) {
   const today = new Date(), y = today.getFullYear(), m = today.getMonth(), d = today.getDate();
-  const fmt = dt => dt.toISOString().slice(0,10);
+  const fmt = localDateStr;
+  // 離開行事曆下鑽歸期模式：改用日期區間預設後回到一般（進場日）篩選語意
+  filterState.calAttrib = false;
   if (val === 'all')   { filterState.dateFrom = ''; filterState.dateTo = ''; }
   else if (val === '7d')  { filterState.dateFrom = fmt(new Date(y,m,d-6)); filterState.dateTo = fmt(today); }
   else if (val === '30d') { filterState.dateFrom = fmt(new Date(y,m,d-29)); filterState.dateTo = fmt(today); }
@@ -2103,20 +2284,20 @@ function renderFilters() {
       refresh();
     }
   });
-  $('#jf-from')?.addEventListener('change', () => { filterState.dateFrom=$('#jf-from')?.value||''; refresh(); });
-  $('#jf-to')?.addEventListener('change', () => { filterState.dateTo=$('#jf-to')?.value||''; refresh(); });
-  $$('#j-filters select:not(#jf-date-range),#jf-search').forEach(e=>e.addEventListener('change',update));
-  $('#jf-search')?.addEventListener('input',update);
+  $('#jf-from')?.addEventListener('change', () => { filterState.dateFrom=$('#jf-from')?.value||''; filterState.calAttrib=false; refresh(); });
+  $('#jf-to')?.addEventListener('change', () => { filterState.dateTo=$('#jf-to')?.value||''; filterState.calAttrib=false; refresh(); });
+  $$('#j-filters select:not(#jf-date-range)').forEach(e=>e.addEventListener('change',update));
+  $('#jf-search')?.addEventListener('input', debounce(update, 200));
   // Mobile filter toggle
   $('#j-filter-toggle')?.addEventListener('click', () => {
     el.classList.toggle('expanded');
   });
 }
 
-function getFilteredTrades() {
+function getFilteredTrades(opts = {}) {
   let list=[...trades]; const f=filterState;
   // Quick filters
-  if (quickFilter === 'today') { const td = new Date().toISOString().slice(0,10); list = list.filter(t => t.date?.slice(0,10) === td); }
+  if (quickFilter === 'today') { const td = localDateStr(); list = list.filter(t => t.date?.slice(0,10) === td); }
   else if (quickFilter === 'open') list = list.filter(t => t.status === 'open');
   else if (quickFilter === 'winners') list = list.filter(t => { const pl = calcPL(t); return pl && pl.net > 0; });
   else if (quickFilter === 'losers') list = list.filter(t => { const pl = calcPL(t); return pl && pl.net <= 0 && t.status === 'closed'; });
@@ -2126,11 +2307,21 @@ function getFilteredTrades() {
   if(f.tag!=='all') list=list.filter(t=>(t.tags||[]).includes(f.tag));
   if(f.account&&f.account!=='all') list=list.filter(t=>t.account===f.account);
   if(f.status&&f.status!=='all') list=list.filter(t=>t.status===f.status);
-  if(f.dateFrom) list=list.filter(t=>t.date>=f.dateFrom);
-  if(f.dateTo) list=list.filter(t=>t.date<=f.dateTo+'T23:59:59');
-  if(f.search){const s=f.search.toLowerCase();list=list.filter(t=>(t.symbol+t.name+t.notes).toLowerCase().includes(s));}
+  // 日曆視圖自行用 calMonth 限月，故可跳過 dateFrom/dateTo 以免衝突
+  if((f.dateFrom||f.dateTo)&&!opts.skipDateRange){
+    const inRange = k => (!f.dateFrom || k>=f.dateFrom) && (!f.dateTo || k<=f.dateTo);
+    // calAttrib（行事曆日格下鑽）：已平倉交易在『進場日』或『平倉日』任一落入範圍即顯示，
+    // 同時涵蓋日格的筆數徽章(進場日歸集)與已實現損益(平倉日歸集)，避免歸期語意斷裂；
+    // 未平倉交易與非 calAttrib 一般篩選仍以進場日 t.date 比對
+    list=list.filter(t=>{
+      const entryK=(t.date||'').slice(0,10);
+      if(f.calAttrib && t.status==='closed') return inRange(entryK) || inRange(closedAttribDate(t));
+      return inRange(entryK);
+    });
+  }
+  if(f.search){const s=f.search.toLowerCase();list=list.filter(t=>((t.symbol||'')+(t.name||'')+(t.notes||'')).toLowerCase().includes(s));}
   const{field,asc}=sortState;
-  list.sort((a,b)=>{let va,vb;if(field==='date'){va=a.date;vb=b.date;}else if(field==='symbol'){va=a.symbol;vb=b.symbol;}else if(field==='pl'){const pa=calcPL(a),pb=calcPL(b);va=pa?pa.net:-Infinity;vb=pb?pb.net:-Infinity;}else{va=a[field];vb=b[field];}if(va<vb)return asc?-1:1;if(va>vb)return asc?1:-1;return 0;});
+  list.sort((a,b)=>{let va,vb;if(field==='date'){va=a.date;vb=b.date;}else if(field==='symbol'){va=a.symbol||'';vb=b.symbol||'';}else if(field==='pl'){const pa=calcPL(a),pb=calcPL(b);va=pa?pa.net:-Infinity;vb=pb?pb.net:-Infinity;}else{va=a[field];vb=b[field];}if(va<vb)return asc?-1:1;if(va>vb)return asc?1:-1;return 0;});
   return list;
 }
 
@@ -2144,7 +2335,7 @@ function renderTradeList() {
     const hasActiveFilter = filterState.market!=='all'||filterState.type!=='all'||filterState.status!=='all'||filterState.tag!=='all'||filterState.account!=='all'||filterState.search||filterState.dateFrom||filterState.dateTo||quickFilter!=='all';
     if(hasActiveFilter){
       body.innerHTML=`<div class="j-empty"><svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="var(--t3)" stroke-width="1.5"><path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/></svg><p>沒有符合條件的交易</p><p class="j-empty-hint">目前的篩選條件沒有匹配結果</p><button class="j-btn j-btn-sm j-empty-clear-btn" id="j-clear-filters">清除篩選</button></div>`;
-      $('#j-clear-filters')?.addEventListener('click',()=>{filterState={market:'all',type:'all',status:'all',tag:'all',account:'all',search:'',dateFrom:'',dateTo:''};quickFilter='all';renderFilters();renderTradeList();renderDashboard();});
+      $('#j-clear-filters')?.addEventListener('click',()=>{filterState={market:'all',type:'all',status:'all',tag:'all',account:'all',search:'',dateFrom:'',dateTo:'',calAttrib:false};quickFilter='all';renderFilters();renderTradeList();renderDashboard();});
     } else {
       body.innerHTML=`<div class="j-empty"><svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="var(--t3)" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/></svg><p>尚無交易紀錄</p><p class="j-empty-hint">開始記錄你的交易吧！</p><button class="j-btn j-empty-add-btn" id="j-empty-add"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>新增交易</button></div>`;
       $('#j-empty-add')?.addEventListener('click',()=>openTradeForm(null));
@@ -2153,6 +2344,7 @@ function renderTradeList() {
   }
   const ML={tw:'台灣',us:'美國',crypto:'加密貨幣'},TL=TYPE_LABELS,DL={long:'做多',short:'做空'},DC={long:'j-dir-long',short:'j-dir-short'},SL={open:'持倉中',closed:'已平倉'};
   const si=f=>sortState.field!==f?'<span class="j-sort-icon"></span>':`<span class="j-sort-icon active">${sortState.asc?'&#9650;':'&#9660;'}</span>`;
+  const as=f=>sortState.field!==f?'none':(sortState.asc?'ascending':'descending');
   const cp=filtered.filter(t=>t.status==='closed').map(t=>calcPL(t)).filter(Boolean);
   const tn=cp.reduce((s,p)=>s+p.net,0),wins=cp.filter(p=>p.net>0).length,wr=cp.length?(wins/cp.length*100).toFixed(1):0;
   // Unrealized P&L for open trades
@@ -2183,17 +2375,17 @@ function renderTradeList() {
   h+=`<div class="j-summary-bar"><span>共 <strong>${filtered.length}</strong> 筆</span>${cp.length?`<span>已平倉：${closedSummary}</span><span>勝率：<strong>${wr}%</strong> (${wins}/${cp.length})</span>`:''}${uplKeys.length?`<span>未實現：${uplSummary} <small>(${unrealizedCount}筆)</small></span>`:openTrades.length?`<span>持倉中：<strong>${openTrades.length}</strong> 筆</span>`:''}</div>`;
 
   // Desktop: table view (condensed — 7 columns instead of 13)
-  h+=`<div class="j-table-wrap"><table class="j-table"><thead><tr>${batchMode?'<th><input type="checkbox" id="jb-all"></th>':''}<th class="j-th-sort" data-sort="date">日期 ${si('date')}</th><th class="j-th-sort" data-sort="symbol">標的 ${si('symbol')}</th><th>價格</th><th>數量</th><th class="j-th-sort" data-sort="pl">損益 ${si('pl')}</th><th>狀態</th><th></th></tr></thead><tbody>`;
+  h+=`<div class="j-table-wrap"><table class="j-table"><thead><tr>${batchMode?'<th><input type="checkbox" id="jb-all" aria-label="全選"></th>':''}<th class="j-th-sort" data-sort="date" role="button" tabindex="0" aria-sort="${as('date')}">日期 ${si('date')}</th><th class="j-th-sort" data-sort="symbol" role="button" tabindex="0" aria-sort="${as('symbol')}">標的 ${si('symbol')}</th><th>價格</th><th>數量</th><th class="j-th-sort" data-sort="pl" role="button" tabindex="0" aria-sort="${as('pl')}">損益 ${si('pl')}</th><th>狀態</th><th></th></tr></thead><tbody>`;
   for(const t of filtered){
     let plStr='—',plC='tm',plExtra='';
     if(t.status==='open'){
       const qk=getLiveQuoteKey(t),lq=liveQuotes[qk];
       if(lq&&lq.price){const upl=calcUnrealizedPL(t,lq.price);if(upl){plStr=fmtMoney(upl.net,t.market);plC=upl.net>0?'tg':upl.net<0?'tr':'';plExtra=`<div class="j-live-price">現價 ${fmtPrice(lq.price, t.market, t.type)}</div>`;}}
       else if(lq&&lq.error){plStr='<span class="j-live-price" title="'+esc(lq.error)+'">無法取得報價</span>';}
-      else{plStr='<span class="j-pl-loading" data-key="'+qk+'">查詢中…</span>';}
+      else{plStr='<span class="j-pl-loading" data-key="'+esc(qk)+'">查詢中…</span>';}
     }else{const pl=calcPL(t);if(pl){plStr=fmtMoney(pl.net,t.market);plC=pl.net>0?'tg':pl.net<0?'tr':'';}}
     const tagHtml=(t.tags||[]).length?`<div class="j-td-tags-inline">${t.tags.map(tag=>`<span class="j-tag">${esc(tag)}</span>`).join('')}</div>`:'';
-  h+=`<tr class="j-row" data-id="${t.id}">${batchMode?`<td><input type="checkbox" class="j-batch-cb" data-id="${t.id}" ${batchSelected.has(t.id)?'checked':''}></td>`:''}<td class="j-td-date">${fmtDate(t.date)}</td><td class="j-td-sym"><div class="j-sym-row"><strong>${esc(t.symbol)}</strong><span class="j-badge j-badge-${t.market}">${ML[t.market]||t.market}</span><span class="j-badge j-badge-type">${TL[t.type]||t.type}</span><span class="${DC[t.direction]}">${DL[t.direction]}</span></div>${t.name?`<span class="j-sym-name">${esc(t.name)}</span>`:''}</td><td class="j-td-price"><span class="j-td-num">${fmtPrice(parseFloat(t.entryPrice), t.market, t.type)}</span><span class="j-price-arrow">→</span><span class="j-td-num">${t.exitPrice?fmtPrice(parseFloat(t.exitPrice), t.market, t.type):'—'}</span></td><td class="j-td-num">${t.quantity||'—'}</td><td class="j-td-num ${plC}">${plStr}${plExtra}</td><td><span class="j-status j-status-${t.status}">${SL[t.status]}</span>${tagHtml}</td><td class="j-td-actions"><div class="j-actions-wrap">${t.status==='open'?`<button class="j-act-btn j-act-close" data-id="${t.id}" title="平倉"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></button>`:''}<button class="j-act-btn j-act-dup" data-id="${t.id}" title="複製交易"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><button class="j-act-btn j-act-view" data-id="${t.id}" title="檢視"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button><button class="j-act-btn j-act-edit" data-id="${t.id}" title="編輯"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button><button class="j-act-btn j-act-del" data-id="${t.id}" title="刪除"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button></div></td></tr>`;}
+  h+=`<tr class="j-row" data-id="${t.id}">${batchMode?`<td><input type="checkbox" class="j-batch-cb" data-id="${t.id}" ${batchSelected.has(t.id)?'checked':''} aria-label="選取此交易"></td>`:''}<td class="j-td-date">${fmtDate(t.date)}</td><td class="j-td-sym"><div class="j-sym-row"><strong>${esc(t.symbol)}</strong><span class="j-badge j-badge-${t.market}">${ML[t.market]||t.market}</span><span class="j-badge j-badge-type">${TL[t.type]||t.type}</span><span class="${DC[t.direction]}">${DL[t.direction]}</span></div>${t.name?`<span class="j-sym-name">${esc(t.name)}</span>`:''}</td><td class="j-td-price"><span class="j-td-num">${fmtPrice(parseFloat(t.entryPrice), t.market, t.type)}</span><span class="j-price-arrow">→</span><span class="j-td-num">${t.exitPrice?fmtPrice(parseFloat(t.exitPrice), t.market, t.type):'—'}</span></td><td class="j-td-num">${t.quantity||'—'}</td><td class="j-td-num ${plC}">${plStr}${plExtra}</td><td><span class="j-status j-status-${t.status}">${SL[t.status]}</span>${tagHtml}</td><td class="j-td-actions"><div class="j-actions-wrap">${t.status==='open'?`<button class="j-act-btn j-act-close" data-id="${t.id}" title="平倉" aria-label="平倉"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></button>`:''}<button class="j-act-btn j-act-dup" data-id="${t.id}" title="複製交易" aria-label="複製交易"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><button class="j-act-btn j-act-view" data-id="${t.id}" title="檢視" aria-label="檢視"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button><button class="j-act-btn j-act-edit" data-id="${t.id}" title="編輯" aria-label="編輯"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button><button class="j-act-btn j-act-del" data-id="${t.id}" title="刪除" aria-label="刪除"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button></div></td></tr>`;}
   h+='</tbody></table></div>';
 
   // Mobile: card view
@@ -2204,11 +2396,11 @@ function renderTradeList() {
       const qk=getLiveQuoteKey(t),lq=liveQuotes[qk];
       if(lq&&lq.price){const upl=calcUnrealizedPL(t,lq.price);if(upl){cPlStr=fmtMoney(upl.net,t.market);cPlC=upl.net>0?'tg':upl.net<0?'tr':'';cLiveInfo=`<div class="j-card-field"><span class="j-card-label">現價</span><span class="j-card-val">${fmtPrice(lq.price, t.market, t.type)}</span></div><div class="j-card-field"><span class="j-card-label">未實現損益</span><span class="j-card-val ${cPlC}">${cPlStr}</span></div>`;}}
       else if(lq&&lq.error){cPlStr='—';}
-      else{cPlStr='<span class="j-pl-loading" data-key="'+qk+'">…</span>';}
+      else{cPlStr='<span class="j-pl-loading" data-key="'+esc(qk)+'">…</span>';}
       const fe=parseFloat(t.fee)||0,ta=parseFloat(t.tax)||0;cFeeStr=fmtMoney(fe+ta,t.market);
     }else{const pl=calcPL(t);if(pl){cPlStr=fmtMoney(pl.net,t.market);cPlC=pl.net>0?'tg':pl.net<0?'tr':'';cFeeStr=fmtMoney(pl.fee+pl.tax,t.market);}}
     h+=`<div class="j-card" data-id="${t.id}">
-      <div class="j-card-head">
+      <div class="j-card-head" role="button" tabindex="0" aria-expanded="false" aria-label="${esc(t.symbol)} 詳情">
         <div class="j-card-left">
           <span class="j-card-symbol">${esc(t.symbol)}</span>
           <span class="j-badge j-badge-${t.market}">${ML[t.market]||t.market}</span>
@@ -2240,10 +2432,10 @@ function renderTradeList() {
         ${(t.tags||[]).length?`<div class="j-card-tags">${t.tags.map(tag=>`<span class="j-tag">${esc(tag)}</span>`).join('')}</div>`:''}
         ${t.notes?`<div class="j-card-notes">${esc(t.notes)}</div>`:''}
         <div class="j-card-actions">
-          ${t.status==='open'?`<button class="j-act-btn j-act-close" data-id="${t.id}" title="平倉"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></button>`:''}
-          <button class="j-act-btn j-act-view" data-id="${t.id}" title="檢視"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
-          <button class="j-act-btn j-act-edit" data-id="${t.id}" title="編輯"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
-          <button class="j-act-btn j-act-del" data-id="${t.id}" title="刪除"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button>
+          ${t.status==='open'?`<button class="j-act-btn j-act-close" data-id="${t.id}" title="平倉" aria-label="平倉"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></button>`:''}
+          <button class="j-act-btn j-act-view" data-id="${t.id}" title="檢視" aria-label="檢視"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+          <button class="j-act-btn j-act-edit" data-id="${t.id}" title="編輯" aria-label="編輯"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+          <button class="j-act-btn j-act-del" data-id="${t.id}" title="刪除" aria-label="刪除"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button>
         </div>
       </div>
     </div>`;
@@ -2251,7 +2443,7 @@ function renderTradeList() {
   h+='</div>';
 
   body.innerHTML=h;
-  $$('.j-th-sort').forEach(th=>th.addEventListener('click',()=>{const f=th.dataset.sort;if(sortState.field===f)sortState.asc=!sortState.asc;else{sortState.field=f;sortState.asc=false;}renderTradeList();}));
+  $$('.j-th-sort').forEach(th=>{th.addEventListener('click',()=>{const f=th.dataset.sort;if(sortState.field===f)sortState.asc=!sortState.asc;else{sortState.field=f;sortState.asc=false;}saveViewPrefs();renderTradeList();});th.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();th.click();}});});
   $$('.j-act-view').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();openTradeDetail(b.dataset.id);}));
   $$('.j-act-edit').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();openTradeForm(b.dataset.id);}));
   $$('.j-act-del').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();deleteTrade(b.dataset.id);}));
@@ -2275,14 +2467,27 @@ function renderTradeList() {
     $('#jb-close')?.addEventListener('click', batchClose);
     $('#jb-cancel')?.addEventListener('click', () => { batchMode = false; batchSelected.clear(); renderJournal(); });
   }
-  // Desktop: row click
-  $$('.j-row').forEach(r=>r.addEventListener('click',()=>openTradeDetail(r.dataset.id)));
+  // Desktop: row click + keyboard
+  $$('.j-row').forEach(r=>{
+    const t=trades.find(x=>x.id===r.dataset.id);
+    r.setAttribute('role','button');
+    r.setAttribute('tabindex','0');
+    if(t) r.setAttribute('aria-label',`${t.symbol||''} ${t.date||''} 交易明細`);
+    const open=()=>openTradeDetail(r.dataset.id);
+    r.addEventListener('click',open);
+    r.addEventListener('keydown',e=>{ if(e.target!==r) return; if(e.key==='Enter'||e.key===' '){ e.preventDefault(); open(); } });
+  });
   // Mobile: card expand/collapse
   $$('.j-card').forEach(c=>{
-    c.querySelector('.j-card-head').addEventListener('click',e=>{
+    const head=c.querySelector('.j-card-head');
+    if(!head)return;
+    const toggle=e=>{
       if(e.target.closest('.j-act-btn'))return;
-      c.classList.toggle('expanded');
-    });
+      const on=c.classList.toggle('expanded');
+      head.setAttribute('aria-expanded',on?'true':'false');
+    };
+    head.addEventListener('click',toggle);
+    head.addEventListener('keydown',e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); toggle(e); } });
   });
 
   // Fetch live quotes for open trades, then re-render once
@@ -2306,18 +2511,18 @@ function _renderHoldingsClusterBar(groupList) {
 
   // 特徵向量（per holding group）
   // 規模、方向、市場 one-hot、商品類型 one-hot、未實現損益率
-  const TYPE_NUM = { stock: 0, etf: 0.2, futures: 0.6, options: 0.8, crypto: 1 };
   const MKT_NUM = { tw: 0, us: 0.5, crypto: 1 };
   const features = [];
   const valid = [];
   for (const g of groupList) {
     const cost = Math.abs(g.totalNotional) || 1;
     const upl = g.hasQuote ? (g.unrealized / cost * 100) : 0;
+    const mktVal = isCryptoTrade(g) ? 1 : (MKT_NUM[g.market] != null ? MKT_NUM[g.market] : 0.5);
     features.push([
       Math.log(cost + 1),
       g.direction === 'long' ? 1 : -1,
-      MKT_NUM[g.market] != null ? MKT_NUM[g.market] : 0.5,
-      TYPE_NUM[g.type] != null ? TYPE_NUM[g.type] : 0.5,
+      mktVal,
+      typeBucketNum(g.type),
       Math.max(-30, Math.min(30, upl)),
     ]);
     valid.push(g);
@@ -2336,6 +2541,7 @@ function _renderHoldingsClusterBar(groupList) {
   const TL = (typeof TYPE_LABELS !== 'undefined') ? TYPE_LABELS : {};
 
   const pills = groups.map((gs, ci) => {
+    if (!gs.length) return ''; // K-Means 可能產生空群，跳過不渲染空殼
     const sumCost = gs.reduce((s, g) => s + Math.abs(g.totalNotional || 0), 0);
     const pct = (sumCost / totalCost * 100);
     const sumUPL = gs.reduce((s, g) => s + (g.hasQuote ? g.unrealized : 0), 0);
@@ -2344,7 +2550,7 @@ function _renderHoldingsClusterBar(groupList) {
     const dirs = [...new Set(gs.map(g => g.direction))];
     const dirLabel = dirs.length === 1 ? (dirs[0] === 'long' ? '多' : '空') : '混';
     const symbols = gs.map(g => g.symbol).slice(0, 4).join('・') + (gs.length > 4 ? `…(+${gs.length - 4})` : '');
-    return `<span class="j-hcluster-pill" title="${esc(symbols)}\n佔比 ${pct.toFixed(1)}%\n未實現損益 ${(typeof fmtMoney === 'function') ? fmtMoney(sumUPL, gs[0].market) : sumUPL.toFixed(0)}">
+    return `<span class="j-hcluster-pill" title="${esc(symbols)}\n佔比 ${pct.toFixed(1)}%\n未實現損益 ${(typeof fmtMoney === 'function') ? fmtMoney(sumUPL, gs[0]?.market) : sumUPL.toFixed(0)}">
       <span class="dot" style="background:${PAL[ci % PAL.length]}"></span>
       <strong>群${ci + 1}</strong>
       <span style="color:var(--t2)">${gs.length}檔・${pct.toFixed(0)}%</span>
@@ -2352,11 +2558,15 @@ function _renderHoldingsClusterBar(groupList) {
     </span>`;
   }).join('');
 
-  // 集中度警告
-  const maxPct = Math.max(...groups.map(gs => gs.reduce((s, g) => s + Math.abs(g.totalNotional || 0), 0) / totalCost * 100));
+  // 集中度警告（同時記錄 argmax 索引，避免事後浮點等值反查）
+  let maxPct = -Infinity, maxIdx = -1;
+  groups.forEach((gs, i) => {
+    const pct = gs.reduce((s, g) => s + Math.abs(g.totalNotional || 0), 0) / totalCost * 100;
+    if (pct > maxPct) { maxPct = pct; maxIdx = i; }
+  });
   let warn = '';
   if (maxPct >= 60 && groups.length > 1) {
-    const dom = groups[groups.findIndex(gs => gs.reduce((s, g) => s + Math.abs(g.totalNotional || 0), 0) / totalCost * 100 === maxPct)];
+    const dom = groups[maxIdx];
     const types = [...new Set(dom.map(g => TL[g.type] || g.type))].join('/');
     const mkts = [...new Set(dom.map(g => ML[g.market] || g.market))].join('/');
     warn = `<div class="j-hcluster-warn">⚠️ 你以為持有 ${valid.length} 檔分散，但行為上 ${maxPct.toFixed(0)}% 都集中在「${mkts}・${types}」這群。考慮跨群分散。</div>`;
@@ -2461,7 +2671,7 @@ function renderHoldings() {
   for (const g of groupList) {
     const plC = g.hasQuote ? (g.unrealized > 0 ? 'tg' : g.unrealized < 0 ? 'tr' : '') : 'tm';
     const plStr = g.hasQuote ? fmtMoney(g.unrealized, g.market) : '—';
-    const cpStr = g.currentPrice != null ? fmtPrice(g.currentPrice, g.market, g.type) : '<span class="j-pl-loading" data-key="' + g.qk + '">查詢中…</span>';
+    const cpStr = g.currentPrice != null ? fmtPrice(g.currentPrice, g.market, g.type) : '<span class="j-pl-loading" data-key="' + esc(g.qk) + '">查詢中…</span>';
     const chgPct = g.hasQuote && g.avgEntry > 0 ? ((g.currentPrice - g.avgEntry) / g.avgEntry * 100 * (g.direction === 'long' ? 1 : -1)).toFixed(2) : null;
     const chgStr = chgPct != null ? `<span class="${parseFloat(chgPct) >= 0 ? 'tg' : 'tr'}" style="font-size:.72rem;margin-left:3px">(${parseFloat(chgPct) >= 0 ? '+' : ''}${chgPct}%)</span>` : '';
     const costStr = fmtMoney(g.totalNotional, g.market);
@@ -2475,7 +2685,7 @@ function renderHoldings() {
       <td class="j-td-num">${g.hasQuote ? `<div>${mktValStr}</div>` : '<div>—</div>'}<div style="font-size:.72rem;color:var(--t3)">${costStr}</div></td>
       <td class="j-td-num ${plC}" ${g.hasQuote ? `title="交易成本 ${fmtMoney(g.totalFee + g.totalEstExit, g.market).replace(/,/g,'')}${g.totalEstExit ? '（含預估賣出 ' + fmtMoney(g.totalEstExit, g.market).replace(/,/g,'') + '）' : ''}\n原損益 ${fmtMoney(g.grossUnrealized, g.market).replace(/,/g,'')}"` : ''}>${plStr}${chgStr}</td>
       <td class="j-td-num">${g.trades.length}</td>
-      <td class="j-td-actions"><div class="j-actions-wrap"><button class="j-act-btn j-offset-btn" data-symbol="${esc(g.symbol)}" data-market="${g.market}" data-direction="${g.direction}" title="沖銷平倉"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></button><button class="j-act-btn j-hld-expand" data-key="${esc(g.symbol)}|${g.market}|${g.direction}" title="展開明細"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></button></div></td>
+      <td class="j-td-actions"><div class="j-actions-wrap"><button class="j-act-btn j-offset-btn" data-symbol="${esc(g.symbol)}" data-market="${g.market}" data-direction="${g.direction}" title="沖銷平倉" aria-label="沖銷平倉"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></button><button class="j-act-btn j-hld-expand" data-key="${esc(g.symbol)}|${g.market}|${g.direction}" title="展開明細" aria-label="展開明細" aria-expanded="false"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></button></div></td>
     </tr>`;
     // Hidden detail rows (individual trades)
     for (const t of g.trades) {
@@ -2499,7 +2709,7 @@ function renderHoldings() {
         <td class="j-td-num">${tMktVal != null ? `<div>${fmtMoney(tMktVal, t.market)}</div>` : '<div>—</div>'}<div style="font-size:.72rem;color:var(--t3)">${fmtMoney(tCost, t.market)}</div></td>
         <td class="j-td-num ${tPlC}" ${g.hasQuote ? `title="交易成本 ${fmtMoney(tFeeTotal + tEstExit, t.market).replace(/,/g,'')}${tEstExit ? '（含預估賣出 ' + fmtMoney(tEstExit, t.market).replace(/,/g,'') + '）' : ''}\n原損益 ${tGrossStr.replace(/,/g,'')}"` : ''}>${tPlStr}</td>
         <td></td>
-        <td class="j-td-actions"><div class="j-actions-wrap">${`<button class="j-act-btn j-act-close" data-id="${t.id}" title="平倉"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></button><button class="j-act-btn j-act-edit" data-id="${t.id}" title="編輯"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button><button class="j-act-btn j-act-del" data-id="${t.id}" title="刪除"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button>`}</div></td>
+        <td class="j-td-actions"><div class="j-actions-wrap">${`<button class="j-act-btn j-act-close" data-id="${t.id}" title="平倉" aria-label="平倉"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></button><button class="j-act-btn j-act-edit" data-id="${t.id}" title="編輯" aria-label="編輯"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button><button class="j-act-btn j-act-del" data-id="${t.id}" title="刪除" aria-label="刪除"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button>`}</div></td>
       </tr>`;
     }
   }
@@ -2515,7 +2725,7 @@ function renderHoldings() {
     const chgStr = chgPct != null ? ` (${parseFloat(chgPct) >= 0 ? '+' : ''}${chgPct}%)` : '';
 
     h += `<div class="j-card j-holding-card" data-key="${esc(g.symbol)}|${g.market}|${g.direction}">
-      <div class="j-card-head">
+      <div class="j-card-head" role="button" tabindex="0" aria-expanded="false" aria-label="${esc(g.symbol)} 持倉詳情">
         <div class="j-card-left">
           <span class="j-card-symbol">${esc(g.symbol)}</span>
           <span class="j-badge j-badge-${g.market}">${ML[g.market] || g.market}</span>
@@ -2555,9 +2765,9 @@ function renderHoldings() {
             <div class="j-sub-card-header">
               <span class="j-card-date">${fmtDate(t.date)}</span>
               <span class="j-holding-sub-actions">
-                <button class="j-act-btn j-act-close" data-id="${t.id}" title="平倉"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></button>
-                <button class="j-act-btn j-act-edit" data-id="${t.id}" title="編輯"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
-                <button class="j-act-btn j-act-del" data-id="${t.id}" title="刪除"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button>
+                <button class="j-act-btn j-act-close" data-id="${t.id}" title="平倉" aria-label="平倉"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></button>
+                <button class="j-act-btn j-act-edit" data-id="${t.id}" title="編輯" aria-label="編輯"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+                <button class="j-act-btn j-act-del" data-id="${t.id}" title="刪除" aria-label="刪除"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button>
               </span>
             </div>
             <div class="j-sub-card-body">
@@ -2584,6 +2794,7 @@ function renderHoldings() {
       const isOpen = rows[0]?.style.display !== 'none';
       rows.forEach(r => r.style.display = isOpen ? 'none' : '');
       btn.closest('tr').classList.toggle('expanded', !isOpen);
+      btn.setAttribute('aria-expanded', String(!isOpen));
     });
   });
   // Desktop: row click expands too
@@ -2596,21 +2807,34 @@ function renderHoldings() {
   });
   // Mobile: card expand
   $$('.j-holding-card .j-card-head').forEach(head => {
-    head.addEventListener('click', e => {
+    const toggle = e => {
       if (e.target.closest('.j-act-btn')) return;
-      head.closest('.j-card').classList.toggle('expanded');
-    });
+      const on = head.closest('.j-card').classList.toggle('expanded');
+      head.setAttribute('aria-expanded', on ? 'true' : 'false');
+    };
+    head.addEventListener('click', toggle);
+    head.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(e); } });
   });
-  // Holding detail row click → trade detail
+  // Holding detail row click/keyboard → trade detail
   $$('.j-holding-detail[data-trade-id]').forEach(r => {
-    r.addEventListener('click', e => { if (!e.target.closest('.j-act-btn')) openTradeDetail(r.dataset.tradeId); });
+    const t = trades.find(x => x.id === r.dataset.tradeId);
+    r.setAttribute('role', 'button');
+    r.setAttribute('tabindex', '0');
+    if (t) r.setAttribute('aria-label', `${t.symbol || ''} ${t.date || ''} 交易明細`);
+    const open = e => { if (!e.target.closest('.j-act-btn')) openTradeDetail(r.dataset.tradeId); };
+    r.addEventListener('click', open);
+    r.addEventListener('keydown', e => { if (e.target !== r) return; if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(e); } });
   });
-  // Mobile sub-card click → trade detail
+  // Mobile sub-card click/keyboard → trade detail
   $$('.j-holding-sub-card').forEach(card => {
     const editBtn = card.querySelector('.j-act-edit');
     if (editBtn) {
       card.style.cursor = 'pointer';
-      card.addEventListener('click', e => { if (!e.target.closest('.j-act-btn')) openTradeDetail(editBtn.dataset.id); });
+      card.setAttribute('role', 'button');
+      card.setAttribute('tabindex', '0');
+      const open = e => { if (!e.target.closest('.j-act-btn')) openTradeDetail(editBtn.dataset.id); };
+      card.addEventListener('click', open);
+      card.addEventListener('keydown', e => { if (e.target !== card) return; if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(e); } });
     }
   });
   // Action buttons
@@ -3035,11 +3259,16 @@ let _diaryEditingDate = null; // null = today, string = editing past date
 function _getDiaryTradesForDate(dateStr) {
   return trades.filter(t => t.date?.slice(0, 10) === dateStr);
 }
+// 當日『已實現損益』歸期：已平倉交易以平倉日（closedAttribDate）歸入該日
+function _getDiaryClosedForDate(dateStr) {
+  return trades.filter(t => t.status === 'closed' && closedAttribDate(t) === dateStr);
+}
 
 function _renderDiaryTrades(dateStr) {
   const dayTrades = _getDiaryTradesForDate(dateStr);
   if (!dayTrades.length) return '';
-  const closed = dayTrades.filter(t => t.status === 'closed');
+  // 淨損益以平倉日歸集（與心情趨勢圖／行事曆／stats 對齊）；筆數保留進場日歸集（代表當日活動）
+  const closed = _getDiaryClosedForDate(dateStr);
   const plByMkt = {};
   closed.forEach(t => { const pl = calcPL(t); if (pl) { if (!plByMkt[t.market]) plByMkt[t.market] = 0; plByMkt[t.market] += pl.net; } });
   const mks = Object.keys(plByMkt);
@@ -3048,7 +3277,8 @@ function _renderDiaryTrades(dateStr) {
   return `<div class="j-diary-trades"><h5>當日交易 (${dayTrades.length} 筆${closed.length ? `，淨損益 ${plSummary}` : ''})</h5>
     ${dayTrades.map(t => {
       const pl = calcPL(t);
-      return `<div class="j-diary-trade-row" data-trade-id="${t.id}" style="cursor:pointer"><span>${esc(t.symbol)} <span class="j-dir-${t.direction}">${DL[t.direction]}</span></span><span>${t.status === 'closed' && pl ? `<span class="${pl.net >= 0 ? 'tg' : 'tr'}">${fmtMoney(pl.net, t.market)}</span>` : '<span class="j-status-open" style="font-size:.7rem;padding:2px 6px">持倉</span>'}</span></div>`;
+      const rowLabel = `${t.symbol} ${DL[t.direction] || ''}${t.status === 'closed' && pl ? `，損益 ${fmtMoney(pl.net, t.market)}` : '，持倉中'}`;
+      return `<div class="j-diary-trade-row" data-trade-id="${t.id}" role="button" tabindex="0" aria-label="${esc(rowLabel)}" style="cursor:pointer"><span>${esc(t.symbol)} <span class="j-dir-${t.direction}">${DL[t.direction]}</span></span><span>${t.status === 'closed' && pl ? `<span class="${pl.net >= 0 ? 'tg' : 'tr'}">${fmtMoney(pl.net, t.market)}</span>` : '<span class="j-status-open" style="font-size:.7rem;padding:2px 6px">持倉</span>'}</span></div>`;
     }).join('')}
   </div>`;
 }
@@ -3060,7 +3290,7 @@ function _calcDiaryStreak() {
   const today = new Date();
   for (let i = 0; i < 365; i++) {
     const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i);
-    const ds = d.toISOString().slice(0, 10);
+    const ds = localDateStr(d);
     // Skip weekends
     if (d.getDay() === 0 || d.getDay() === 6) continue;
     if (dateSet.has(ds)) streak++;
@@ -3078,9 +3308,9 @@ function _renderMoodTrend() {
   const sy = (m) => topPad + chartH - ((m - 1) / 4) * chartH;
   const moodEmojis = ['', '😞', '😐', '🙂', '😊', '🤩'];
 
-  // Compute daily P&L for each journal date
+  // Compute daily realized P&L for each journal date（已實現損益歸到平倉日）
   const plData = recent.map(j => {
-    const dt = _getDiaryTradesForDate(j.date).filter(t => t.status === 'closed');
+    const dt = _getDiaryClosedForDate(j.date);
     return dt.map(t => calcPL(t)).filter(Boolean).reduce((s, p) => s + p.net, 0);
   });
   const maxPL = Math.max(...plData.map(Math.abs), 1);
@@ -3115,7 +3345,7 @@ function _renderMoodTrend() {
     const highD = recent.filter(j => (j.discipline||0) >= 4);
     const lowD = recent.filter(j => (j.discipline||0) > 0 && (j.discipline||0) <= 2);
     const plOf = (arr) => arr.reduce((s, j) => {
-      const dt = _getDiaryTradesForDate(j.date).filter(t => t.status === 'closed');
+      const dt = _getDiaryClosedForDate(j.date);
       return s + dt.map(t => calcPL(t)).filter(Boolean).reduce((ss, p) => ss + p.net, 0);
     }, 0);
     if (highD.length && lowD.length) {
@@ -3159,8 +3389,10 @@ function _getDiaryFormValues() {
 function renderDiary() {
   const body = $('#j-body');
   if (!body) return;
+  // 清除上一輪殘留的自動儲存計時器，避免重繪/離開後背景多觸發一次寫入
+  if (_diaryAutoSaveTimer) { clearTimeout(_diaryAutoSaveTimer); _diaryAutoSaveTimer = null; }
   loadDailyJournals().then(() => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localDateStr();
     const editDate = _diaryEditingDate || today;
     const isToday = editDate === today;
     const entry = dailyJournals.find(j => j.date === editDate);
@@ -3170,7 +3402,8 @@ function renderDiary() {
     const defaultTab = (isToday && hour < 14) ? 'pre' : 'post';
     const entryTags = entry?.tags || [];
     const dayTrades = _getDiaryTradesForDate(editDate);
-    const closedTrades = dayTrades.filter(t => t.status === 'closed');
+    // 今日損益以平倉日歸集（與心情趨勢圖／行事曆／stats 對齊）
+    const closedTrades = _getDiaryClosedForDate(editDate);
     const diaryPlByMkt = {};
     closedTrades.forEach(t => { const pl = calcPL(t); if (pl) { if (!diaryPlByMkt[t.market]) diaryPlByMkt[t.market] = 0; diaryPlByMkt[t.market] += pl.net; } });
     const dayPL = Object.values(diaryPlByMkt).reduce((s, v) => s + v, 0);
@@ -3188,10 +3421,10 @@ function renderDiary() {
       </div>
       <div class="j-diary-topbar-right">
         <div class="j-diary-checkin-inline">
-          <div class="j-mood-picker">${[1,2,3,4,5].map(i => `<button type="button" class="j-mood-btn ${(entry?.mood||3)===i?'active':''}" data-mood="${i}">${moodEmojis[i]}</button>`).join('')}</div>
+          <div class="j-mood-picker" role="radiogroup" aria-label="心情自評">${[1,2,3,4,5].map(i => `<button type="button" class="j-mood-btn ${(entry?.mood||3)===i?'active':''}" data-mood="${i}" role="radio" aria-checked="${(entry?.mood||3)===i?'true':'false'}" aria-label="心情 ${i}/5" tabindex="${(entry?.mood||3)===i?'0':'-1'}">${moodEmojis[i]}</button>`).join('')}</div>
           <input type="hidden" id="jd-mood" value="${entry?.mood||3}">
           <span class="j-diary-sep"></span>
-          <div class="j-diary-discipline">${[1,2,3,4,5].map(i=>`<span class="j-star ${i<=(entry?.discipline||0)?'j-star-on':''}" data-rate="${i}" style="cursor:pointer;font-size:1rem">${i<=(entry?.discipline||0)?'★':'☆'}</span>`).join('')}</div>
+          <div class="j-diary-discipline" role="radiogroup" aria-label="紀律自評 (1-5)">${[1,2,3,4,5].map(i=>`<span class="j-star ${i<=(entry?.discipline||0)?'j-star-on':''}" data-rate="${i}" role="radio" aria-checked="${i===(entry?.discipline||0)?'true':'false'}" aria-label="${i} 星" tabindex="${i===((entry?.discipline||0)||1)?'0':'-1'}" style="cursor:pointer;font-size:1rem">${i<=(entry?.discipline||0)?'★':'☆'}</span>`).join('')}</div>
           <input type="hidden" id="jd-discipline" value="${entry?.discipline||0}">
         </div>
         <button type="button" class="j-diary-star-btn ${(entry?.starred)?'active':''}" id="jd-star-btn" title="書籤">
@@ -3208,13 +3441,13 @@ function renderDiary() {
     <div class="j-diary-cols">
       <div class="j-diary-col">
         <div class="j-diary-col-head">盤前</div>
-        <div class="j-fg"><label>盤勢觀察</label><textarea id="jd-market" rows="3" placeholder="大盤走勢、市場確定性變化、重要消息...">${esc(entry?.marketNote||'')}</textarea></div>
-        <div class="j-fg"><label>交易計畫</label><textarea id="jd-plan" rows="3" placeholder="計畫進出場、觀察標的、持股在定價第幾階段...">${esc(entry?.plan||'')}</textarea></div>
+        <div class="j-fg"><label for="jd-market">盤勢觀察</label><textarea id="jd-market" rows="3" placeholder="大盤走勢、市場確定性變化、重要消息...">${esc(entry?.marketNote||'')}</textarea></div>
+        <div class="j-fg"><label for="jd-plan">交易計畫</label><textarea id="jd-plan" rows="3" placeholder="計畫進出場、觀察標的、持股在定價第幾階段...">${esc(entry?.plan||'')}</textarea></div>
       </div>
       <div class="j-diary-col">
         <div class="j-diary-col-head">盤後</div>
-        <div class="j-fg"><label>收盤檢討</label><textarea id="jd-review" rows="3" placeholder="執行紀律、情緒管控、持股確定性有變化嗎...">${esc(entry?.review||'')}</textarea></div>
-        <div class="j-fg"><label>今日心得</label><input type="text" id="jd-takeaway" value="${esc(entry?.takeaway||'')}" placeholder="今天最重要的學習，定價邏輯有被破壞嗎..."></div>
+        <div class="j-fg"><label for="jd-review">收盤檢討</label><textarea id="jd-review" rows="3" placeholder="執行紀律、情緒管控、持股確定性有變化嗎...">${esc(entry?.review||'')}</textarea></div>
+        <div class="j-fg"><label for="jd-takeaway">今日心得</label><input type="text" id="jd-takeaway" value="${esc(entry?.takeaway||'')}" placeholder="今天最重要的學習，定價邏輯有被破壞嗎..."></div>
       </div>
       <div class="j-diary-col j-diary-col-info">
         <div class="j-diary-col-head">資訊</div>
@@ -3236,12 +3469,12 @@ function renderDiary() {
         <button class="j-diary-tab" data-pane="trades">交易${dayTrades.length?` (${dayTrades.length})`:''}</button>
       </div>
       <div class="j-diary-tab-pane ${defaultTab==='pre'?'active':''}" data-pane="pre">
-        <div class="j-fg"><label>盤勢觀察</label><textarea id="jd-market-m" rows="3" placeholder="大盤走勢、市場確定性變化、重要消息...">${esc(entry?.marketNote||'')}</textarea></div>
-        <div class="j-fg"><label>交易計畫</label><textarea id="jd-plan-m" rows="3" placeholder="計畫進出場、觀察標的、持股在定價第幾階段...">${esc(entry?.plan||'')}</textarea></div>
+        <div class="j-fg"><label for="jd-market-m">盤勢觀察</label><textarea id="jd-market-m" rows="3" placeholder="大盤走勢、市場確定性變化、重要消息...">${esc(entry?.marketNote||'')}</textarea></div>
+        <div class="j-fg"><label for="jd-plan-m">交易計畫</label><textarea id="jd-plan-m" rows="3" placeholder="計畫進出場、觀察標的、持股在定價第幾階段...">${esc(entry?.plan||'')}</textarea></div>
       </div>
       <div class="j-diary-tab-pane ${defaultTab==='post'?'active':''}" data-pane="post">
-        <div class="j-fg"><label>收盤檢討</label><textarea id="jd-review-m" rows="3" placeholder="執行紀律、情緒管控、持股確定性有變化嗎...">${esc(entry?.review||'')}</textarea></div>
-        <div class="j-fg"><label>今日心得</label><input type="text" id="jd-takeaway-m" value="${esc(entry?.takeaway||'')}" placeholder="今天最重要的學習，定價邏輯有被破壞嗎..."></div>
+        <div class="j-fg"><label for="jd-review-m">收盤檢討</label><textarea id="jd-review-m" rows="3" placeholder="執行紀律、情緒管控、持股確定性有變化嗎...">${esc(entry?.review||'')}</textarea></div>
+        <div class="j-fg"><label for="jd-takeaway-m">今日心得</label><input type="text" id="jd-takeaway-m" value="${esc(entry?.takeaway||'')}" placeholder="今天最重要的學習，定價邏輯有被破壞嗎..."></div>
       </div>
       <div class="j-diary-tab-pane" data-pane="trades">
         ${dayTrades.length ? _renderDiaryTrades(editDate) : '<div class="j-diary-no-trades">今日尚無交易</div>'}
@@ -3276,7 +3509,7 @@ function renderDiary() {
       _diaryAutoSaveTimer = setTimeout(async () => {
         // Verify we're still editing the same date
         if (_diaryEditingDate !== null && _diaryEditingDate !== date) return;
-        if (_diaryEditingDate === null && date !== new Date().toISOString().slice(0, 10)) return;
+        if (_diaryEditingDate === null && date !== localDateStr()) return;
         try {
           const v = _getDiaryFormValues();
           await saveDailyJournal(date, v.mood, v.marketNote, v.plan, v.review, v.discipline, v.tags, v.takeaway, v.starred);
@@ -3309,15 +3542,10 @@ function renderDiary() {
     }));
 
     // Discipline picker
-    $$('.j-diary-discipline .j-star', body).forEach(s => s.addEventListener('click', () => {
-      const rate = parseInt(s.dataset.rate);
+    wireStarRating($$('.j-diary-discipline .j-star', body), rate => {
       $('#jd-discipline').value = rate;
-      $$('.j-diary-discipline .j-star', body).forEach((st, i) => {
-        st.textContent = i < rate ? '★' : '☆';
-        st.classList.toggle('j-star-on', i < rate);
-      });
       _triggerDiaryAutoSave(editDate);
-    }));
+    });
 
     // Tag toggle
     $$('.jd-tag-btn', body).forEach(b => b.addEventListener('click', () => {
@@ -3326,23 +3554,46 @@ function renderDiary() {
     }));
 
     // Click on past entry to edit
-    $$('.j-diary-entry[data-date]', body).forEach(el => el.addEventListener('click', () => {
-      _diaryEditingDate = el.dataset.date;
-      renderDiary();
-    }));
+    $$('.j-diary-entry[data-date]', body).forEach(el => {
+      el.addEventListener('click', () => {
+        _diaryEditingDate = el.dataset.date;
+        renderDiary();
+      });
+      el.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); el.click(); }
+      });
+    });
 
     // Click on diary trade row to open trade detail
-    $$('.j-diary-trade-row[data-trade-id]', body).forEach(el => el.addEventListener('click', () => {
-      openTradeDetail(el.dataset.tradeId);
-    }));
+    $$('.j-diary-trade-row[data-trade-id]', body).forEach(el => {
+      el.addEventListener('click', () => { openTradeDetail(el.dataset.tradeId); });
+      el.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); el.click(); }
+      });
+    });
 
-    // Mood picker
-    $$('.j-mood-btn', body).forEach(b => b.addEventListener('click', () => {
-      $$('.j-mood-btn', body).forEach(x => x.classList.remove('active'));
-      b.classList.add('active');
-      $('#jd-mood').value = b.dataset.mood;
+    // Mood picker（radiogroup + roving tabindex + 鍵盤支援）
+    const moodBtns = $$('.j-mood-btn', body);
+    const applyMood = (val, focus) => {
+      moodBtns.forEach(x => {
+        const on = parseInt(x.dataset.mood) === val;
+        x.classList.toggle('active', on);
+        x.setAttribute('aria-checked', on ? 'true' : 'false');
+        x.tabIndex = on ? 0 : -1;
+        if (on && focus) x.focus();
+      });
+      $('#jd-mood').value = val;
       _triggerDiaryAutoSave(editDate);
-    }));
+    };
+    moodBtns.forEach(b => {
+      b.addEventListener('click', () => applyMood(parseInt(b.dataset.mood), false));
+      b.addEventListener('keydown', e => {
+        const cur = parseInt(b.dataset.mood);
+        if (e.key === 'ArrowRight' || e.key === 'ArrowUp') { e.preventDefault(); applyMood(Math.min(5, cur + 1), true); }
+        else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') { e.preventDefault(); applyMood(Math.max(1, cur - 1), true); }
+        else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); applyMood(cur, false); }
+      });
+    });
 
     $$('#jd-market,#jd-plan,#jd-review,#jd-takeaway,#jd-market-m,#jd-plan-m,#jd-review-m,#jd-takeaway-m', body).forEach(el => {
       if (el) el.addEventListener('input', () => _triggerDiaryAutoSave(editDate));
@@ -3359,7 +3610,7 @@ function renderDiary() {
         el.style.display = (matchSearch && matchStar) ? '' : 'none';
       });
     };
-    $('#jd-search')?.addEventListener('input', _filterHistory);
+    $('#jd-search')?.addEventListener('input', debounce(_filterHistory, 200));
     $('#jd-filter-star')?.addEventListener('click', () => {
       _showStarredOnly = !_showStarredOnly;
       $('#jd-filter-star')?.classList.toggle('active', _showStarredOnly);
@@ -3377,7 +3628,9 @@ function renderDiary() {
       const allEntries = $$('.j-diary-entry[data-date]', list);
       allEntries.slice(-next.length).forEach(el => {
         el.onclick = () => { _diaryEditingDate = el.dataset.date; renderDiary(); };
+        el.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); el.click(); } };
       });
+      _filterHistory(); // 套用目前搜尋／書籤篩選到新載入的卡片
       if (_historyShown >= historyEntries.length) $('#jd-load-more')?.remove();
     });
 
@@ -3402,21 +3655,22 @@ function renderDiary() {
 
 function _renderDiaryEntryCard(j, moodEmojis) {
   const dayTrades = _getDiaryTradesForDate(j.date);
-  const closedTrades = dayTrades.filter(t => t.status === 'closed');
+  // 已實現損益／邊框色以平倉日歸集（與心情趨勢圖／行事曆／stats 對齊）；筆數保留進場日歸集（代表當日活動）
+  const closedTrades = _getDiaryClosedForDate(j.date);
   const plByMkt = {};
   closedTrades.forEach(t => { const pl = calcPL(t); if (pl) { if (!plByMkt[t.market]) plByMkt[t.market] = 0; plByMkt[t.market] += pl.net; } });
   const totalPL = Object.values(plByMkt).reduce((s, v) => s + v, 0);
   const hasTrades = closedTrades.length > 0;
   const borderClass = hasTrades ? (totalPL >= 0 ? 'j-diary-border-green' : 'j-diary-border-red') : '';
   const plDisplay = Object.keys(plByMkt).map(m => `<span class="${plByMkt[m] >= 0 ? 'tg' : 'tr'}">${fmtMoney(plByMkt[m], m)}</span>`).join(' ');
-  return `<div class="j-diary-entry card ${borderClass}" data-date="${j.date}" data-starred="${j.starred||0}">
+  return `<div class="j-diary-entry card ${borderClass}" data-date="${j.date}" data-starred="${j.starred||0}" role="button" tabindex="0" aria-label="${j.date} 日記">
     <div class="j-diary-entry-top">
       <div class="j-diary-entry-date">
         <strong>${j.date}</strong>
         ${j.starred?'<svg viewBox="0 0 24 24" width="12" height="12" fill="var(--yellow)" stroke="var(--yellow)" stroke-width="2"><path d="M12 2L15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2z"/></svg>':''}
       </div>
       <div class="j-diary-entry-meta">
-        ${dayTrades.length ? `<span class="j-diary-entry-pl">${dayTrades.length}筆 ${plDisplay}</span>` : ''}
+        ${(dayTrades.length || hasTrades) ? `<span class="j-diary-entry-pl">${dayTrades.length ? `${dayTrades.length}筆 ` : ''}${plDisplay}</span>` : ''}
         ${j.discipline?`<span class="j-diary-entry-disc">${'★'.repeat(j.discipline)}${'☆'.repeat(5-j.discipline)}</span>`:''}
         <span>${moodEmojis[j.mood||3]}</span>
       </div>
@@ -3457,7 +3711,7 @@ function computeStats(pls) {
   const byTime={morning:{c:0,n:0,w:0},afternoon:{c:0,n:0,w:0}};
   pls.forEach(t=>{
     if(!byT[t.type])byT[t.type]={c:0,n:0,w:0};byT[t.type].c++;byT[t.type].n+=t.pl.net;if(t.pl.net>0)byT[t.type].w++;
-    const mo=t.date.slice(0,7);if(!byM[mo])byM[mo]={c:0,n:0,w:0};byM[mo].c++;byM[mo].n+=t.pl.net;if(t.pl.net>0)byM[mo].w++;
+    const mo=closedAttribDate(t).slice(0,7);if(!byM[mo])byM[mo]={c:0,n:0,w:0};byM[mo].c++;byM[mo].n+=t.pl.net;if(t.pl.net>0)byM[mo].w++;
     (t.tags||[]).forEach(tag=>{if(!byTg[tag])byTg[tag]={c:0,n:0,w:0};byTg[tag].c++;byTg[tag].n+=t.pl.net;if(t.pl.net>0)byTg[tag].w++;});
     const d=new Date(t.date).getDay();if(!byDow[d])byDow[d]={c:0,n:0,w:0};byDow[d].c++;byDow[d].n+=t.pl.net;if(t.pl.net>0)byDow[d].w++;
     const h=new Date(t.date).getHours();const slot=h<12?'morning':'afternoon';byTime[slot].c++;byTime[slot].n+=t.pl.net;if(t.pl.net>0)byTime[slot].w++;
@@ -3492,7 +3746,7 @@ const DIM_DEFS = {
   tag:     { label: '標籤',  key: 'byTg',  sort: (a,b) => b[1].n - a[1].n, fmt: k => `<span class="j-tag">${esc(k)}</span>` },
   account: { label: '帳戶',  key: 'byAcct',sort: (a,b) => b[1].n - a[1].n, fmt: k => esc(k) },
   rating:  { label: '評分',  key: 'byRating', sort: (a,b) => b[0] - a[0], fmt: k => '★'.repeat(parseInt(k)) + '☆'.repeat(5 - parseInt(k)) },
-  stage:   { label: '定價階段', key: 'byStage', sort: (a,b) => b[1].n - a[1].n, fmt: k => ({expansion:'估值擴張',catchup:'基本面追趕',compression:'估值收縮',unknown:'不確定'})[k]||k },
+  stage:   { label: '定價階段', key: 'byStage', sort: (a,b) => b[1].n - a[1].n, fmt: k => ({expansion:'估值擴張',catchup:'基本面追趕',compression:'估值收縮',unknown:'不確定'})[k]||esc(k) },
 };
 
 function _renderDimTable(st, dim, fm) {
@@ -3609,7 +3863,7 @@ function renderStatsPage(st, market, fm) {
     const d = st[def.key]; return d && Object.keys(d).length > 0;
   });
   const dimPills = `<div class="j-dim-pills">${availDims.map(([k,def]) =>
-    `<button class="j-dim-pill${statsDimension===k?' active':''}" data-dim="${k}">${def.label}</button>`
+    `<button class="j-dim-pill${statsDimension===k?' active':''}" data-dim="${k}" aria-pressed="${statsDimension===k?'true':'false'}">${def.label}</button>`
   ).join('')}</div>`;
   const dimTable = `<div class="j-dim-body" id="j-dim-body">${_renderDimTable(st, statsDimension, fm)}</div>`;
   const sec3 = `<div class="j-stats-section"><div class="j-section-title">維度分析</div>${dimPills}${dimTable}</div>`;
@@ -3697,6 +3951,7 @@ function _renderTradeClusters(pls, fm) {
   // 為每群生成「人話」標籤
   const PAL = ['var(--accent)', 'var(--blue)', 'var(--green)', 'var(--amber)'];
   const cards = groups.map((trades, ci) => {
+    if (!trades.length) return ''; // K-Means 可能產生空群，跳過不渲染空殼
     const c = summary[ci];
     const days = Math.exp(c.mean[0]) - 1;
     const ret = c.mean[1];
@@ -3854,7 +4109,7 @@ function renderStats() {
   // Bind dimension pills (swap table only)
   $$('.j-dim-pill', body).forEach(btn => btn.addEventListener('click', () => {
     statsDimension = btn.dataset.dim;
-    $$('.j-dim-pill', body).forEach(b => b.classList.toggle('active', b.dataset.dim === statsDimension));
+    $$('.j-dim-pill', body).forEach(b => { const a = b.dataset.dim === statsDimension; b.classList.toggle('active', a); b.setAttribute('aria-pressed', a ? 'true' : 'false'); });
     const dimBody = $('#j-dim-body', body);
     if (dimBody && _cachedStats) {
       const cfm = (n, d) => fmtMoney(n, _cachedMarket, d);
@@ -3870,14 +4125,11 @@ function renderStats() {
       tutToggle.classList.toggle('open');
     });
   }
-  // Bind loss-follow trade links
-  $$('.j-loss-follow-link', body).forEach(el => el.addEventListener('click', () => {
-    const id = el.dataset.id;
-    if (id) openTradeForm(id);
-  }));
   // Number Ticker animation (Magic UI style — spring-damped counting)
+  const _reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
   $$('.j-num-tick', body).forEach(el => {
     const text = el.textContent || '';
+    if (_reduceMotion) { el.textContent = text; return; }
     const match = text.match(/([-]?)([A-Z$\s]+)?([\d,]+\.?\d*)/);
     if (!match) return;
     const sign = match[1], prefix = match[2] || '', target = parseFloat(match[3].replace(/,/g, ''));
@@ -3916,7 +4168,7 @@ function openTradeForm(id, prefill) {
   let modal = $('#j-global-modal') || (() => { const m = document.createElement('div'); m.id='j-global-modal'; m.className='j-modal'; overlay.appendChild(m); return m; })();
 
   modal.innerHTML = `
-    <div class="j-modal-header"><h3>${id ? '編輯交易' : '新增交易'}</h3><button class="j-modal-close" id="jf-close">&times;</button></div>
+    <div class="j-modal-header"><h3 id="jf-title">${id ? '編輯交易' : '新增交易'}</h3><button class="j-modal-close" type="button" aria-label="關閉" id="jf-close">&times;</button></div>
     <div class="j-modal-body">
       <div class="j-form-grid">
         <div class="j-fg j-fg-wide"><label>日期時間</label>
@@ -3925,9 +4177,9 @@ function openTradeForm(id, prefill) {
             <input type="hidden" id="jf-date" value="${t.date}">
             <div class="j-dt-dropdown" id="jf-dt-drop">
               <div class="j-dt-cal-header">
-                <button type="button" class="j-dt-nav" id="jf-dt-prev">&lsaquo;</button>
+                <button type="button" class="j-dt-nav" id="jf-dt-prev" aria-label="上個月">&lsaquo;</button>
                 <span id="jf-dt-month-label"></span>
-                <button type="button" class="j-dt-nav" id="jf-dt-next">&rsaquo;</button>
+                <button type="button" class="j-dt-nav" id="jf-dt-next" aria-label="下個月">&rsaquo;</button>
               </div>
               <div class="j-dt-weekdays"><span>日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span></div>
               <div class="j-dt-days" id="jf-dt-days"></div>
@@ -3944,8 +4196,8 @@ function openTradeForm(id, prefill) {
             </div>
           </div>
         </div>
-        <div class="j-fg"><label>市場</label><select id="jf-market2"><option value="tw" ${t.market==='tw'?'selected':''}>台灣</option><option value="us" ${t.market==='us'?'selected':''}>美國</option><option value="crypto" ${t.market==='crypto'?'selected':''}>加密貨幣</option></select></div>
-        <div class="j-fg"><label>商品類型</label><select id="jf-type2">
+        <div class="j-fg"><label for="jf-market2">市場</label><select id="jf-market2"><option value="tw" ${t.market==='tw'?'selected':''}>台灣</option><option value="us" ${t.market==='us'?'selected':''}>美國</option><option value="crypto" ${t.market==='crypto'?'selected':''}>加密貨幣</option></select></div>
+        <div class="j-fg"><label for="jf-type2">商品類型</label><select id="jf-type2">
           <option value="stock" ${t.type==='stock'?'selected':''}>股票/現貨</option>
           <option value="index_futures" ${t.type==='index_futures'||(t.type==='futures'&&t.market!=='crypto')?'selected':''}>指數期貨</option>
           <option value="stock_futures" ${t.type==='stock_futures'?'selected':''}>個股期貨</option>
@@ -3956,20 +4208,20 @@ function openTradeForm(id, prefill) {
           <option value="etf" ${t.type==='etf'?'selected':''}>ETF</option>
         </select></div>
         <div class="j-fg"><label>代號</label><div id="jf-sym-wrap" data-init="${esc(t.symbol)}"></div></div>
-        <div class="j-fg"><label>名稱</label><input type="text" id="jf-name" value="${esc(t.name)}" placeholder="例：台積電"></div>
-        <div class="j-fg"><label>動作</label><select id="jf-dir"><option value="long" ${t.direction==='long'?'selected':''}>買進</option><option value="short" ${t.direction==='short'?'selected':''}>賣出</option></select></div>
-        ${editingId ? `<div class="j-fg"><label>狀態</label><select id="jf-status"><option value="open" ${t.status==='open'?'selected':''}>持倉中</option><option value="closed" ${t.status==='closed'?'selected':''}>已平倉</option></select></div>` : ''}
-        <div class="j-fg"><label>價格</label><input type="number" id="jf-entry" step="any" value="${t.entryPrice||''}" placeholder="成交價"></div>
-        ${editingId ? `<div class="j-fg"><label>出場價格</label><input type="number" id="jf-exit" step="any" value="${t.exitPrice||''}" placeholder="未平倉可留空"></div>` : ''}
-        <div class="j-fg"><label>數量 <span class="j-fg-hint">(股數/張數/口數)</span></label><input type="number" id="jf-qty" step="any" value="${t.quantity||''}" placeholder="0"></div>
-        <div class="j-fg ${isFuturesType(t.type)||t.type==='options'?'':'j-hidden'}" id="jf-mul-wrap"><label>合約乘數</label><input type="number" id="jf-mul" step="any" value="${t.contractMul||''}" placeholder="例：200 (大台)"></div>
-        <div class="j-fg"><label>停損價</label><input type="number" id="jf-sl" step="any" value="${t.stopLoss||''}" placeholder="可選"></div>
-        <div class="j-fg"><label>停利價</label><input type="number" id="jf-tp" step="any" value="${t.takeProfit||''}" placeholder="可選"></div>
-        <div class="j-fg"><label>手續費</label><div class="j-fee-input-wrap"><input type="number" id="jf-fee" step="any" value="${t.fee||''}" placeholder="0"><button type="button" class="j-fee-mode-btn" id="jf-fee-mode" data-mode="fixed">元</button></div></div>
-        <div class="j-fg"><label>交易稅</label><div class="j-fee-input-wrap"><input type="number" id="jf-tax" step="any" value="${t.tax||''}" placeholder="0"><button type="button" class="j-fee-mode-btn" id="jf-tax-mode" data-mode="fixed">元</button></div></div>
-        <div class="j-fg"><label>帳戶</label><input type="text" id="jf-account" value="${esc(t.account||'')}" placeholder="例：元大、IB" list="jf-acct-list"><datalist id="jf-acct-list">${[...new Set(trades.map(x=>x.account).filter(Boolean))].map(a=>`<option value="${esc(a)}">`).join('')}</datalist></div>
-        <div class="j-fg"><label>截圖網址</label><input type="url" id="jf-image-url" value="${esc(t.imageUrl||'')}" placeholder="貼上圖片連結 (可選)"></div>
-        <div class="j-fg"><label>自評 (1-5)</label><div class="j-rating-picker" id="jf-rating">${[1,2,3,4,5].map(i=>`<span class="j-star ${i<=(t.rating||0)?'j-star-on':''}" data-rate="${i}" style="cursor:pointer;font-size:1.2rem">${i<=(t.rating||0)?'★':'☆'}</span>`).join('')}</div><input type="hidden" id="jf-rating-val" value="${t.rating||0}"></div>
+        <div class="j-fg"><label for="jf-name">名稱</label><input type="text" id="jf-name" value="${esc(t.name)}" placeholder="例：台積電"></div>
+        <div class="j-fg"><label for="jf-dir">動作</label><select id="jf-dir"><option value="long" ${t.direction==='long'?'selected':''}>買進</option><option value="short" ${t.direction==='short'?'selected':''}>賣出</option></select></div>
+        ${editingId ? `<div class="j-fg"><label for="jf-status">狀態</label><select id="jf-status"><option value="open" ${t.status==='open'?'selected':''}>持倉中</option><option value="closed" ${t.status==='closed'?'selected':''}>已平倉</option></select></div>` : ''}
+        <div class="j-fg"><label for="jf-entry">價格</label><input type="number" id="jf-entry" step="any" value="${t.entryPrice||''}" placeholder="成交價"></div>
+        ${editingId ? `<div class="j-fg"><label for="jf-exit">出場價格</label><input type="number" id="jf-exit" step="any" value="${t.exitPrice||''}" placeholder="未平倉可留空"></div>` : ''}
+        <div class="j-fg"><label for="jf-qty">數量 <span class="j-fg-hint">(股數/張數/口數)</span></label><input type="number" id="jf-qty" step="any" value="${t.quantity||''}" placeholder="0"></div>
+        <div class="j-fg ${isFuturesType(t.type)||t.type==='options'?'':'j-hidden'}" id="jf-mul-wrap"><label for="jf-mul">合約乘數</label><input type="number" id="jf-mul" step="any" value="${t.contractMul||''}" placeholder="例：200 (大台)"></div>
+        <div class="j-fg"><label for="jf-sl">停損價</label><input type="number" id="jf-sl" step="any" value="${t.stopLoss||''}" placeholder="可選"></div>
+        <div class="j-fg"><label for="jf-tp">停利價</label><input type="number" id="jf-tp" step="any" value="${t.takeProfit||''}" placeholder="可選"></div>
+        <div class="j-fg"><label for="jf-fee">手續費</label><div class="j-fee-input-wrap"><input type="number" id="jf-fee" step="any" value="${t.fee||''}" placeholder="0"><button type="button" class="j-fee-mode-btn" id="jf-fee-mode" data-mode="fixed" aria-label="切換手續費計算方式">元</button></div></div>
+        <div class="j-fg"><label for="jf-tax">交易稅</label><div class="j-fee-input-wrap"><input type="number" id="jf-tax" step="any" value="${t.tax||''}" placeholder="0"><button type="button" class="j-fee-mode-btn" id="jf-tax-mode" data-mode="fixed" aria-label="切換交易稅計算方式">元</button></div></div>
+        <div class="j-fg"><label for="jf-account">帳戶</label><input type="text" id="jf-account" value="${esc(t.account||'')}" placeholder="例：元大、IB" list="jf-acct-list"><datalist id="jf-acct-list">${[...new Set(trades.map(x=>x.account).filter(Boolean))].map(a=>`<option value="${esc(a)}">`).join('')}</datalist></div>
+        <div class="j-fg"><label for="jf-image-url">截圖網址</label><input type="url" id="jf-image-url" value="${esc(t.imageUrl||'')}" placeholder="貼上圖片連結 (可選)"></div>
+        <div class="j-fg"><label id="jf-rating-label">自評 (1-5)</label><div class="j-rating-picker" id="jf-rating" role="radiogroup" aria-labelledby="jf-rating-label">${[1,2,3,4,5].map(i=>`<span class="j-star ${i<=(t.rating||0)?'j-star-on':''}" data-rate="${i}" role="radio" aria-checked="${i===(t.rating||0)?'true':'false'}" aria-label="${i} 星" tabindex="${i===((t.rating||0)||1)?'0':'-1'}" style="cursor:pointer;font-size:1.2rem">${i<=(t.rating||0)?'★':'☆'}</span>`).join('')}</div><input type="hidden" id="jf-rating-val" value="${t.rating||0}"></div>
       </div>
       <div class="j-review-section">
         <label class="j-review-title">交易覆盤評分</label>
@@ -3986,10 +4238,10 @@ function openTradeForm(id, prefill) {
       </div>` : ''}
       ${getTemplates().length ? `<div class="j-fg j-fg-wide" style="margin-top:6px"><label>套用模板</label><div class="j-tpl-row">${getTemplates().map(tpl => `<button type="button" class="j-tag-btn j-tpl-btn" data-tpl="${esc(tpl.name)}">${esc(tpl.name)}</button>`).join('')}</div></div>` : ''}
       <div class="j-fg j-fg-wide" style="margin-top:10px"><label>標籤</label>
-        <div class="j-tag-picker" id="jf-tags">${TAG_PRESETS.map(tag=>`<button type="button" class="j-tag-btn ${(t.tags||[]).includes(tag)?'active':''}" data-tag="${tag}">${tag}</button>`).join('')}${(t.tags||[]).filter(tag=>!TAG_PRESETS.includes(tag)).map(tag=>`<button type="button" class="j-tag-btn active" data-tag="${tag}">${tag}</button>`).join('')}</div>
-        <input type="text" id="jf-custom-tag" placeholder="自訂標籤，按 Enter 新增" class="j-custom-tag-input">
+        <div class="j-tag-picker" id="jf-tags">${TAG_PRESETS.map(tag=>`<button type="button" class="j-tag-btn ${(t.tags||[]).includes(tag)?'active':''}" data-tag="${tag}">${tag}</button>`).join('')}${(t.tags||[]).filter(tag=>!TAG_PRESETS.includes(tag)).map(tag=>`<button type="button" class="j-tag-btn active" data-tag="${esc(tag)}">${esc(tag)}</button>`).join('')}</div>
+        <input type="text" id="jf-custom-tag" placeholder="自訂標籤，按 Enter 新增" class="j-custom-tag-input" aria-label="自訂標籤">
       </div>
-      <div class="j-fg j-fg-wide" style="margin-top:10px"><label>策略筆記</label><textarea id="jf-notes" rows="4" placeholder="進出場理由、持有理由、市場在等什麼訊號...">${t.notes||''}</textarea></div>
+      <div class="j-fg j-fg-wide" style="margin-top:10px"><label for="jf-notes">策略筆記</label><textarea id="jf-notes" rows="4" placeholder="進出場理由、持有理由、市場在等什麼訊號...">${esc(t.notes||'')}</textarea></div>
       <div id="jf-offset-hint" class="j-offset-hint"></div>
       <div class="j-form-pl" id="jf-pl-preview"></div>
     </div>
@@ -4001,10 +4253,14 @@ function openTradeForm(id, prefill) {
     </div>
   `;
 
+  a11yModal(modal, 'jf-title');
   overlay.classList.add('open'); modal.classList.add('open');
+  lockScroll();
+  const _releaseFormFocus = trapFocus(modal);
 
-  // Auto-focus symbol input for new trades
-  if (!id) requestAnimationFrame(() => $('#jf-symbol')?.focus());
+  // Auto-focus symbol input — new trades and edit mode both need a focus
+  // starting point so trapFocus has somewhere to anchor.
+  requestAnimationFrame(() => $('#jf-symbol')?.focus());
 
   // ── DateTime picker logic ──
   {
@@ -4146,7 +4402,7 @@ function openTradeForm(id, prefill) {
       sel.dispatchEvent(new Event('change'));
     } else {
       // ── Autocomplete text input mode ──
-      wrap.innerHTML = `<div class="sym-ac-wrap" style="position:relative"><input type="text" id="jf-symbol" value="${esc(curVal)}" placeholder="輸入代號或名稱搜尋" autocomplete="off"><div class="sym-ac-list" id="jf-sym-ac"></div></div>`;
+      wrap.innerHTML = `<div class="sym-ac-wrap" style="position:relative"><input type="text" id="jf-symbol" value="${esc(curVal)}" placeholder="輸入代號或名稱搜尋" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="jf-sym-ac"><div class="sym-ac-list" id="jf-sym-ac" role="listbox"></div></div>`;
       setupSymbolAutocomplete();
     }
   }
@@ -4178,27 +4434,35 @@ function openTradeForm(id, prefill) {
       return results.slice(0, 12);
     }
 
+    function acClose() {
+      acList.classList.remove('open');
+      symInput.setAttribute('aria-expanded', 'false');
+      symInput.removeAttribute('aria-activedescendant');
+    }
+
     const acSearch = debounce(() => {
       const q = symInput.value.trim();
-      if (q.length < 1) { acList.classList.remove('open'); acItems = []; return; }
+      if (q.length < 1) { acClose(); acItems = []; return; }
       acItems = searchSymbols(q);
       acFocus = -1;
-      if (!acItems.length) { acList.classList.remove('open'); return; }
+      if (!acItems.length) { acClose(); return; }
       acList.innerHTML = acItems.map((r, i) =>
-        `<div class="sym-ac-item" data-i="${i}"><span class="sym-code">${esc(r.code)}</span><span class="sym-name">${esc(r.name)}</span><span class="sym-exch">${esc(r.group)}${r.mul ? ' ×' + r.mul : ''}</span></div>`
+        `<div class="sym-ac-item" id="sym-ac-opt-${i}" role="option" aria-selected="false" data-i="${i}"><span class="sym-code">${esc(r.code)}</span><span class="sym-name">${esc(r.name)}</span><span class="sym-exch">${esc(r.group)}${r.mul ? ' ×' + r.mul : ''}</span></div>`
       ).join('');
       acList.classList.add('open');
+      symInput.setAttribute('aria-expanded', 'true');
+      symInput.removeAttribute('aria-activedescendant');
     }, 150);
 
     symInput.addEventListener('input', acSearch);
-    symInput.addEventListener('focus', () => { if (acItems.length > 0) acList.classList.add('open'); });
-    symInput.addEventListener('blur', () => { setTimeout(() => acList.classList.remove('open'), 150); });
+    symInput.addEventListener('focus', () => { if (acItems.length > 0) { acList.classList.add('open'); symInput.setAttribute('aria-expanded', 'true'); } });
+    symInput.addEventListener('blur', () => { setTimeout(acClose, 150); });
     symInput.addEventListener('keydown', e => {
       if (!acList.classList.contains('open') || !acItems.length) return;
       if (e.key === 'ArrowDown') { e.preventDefault(); acFocus = Math.min(acFocus + 1, acItems.length - 1); acUpdateFocus(); }
       else if (e.key === 'ArrowUp') { e.preventDefault(); acFocus = Math.max(acFocus - 1, 0); acUpdateFocus(); }
       else if (e.key === 'Enter' && acFocus >= 0) { e.preventDefault(); acPick(acFocus); }
-      else if (e.key === 'Escape') { e.stopPropagation(); acList.classList.remove('open'); symInput.blur(); }
+      else if (e.key === 'Escape') { e.stopPropagation(); acClose(); symInput.blur(); }
     });
     acList.addEventListener('pointerdown', e => {
       e.preventDefault();
@@ -4206,9 +4470,14 @@ function openTradeForm(id, prefill) {
       if (item) acPick(parseInt(item.dataset.i));
     });
     function acUpdateFocus() {
-      $$('.sym-ac-item', acList).forEach((el, i) => el.classList.toggle('focused', i === acFocus));
+      $$('.sym-ac-item', acList).forEach((el, i) => {
+        const on = i === acFocus;
+        el.classList.toggle('focused', on);
+        el.setAttribute('aria-selected', on ? 'true' : 'false');
+      });
       const f = acList.children[acFocus];
-      if (f) f.scrollIntoView({ block: 'nearest' });
+      if (f) { f.scrollIntoView({ block: 'nearest' }); symInput.setAttribute('aria-activedescendant', f.id); }
+      else symInput.removeAttribute('aria-activedescendant');
     }
     function acPick(i) {
       const r = acItems[i]; if (!r) return;
@@ -4217,7 +4486,7 @@ function openTradeForm(id, prefill) {
       if (nameInput && r.name) { nameInput.value = r.name.replace(/\s*\(.*\)\s*$/, ''); nameInput.classList.add('j-field-flash'); setTimeout(()=>nameInput.classList.remove('j-field-flash'),500); }
       if (r.mul && $('#jf-mul')) { $('#jf-mul').value = r.mul; $('#jf-mul-wrap')?.classList.remove('j-hidden'); }
       symInput.classList.add('j-field-flash'); setTimeout(()=>symInput.classList.remove('j-field-flash'),500);
-      acList.classList.remove('open'); acItems = [];
+      acClose(); acItems = [];
       updateSmartFees();
     }
   }
@@ -4262,14 +4531,7 @@ function openTradeForm(id, prefill) {
     if (tpl) applyTemplate(tpl);
   }));
   // Rating picker
-  $$('#jf-rating .j-star', modal).forEach(s => s.addEventListener('click', () => {
-    const rate = parseInt(s.dataset.rate);
-    $('#jf-rating-val').value = rate;
-    $$('#jf-rating .j-star', modal).forEach((st, i) => {
-      st.textContent = i < rate ? '★' : '☆';
-      st.classList.toggle('j-star-on', i < rate);
-    });
-  }));
+  wireStarRating($$('#jf-rating .j-star', modal), rate => { $('#jf-rating-val').value = rate; });
   // Review score pickers (discipline/timing/sizing)
   $$('.j-review-picker', modal).forEach(picker => {
     const field = picker.dataset.field;
@@ -4330,14 +4592,15 @@ function openTradeForm(id, prefill) {
   });
 
   // Save template
-  $('#jf-save-tpl')?.addEventListener('click', () => {
-    const name = prompt('模板名稱：');
+  $('#jf-save-tpl')?.addEventListener('click', async () => {
+    const name = await _promptDialog({ title: '模板名稱', confirmText: '儲存' });
     if (!name?.trim()) return;
     saveTemplate(name.trim());
     if(window._showToast)window._showToast(`模板「${name.trim()}」已儲存`);
   });
 
-  const closeModal=()=>{overlay.classList.remove('open');modal.classList.remove('open');editingId=null;document.removeEventListener('keydown',escHandler);};
+  let _formClosed = false;
+  const closeModal=()=>{if(_formClosed)return;_formClosed=true;overlay.classList.remove('open');modal.classList.remove('open');editingId=null;document.removeEventListener('keydown',escHandler);unlockScroll();_releaseFormFocus();};
   const escHandler=(e)=>{if(e.key==='Escape')closeModal();};
   document.addEventListener('keydown',escHandler);
   $('#jf-close').addEventListener('click',closeModal);overlay.addEventListener('click',(e)=>{if(e.target===overlay)closeModal();});$('#jf-cancel').addEventListener('click',closeModal);
@@ -4382,12 +4645,15 @@ function showSavedToast() {
 
 async function saveTrade() {
   // Validate required fields
-  const sym = $('#jf-symbol')?.value.trim();
-  if (!sym) {
-    const el = $('#jf-symbol');
+  const _flashInvalid = (id, msg) => {
+    const el = $('#' + id);
     if (el) { el.classList.add('j-field-flash'); el.focus(); el.scrollIntoView({behavior:'smooth',block:'center'}); setTimeout(()=>el.classList.remove('j-field-flash'),500); }
-    throw new Error('請輸入交易代號');
-  }
+    throw new Error(msg);
+  };
+  const sym = $('#jf-symbol')?.value.trim();
+  if (!sym) _flashInvalid('jf-symbol', '請輸入交易代號');
+  if (!(parseFloat($('#jf-entry')?.value) > 0)) _flashInvalid('jf-entry', '請輸入有效的進場價格');
+  if (!(parseFloat($('#jf-qty')?.value) > 0)) _flashInvalid('jf-qty', '請輸入有效的數量');
   const data = {
     id: editingId || (Date.now().toString(36)+Math.random().toString(36).slice(2,7)),
     date:$('#jf-date')?.value||localISOString(),
@@ -4407,8 +4673,16 @@ async function saveTrade() {
     reviewTiming:parseInt($('#jf-rv-timing')?.value)||0,
     reviewSizing:parseInt($('#jf-rv-sizing')?.value)||0,
     pricingStage:$('#jf-pricing-stage-val')?.value||'',
+    closeDate:'',
   };
   if (editingId) {
+    // 平倉歸期：未平倉→已平倉時記錄平倉當下本地時間；原本已是 closed 則沿用既有 closeDate 不重設
+    const orig = trades.find(t => t.id === editingId);
+    if (data.status === 'closed') {
+      data.closeDate = (orig && orig.status === 'closed') ? (orig.closeDate || '') : localISOString();
+    } else {
+      data.closeDate = '';
+    }
     await api(`/trades/${editingId}`, { method: 'PUT', body: JSON.stringify(data) });
     const idx = trades.findIndex(t => t.id === editingId);
     if (idx >= 0) trades[idx] = data;
@@ -4439,6 +4713,7 @@ async function saveTrade() {
           const origFee = parseFloat(opp.fee) || 0, origTax = parseFloat(opp.tax) || 0;
           const ef = calcExitFees(opp.market, opp.type, exitPrice, oppQty, parseFloat(opp.contractMul) || 1, opp.direction, opp.symbol);
           const closedData = { ...opp, exitPrice, status: 'closed',
+            closeDate: opp.closeDate || localISOString(),
             fee: String(origFee + (parseFloat(ef.fee) || 0)),
             tax: String(origTax + (parseFloat(ef.tax) || 0)) };
           await api(`/trades/${opp.id}`, { method: 'PUT', body: JSON.stringify(closedData) });
@@ -4450,7 +4725,7 @@ async function saveTrade() {
           const ratio = used / oppQty;
           const closedFee = Math.round(origFee * ratio), closedTax = Math.round(origTax * ratio);
           const ef = calcExitFees(opp.market, opp.type, exitPrice, used, parseFloat(opp.contractMul) || 1, opp.direction, opp.symbol);
-          const closedData = { ...opp, id: undefined, quantity: used, exitPrice, status: 'closed', fee: String(closedFee + (parseFloat(ef.fee) || 0)), tax: String(closedTax + (parseFloat(ef.tax) || 0)) };
+          const closedData = { ...opp, id: undefined, quantity: used, exitPrice, status: 'closed', closeDate: opp.closeDate || localISOString(), fee: String(closedFee + (parseFloat(ef.fee) || 0)), tax: String(closedTax + (parseFloat(ef.tax) || 0)) };
           const remainData = { ...opp, quantity: leftover, fee: origFee - closedFee, tax: origTax - closedTax };
           await api('/trades', { method: 'POST', body: JSON.stringify(closedData) });
           await api(`/trades/${opp.id}`, { method: 'PUT', body: JSON.stringify(remainData) });
@@ -4501,8 +4776,8 @@ function openTradeDetail(id) {
   const idx = filtered.findIndex(x => x.id === id);
   const prevId = idx > 0 ? filtered[idx - 1].id : null;
   const nextId = idx < filtered.length - 1 ? filtered[idx + 1].id : null;
-  const navHTML = `<div class="j-detail-nav">${prevId?`<button class="j-detail-nav-btn" id="jd-prev" title="上一筆 (←)"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg></button>`:'<span></span>'}<span class="j-detail-nav-pos">${idx+1} / ${filtered.length}</span>${nextId?`<button class="j-detail-nav-btn" id="jd-next" title="下一筆 (→)"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></button>`:'<span></span>'}</div>`;
-  modal.innerHTML=`<div class="j-modal-header"><h3><span class="j-badge j-badge-${t.market}">${ML[t.market]}</span> <strong>${esc(t.symbol)}</strong> ${esc(t.name)}</h3>${navHTML}<button class="j-modal-close" id="jd-close">&times;</button></div>
+  const navHTML = `<div class="j-detail-nav">${prevId?`<button class="j-detail-nav-btn" type="button" id="jd-prev" title="上一筆 (←)" aria-label="上一筆"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg></button>`:'<span></span>'}<span class="j-detail-nav-pos">${idx+1} / ${filtered.length}</span>${nextId?`<button class="j-detail-nav-btn" type="button" id="jd-next" title="下一筆 (→)" aria-label="下一筆"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></button>`:'<span></span>'}</div>`;
+  modal.innerHTML=`<div class="j-modal-header"><h3 id="jd-title"><span class="j-badge j-badge-${t.market}">${ML[t.market]}</span> <strong>${esc(t.symbol)}</strong> ${esc(t.name)}</h3>${navHTML}<button class="j-modal-close" type="button" aria-label="關閉" id="jd-close">&times;</button></div>
   <div class="j-modal-body"><div class="j-detail-grid">
     <div class="j-detail-item"><span class="j-dl">日期</span><span class="j-dv">${fmtDateTime(t.date)}</span></div>
     <div class="j-detail-item"><span class="j-dl">類型</span><span class="j-dv">${TL[t.type]}</span></div>
@@ -4524,14 +4799,18 @@ function openTradeDetail(id) {
   ${t.account?`<div class="j-detail-item" style="grid-column:1/-1"><span class="j-dl">帳戶</span><span class="j-dv">${esc(t.account)}</span></div>`:''}
   ${t.rating?`<div class="j-detail-item"><span class="j-dl">自評</span><span class="j-dv">${ratingHTML(t.rating)}</span></div>`:''}
   ${(t.reviewDiscipline||t.reviewTiming||t.reviewSizing)?`<div class="j-detail-review" style="grid-column:1/-1"><span class="j-dl">覆盤評分</span><div class="j-detail-rv-scores"><span>紀律 <strong>${t.reviewDiscipline||0}</strong>/5</span><span>時機 <strong>${t.reviewTiming||0}</strong>/5</span><span>倉位 <strong>${t.reviewSizing||0}</strong>/5</span></div></div>`:''}
-  ${t.pricingStage?`<div class="j-detail-item" style="grid-column:1/-1"><span class="j-dl">定價階段</span><span class="j-dv">${({expansion:'估值擴張 (Multiple Expansion)',catchup:'基本面追趕 (Earnings Catch-up)',compression:'估值收縮 (Multiple Compression)',unknown:'不確定'})[t.pricingStage]||t.pricingStage}</span></div>`:''}
+  ${t.pricingStage?`<div class="j-detail-item" style="grid-column:1/-1"><span class="j-dl">定價階段</span><span class="j-dv">${({expansion:'估值擴張 (Multiple Expansion)',catchup:'基本面追趕 (Earnings Catch-up)',compression:'估值收縮 (Multiple Compression)',unknown:'不確定'})[t.pricingStage]||esc(t.pricingStage)}</span></div>`:''}
   ${t.notes?`<div class="j-detail-notes"><h4>策略筆記</h4><div class="j-notes-content" style="white-space:pre-wrap">${esc(t.notes)}</div></div>`:''}
   ${t.imageUrl && /^https?:\/\//.test(t.imageUrl)?`<div class="j-detail-notes"><h4>交易截圖</h4><img src="${esc(t.imageUrl)}" class="j-detail-img" alt="交易截圖" loading="lazy" onerror="this.style.display='none'"></div>`:''}
   </div><div class="j-modal-footer">${t.status==='open'?`<button class="j-btn-cancel j-detail-close-btn" id="jd-quick-close" style="color:var(--red);border-color:var(--red)">平倉</button>`:''}<button class="j-btn-cancel" id="jd-calc" title="在計算器中開啟">計算器</button><button class="j-btn-cancel" id="jd-dup" title="複製為新交易">複製</button><span style="flex:1"></span><button class="j-btn-cancel" id="jd-back">關閉</button><button class="j-btn-save" id="jd-edit">編輯</button></div>`;
   const _prevFocus = document.activeElement;
+  a11yModal(modal, 'jd-title');
   overlay.classList.add('open');modal.classList.add('open');
+  lockScroll();
+  const _releaseDetailFocus = trapFocus(modal);
   requestAnimationFrame(() => $('#jd-back')?.focus());
-  const cl=()=>{overlay.classList.remove('open');modal.classList.remove('open');document.removeEventListener('keydown',detailKH);_prevFocus?.focus();};
+  let _detailClosed = false;
+  const cl=()=>{if(_detailClosed)return;_detailClosed=true;overlay.classList.remove('open');modal.classList.remove('open');document.removeEventListener('keydown',detailKH);unlockScroll();_releaseDetailFocus();_prevFocus?.focus();};
   const detailKH = e => {
     if(e.key==='Escape')cl();
     if(e.key==='ArrowLeft'&&prevId){e.preventDefault();cl();setTimeout(()=>openTradeDetail(prevId),80);}
@@ -4572,14 +4851,61 @@ function _confirmDialog(msg, onConfirm, opts = {}) {
         <button class="j-btn j-btn-primary" id="j-confirm-yes" style="min-width:72px;background:${confirmColor}">${confirmText}</button>
       </div>
     </div>`;
+  a11yModal(modal);
+  modal.setAttribute('aria-label', '確認');
   overlay.classList.add('open'); modal.classList.add('open');
-  const close = () => { overlay.classList.remove('open'); modal.classList.remove('open'); document.removeEventListener('keydown', kh); };
-  const kh = e => { if (e.key === 'Escape') close(); if (e.key === 'Enter') { close(); onConfirm(); } };
+  lockScroll();
+  const releaseFocus = trapFocus(modal);
+  let _closed = false;
+  const close = () => { if (_closed) return; _closed = true; overlay.classList.remove('open'); modal.classList.remove('open'); document.removeEventListener('keydown', kh); unlockScroll(); releaseFocus(); };
+  // Enter 不在 document 層無條件確認（避免破壞性操作誤觸）；改由各按鈕原生 Enter/Space 觸發
+  const kh = e => { if (e.key === 'Escape') close(); };
   document.addEventListener('keydown', kh);
   $('#j-confirm-no').onclick = close;
   overlay.onclick = e => { if (e.target === overlay) close(); };
   $('#j-confirm-yes').onclick = () => { close(); onConfirm(); };
-  requestAnimationFrame(() => $('#j-confirm-yes')?.focus());
+  // 破壞性確認預設聚焦「取消」鈕
+  requestAnimationFrame(() => $('#j-confirm-no')?.focus());
+}
+
+// 自製輸入對話框（取代原生 prompt），可帶入 preset 標籤供點選
+function _promptDialog(opts = {}) {
+  const { title = '輸入', placeholder = '', presets = [], confirmText = '確認' } = opts;
+  return new Promise(resolve => {
+    let overlay = $('#j-prompt-overlay');
+    if (!overlay) { overlay = document.createElement('div'); overlay.id = 'j-prompt-overlay'; overlay.className = 'j-modal-overlay'; document.body.appendChild(overlay); }
+    let modal = $('#j-prompt-modal');
+    if (!modal) { modal = document.createElement('div'); modal.id = 'j-prompt-modal'; modal.className = 'j-modal'; modal.style.width = '360px'; modal.style.maxWidth = '90vw'; document.body.appendChild(modal); }
+    const presetHTML = presets.length
+      ? `<div class="j-tag-picker" id="j-prompt-presets" style="margin-bottom:12px">${presets.map(p => `<button type="button" class="j-tag-btn" data-preset="${esc(p)}">${esc(p)}</button>`).join('')}</div>`
+      : '';
+    modal.innerHTML = `
+      <div class="j-modal-header"><h3 id="j-prompt-title">${esc(title)}</h3><button class="j-modal-close" type="button" aria-label="關閉" id="j-prompt-x">&times;</button></div>
+      <div class="j-modal-body" style="padding:16px 20px">
+        ${presetHTML}
+        <input type="text" id="j-prompt-input" class="j-input" placeholder="${esc(placeholder)}" aria-label="${esc(title)}" style="width:100%">
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+          <button class="j-btn" type="button" id="j-prompt-no" style="min-width:72px">取消</button>
+          <button class="j-btn j-btn-primary" type="button" id="j-prompt-yes" style="min-width:72px">${esc(confirmText)}</button>
+        </div>
+      </div>`;
+    a11yModal(modal, 'j-prompt-title');
+    overlay.classList.add('open'); modal.classList.add('open');
+    lockScroll();
+    const releaseFocus = trapFocus(modal);
+    let _closed = false;
+    const finish = (val) => { if (_closed) return; _closed = true; overlay.classList.remove('open'); modal.classList.remove('open'); document.removeEventListener('keydown', kh); unlockScroll(); releaseFocus(); resolve(val); };
+    const input = $('#j-prompt-input');
+    const submit = () => { const v = input?.value.trim(); finish(v || null); };
+    const kh = e => { if (e.key === 'Escape') finish(null); if (e.key === 'Enter') { e.preventDefault(); submit(); } };
+    document.addEventListener('keydown', kh);
+    $('#j-prompt-x').onclick = () => finish(null);
+    $('#j-prompt-no').onclick = () => finish(null);
+    $('#j-prompt-yes').onclick = submit;
+    overlay.onclick = e => { if (e.target === overlay) finish(null); };
+    $$('#j-prompt-presets [data-preset]', modal).forEach(b => b.addEventListener('click', () => { if (input) { input.value = b.dataset.preset; input.focus(); } }));
+    requestAnimationFrame(() => input?.focus());
+  });
 }
 
 async function deleteTrade(id) {
@@ -4594,6 +4920,7 @@ async function deleteTrade(id) {
 // ================================================================
 async function initJournal() {
   // 本機模式：直接載入資料，不需要驗證 token
+  restoreViewPrefs();
   await loadTrades();
   loadDailyJournals();
 
@@ -4623,15 +4950,11 @@ async function initJournal() {
       if (authToken && currentUser) openTradeForm(null);
       else showLoginModal();
     }
-    else if (e.key === '/' || e.key === '？') {
+    else if (e.key === '/') {
+      // 數字鍵 1-5 分頁切換與 ? 顯示指南由 app.js 統一處理，此處僅保留 / 聚焦搜尋
       e.preventDefault();
       const searchInput = $('#jf-search');
       if (searchInput) searchInput.focus();
-    }
-    else if (e.key >= '1' && e.key <= '5') {
-      const tabs = $$('.main-tab');
-      const idx = parseInt(e.key) - 1;
-      if (tabs[idx]) tabs[idx].click();
     }
     else if (e.key === 'Escape') {
       // Close settings panel

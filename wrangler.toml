@@ -9,3 +9,10 @@ pages_build_output_dir = "."
 binding = "DB"
 database_name = "prism-db"
 database_id = "08bfc46c-a993-482d-9e84-96c156968da3"
+
+# Rate limiting KV（選用，跨實例認證限流）。建立：wrangler kv namespace create RATE_LIMIT_KV
+# 然後取消註解並填入 id：
+# [[kv_namespaces]]
+# binding = "RATE_LIMIT_KV"
+# id = "<your-kv-namespace-id>"
+# （保持註解狀態，未建立 namespace 也不影響部署；綁定後自動升級為跨實例。）

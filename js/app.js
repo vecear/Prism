@@ -18,10 +18,25 @@ const fM = (n, c = 'NT$', d = 0) => n == null || isNaN(n) || !isFinite(n) ? '—
 const gV = id => { const e = document.getElementById(id); return e ? (parseFloat(e.value) || 0) : NaN; };
 const gVraw = id => { const e = document.getElementById(id); return e ? e.value : ''; };
 const riskLvl = (v, s, c, d) => v >= s ? 'safe' : v >= c ? 'caution' : v >= d ? 'danger' : 'critical';
+// 與 riskLvl 相同，但先鉗制門檻避免交叉（使用者把追繳線設高於 caution 時 danger 會超過 caution）。
+const riskLvlClamp = (v, s, c, d) => { c = Math.max(c, d); s = Math.max(s, c); return riskLvl(v, s, c, d); };
 const WARN_SVG = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L1 21h22L12 2zm0 3.5L19.5 19h-15L12 5.5zM11 10v4h2v-4h-2zm0 6v2h2v-2h-2z"/></svg>';
 const OK_SVG = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>';
 const PLACEHOLDER = '<div class="results-placeholder"><p>輸入參數即可即時計算</p></div>';
 function _scrollToResults() { /* disabled — mobile users scroll manually */ }
+
+// 正值驗證：所有給定的數值都必須 > 0（排除 0、負值、NaN）。
+// 任一不合格即在 resultsSel 容器顯示提示並回傳 false，呼叫端應 return。
+function validatePositive(resultsSel, vals, msg) {
+  const ok = vals.every(v => typeof v === 'number' && isFinite(v) && v > 0);
+  if (!ok) {
+    const el = $(resultsSel);
+    if (el) el.innerHTML = msg
+      ? `<div class="results-placeholder"><p>${_esc(msg)}</p></div>`
+      : PLACEHOLDER;
+  }
+  return ok;
+}
 
 // ── Formula tab post-processor ──────────────────────────────────
 // 把扁平的內聯等式重組成結構化的 [標題] + [結果] + [計算過程] 卡片格式
@@ -114,16 +129,18 @@ function secStart(icon, title) {
 function secEnd() { return '</div>'; }
 function secAdvStart(icon, title, collapsed) {
   const cls = collapsed ? ' collapsed' : '';
-  return `<div class="input-section input-section-adv${cls}"><div class="input-section-hdr" onclick="this.parentElement.classList.toggle('collapsed')"><span class="sec-icon">${_secIcon[icon] || ''}</span><span class="sec-title">${title}</span>${_chevronSvg}</div><div class="sec-body">`;
+  return `<div class="input-section input-section-adv${cls}"><div class="input-section-hdr" role="button" tabindex="0" aria-expanded="${collapsed ? 'false' : 'true'}" onclick="const p=this.parentElement;const c=p.classList.toggle('collapsed');this.setAttribute('aria-expanded',c?'false':'true')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click()}"><span class="sec-icon">${_secIcon[icon] || ''}</span><span class="sec-title">${title}</span>${_chevronSvg}</div><div class="sec-body">`;
 }
 function secAdvEnd() { return '</div></div>'; }
 
 // XSS escape helper
+// Escapes <>& (textContent) plus "/' so output is safe in both text and
+// double/single-quoted attribute contexts (e.g. aria-label/title/data-*).
 function _esc(str) {
   if (!str) return '';
   const d = document.createElement('div');
   d.textContent = str;
-  return d.innerHTML;
+  return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 // ── Central index definitions ──
@@ -149,6 +166,9 @@ const INDEX_DEFS = {
 // ================================================================
 //  PRICE SERVICE — Multi-Provider Architecture
 // ================================================================
+// 直連嘗試的逾時上限（ms）。直連通常用於非 CORS-限制來源，超時即放棄改走 proxy。
+const DIRECT_FETCH_TIMEOUT_MS = 4000;
+
 const PriceService = {
   PROXIES: [
     url => `${API_BASE}/api/proxy?url=${encodeURIComponent(url)}`,
@@ -161,12 +181,38 @@ const PriceService = {
     catch (e) { clearTimeout(tid); throw e; }
   },
 
+  // 已知必走代理的來源（CORS 不允許瀏覽器直連，直連必失敗）。
+  // 命中則跳過直連，直接走 proxy，避免空轉至逾時。
+  _PROXY_ONLY_HOSTS: [
+    'query1.finance.yahoo.com', 'query2.finance.yahoo.com',
+    'mis.twse.com.tw', 'openapi.twse.com.tw', 'www.tpex.org.tw',
+    'www.taifex.com.tw', 'mis.taifex.com.tw',
+    'production.dataviz.cnn.io',
+    'fred.stlouisfed.org', 'squeezemetrics.com',
+    'www.sec.gov', 'api.nasdaq.com',
+  ],
+  _isProxyOnly(url) {
+    try { return this._PROXY_ONLY_HOSTS.includes(new URL(url).hostname); } catch { return false; }
+  },
+
   async _proxyFetch(url, timeout = 8000) {
-    try { const r = await this._fetchTimeout(url, Math.min(timeout, 4000)); if (r.ok) return r; } catch (e) { console.debug('[Prism] Direct fetch failed:', url, e.message); }
-    for (const mk of this.PROXIES) {
-      try { const r = await this._fetchTimeout(mk(url), timeout); if (r.ok) return r; } catch (e) { console.debug('[Prism] Proxy fetch failed:', e.message); }
+    let lastStatus = 0;
+    // 非白名單來源才嘗試直連（直連逾時上限 DIRECT_FETCH_TIMEOUT_MS）
+    if (!this._isProxyOnly(url)) {
+      try {
+        const r = await this._fetchTimeout(url, Math.min(timeout, DIRECT_FETCH_TIMEOUT_MS));
+        if (r.ok) return r;
+        lastStatus = r.status;
+      } catch (e) { console.debug('[Prism] Direct fetch failed:', url, e.message); }
     }
-    throw new Error('無法連線');
+    for (const mk of this.PROXIES) {
+      try {
+        const r = await this._fetchTimeout(mk(url), timeout);
+        if (r.ok) return r;
+        lastStatus = r.status;
+      } catch (e) { console.debug('[Prism] Proxy fetch failed:', e.message); }
+    }
+    throw new Error(lastStatus ? `無法連線 (HTTP ${lastStatus})` : '無法連線');
   },
 
   // ────────── PROVIDERS ──────────
@@ -660,7 +706,8 @@ const PriceService = {
     const postOpts = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) };
 
     let data;
-    try { const r = await this._fetchTimeout(url, 4000, postOpts); if (r.ok) data = await r.json(); } catch {}
+    // 已知必走代理的 host（taifex）跳過必失敗的直連 CORS 嘗試，省去最高 4s 空轉
+    if (!this._isProxyOnly(url)) { try { const r = await this._fetchTimeout(url, 4000, postOpts); if (r.ok) data = await r.json(); } catch {} }
     if (!data) { try { const r = await this._fetchTimeout(`${API_BASE}/api/proxy?url=${encodeURIComponent(url)}`, 8000, postOpts); if (r.ok) data = await r.json(); } catch {} }
     if (!data) { const getUrl = url + '?' + new URLSearchParams(payload).toString(); const r = await this._proxyFetch(getUrl, 10000); data = await r.json(); }
     return data;
@@ -1049,6 +1096,8 @@ function wrapNumberInputs(container) {
       btn.addEventListener('pointerdown', () => startHold(dir));
       btn.addEventListener('pointerup', stopHold);
       btn.addEventListener('pointerleave', stopHold);
+      btn.addEventListener('pointercancel', stopHold);
+      btn.addEventListener('lostpointercapture', stopHold);
     });
   });
 }
@@ -1726,6 +1775,7 @@ function _initTickerToggle() {
     if (!bar) return;
     const expanded = bar.classList.toggle('expanded');
     btn.setAttribute('aria-label', expanded ? '收合報價' : '展開報價');
+    btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
   });
   _remeasureTickerRow();
 }
@@ -1774,18 +1824,23 @@ function _updateTickerTime(results) {
   if (!timeEl) return;
   const tFmt = { hour: '2-digit', minute: '2-digit' };
   // 來源端最後報價時間：取所有指數中最新的 sourceTime
-  let latestSrc = 0;
+  let latestSrc = 0, anyOk = false, anyFail = false;
   for (const [, q] of Object.entries(results || {})) {
-    if (q && !q.error && q.sourceTime && q.sourceTime > latestSrc) latestSrc = q.sourceTime;
+    if (!q) continue;
+    if (q.error) { anyFail = true; continue; }
+    anyOk = true;
+    if (q.sourceTime && q.sourceTime > latestSrc) latestSrc = q.sourceTime;
   }
+  // 全部報價失敗，或部分失敗時，標示「部分報價過期」
+  const staleNote = anyFail ? `<span class="stale">${anyOk ? '部分報價過期' : '報價過期'}</span>` : '';
   const now = new Date().toLocaleTimeString('zh-TW', tFmt);
   if (latestSrc) {
     const src = new Date(latestSrc).toLocaleTimeString('zh-TW', tFmt);
-    timeEl.innerHTML = `<span>報價 ${src}</span><span>抓取 ${now}</span>`;
+    timeEl.innerHTML = `<span>報價 ${src}</span><span>抓取 ${now}</span>${staleNote}`;
   } else {
     const lastT = _quoteCache.lastIndexTime();
     const fetchT = lastT ? new Date(lastT).toLocaleTimeString('zh-TW', tFmt) : now;
-    timeEl.innerHTML = `<span>抓取 ${fetchT}</span>`;
+    timeEl.innerHTML = `<span>抓取 ${fetchT}</span>${staleNote}`;
   }
 }
 
@@ -2214,16 +2269,19 @@ const _REGIME_INFO = {
 function _detectRegimePill(s) {
   const r = _classifyRegime(s);
   const info = _REGIME_INFO[r.id];
+  const isUnknown = r.id === 'unknown';
+  // unknown：以淡色「等待資料」呈現，不顯示誤導性的信心度分數
+  const displayName = isUnknown ? '等待資料' : info.name;
   const tip = `${info.name} — ${info.desc}\n\n` +
-    `信心度：${r.score}/100\n` +
+    (isUnknown ? '' : `信心度：${r.score}/100\n`) +
     (r.factors.length ? `關鍵訊號：\n${r.factors.map(f => '· ' + f).join('\n')}\n\n` : '') +
     `建議：${info.advice}\n` +
     `偏好資產：${info.favored}\n\n` +
     `（基於 VIX、HY OAS、5Y BEI、10Y、F&G 之 rule-based 分類；參考 Spectral Clustering 文獻）`;
   return `<span class="regime-pill" data-r="${r.id}" title="${tip.replace(/"/g, '&quot;')}">
     <span class="regime-dot"></span>
-    <span class="regime-name">${info.name}</span>
-    <span class="regime-score">${r.score}</span>
+    <span class="regime-name">${displayName}</span>
+    ${isUnknown ? '' : `<span class="regime-score">${r.score}</span>`}
   </span>`;
 }
 
@@ -2271,17 +2329,24 @@ function _classifyRegime(s) {
 
   const scores = { stress: stressScore, inflation: inflationScore, goldilocks: goldiScore, recovery: recoveryScore };
   const total = stressScore + inflationScore + goldiScore + recoveryScore;
-  if (total < 15) return { id: 'unknown', score: 0, factors: [] };
+  // 有效輸入維度數（實際載入的核心指標）— 用於信心度折扣
+  const DIMS = [vix, vix3m, oas, bei, fg];
+  const validDims = DIMS.filter(v => v != null).length;
+  if (total < 15) return { id: 'unknown', score: 0, factors: [], validDims };
   let bestId = 'unknown', bestScore = -1;
   for (const k of Object.keys(scores)) if (scores[k] > bestScore) { bestScore = scores[k]; bestId = k; }
-  // confidence (0-100)
-  const confidence = Math.min(100, Math.round((bestScore / Math.max(total, 1)) * 100 + Math.min(20, total / 5)));
-  return { id: bestId, score: confidence, factors: factors.slice(0, 5) };
+  // confidence (0-100)，再依有效維度數折扣（5 維滿分，缺一維打折）
+  const dimFactor = validDims / DIMS.length;
+  const raw = (bestScore / Math.max(total, 1)) * 100 + Math.min(20, total / 5);
+  const confidence = Math.min(100, Math.round(raw * dimFactor));
+  return { id: bestId, score: confidence, factors: factors.slice(0, 5), validDims };
 }
 
-function _renderSentimentStrip() {
+function _renderSentimentStrip(staleKeys) {
   const strip = $('#sentiment-strip');
   if (!strip) return;
+  // 本輪 fetch 失敗的 sentiment key（顯示淡色 stale 標示，與 ticker chip 一致）
+  const _stale = staleKeys instanceof Set ? staleKeys : new Set();
 
   // VIX from cache or ticker
   const vixQ = _quoteCache.getIndex('vix');
@@ -2334,7 +2399,8 @@ function _renderSentimentStrip() {
   // Helper: build a compact inline pill
   function _pill(key, label, value, lv, chgHtml, tip, href) {
     const safeTip = (tip || '').replace(/"/g, '&quot;');
-    return `<a class="sent-gauge" data-sent="${key}" data-time="${safeTip}" draggable="true" href="${href}" target="_blank" rel="noopener"><span class="sent-label">${label}</span><span class="sent-value" style="color:${lv.color}">${value}</span><span class="sent-tag" style="color:${lv.color}">${lv.label}</span>${chgHtml}</a>`;
+    const staleCls = _stale.has(key) ? ' stale' : '';
+    return `<a class="sent-gauge${staleCls}" data-sent="${key}" data-time="${safeTip}" draggable="true" href="${href}" target="_blank" rel="noopener"><span class="sent-label">${label}</span><span class="sent-value" style="color:${lv.color}">${value}</span><span class="sent-tag" style="color:${lv.color}">${lv.label}</span>${chgHtml}</a>`;
   }
   function _chg(val, decimals, invert) {
     if (val == null) return '';
@@ -2392,7 +2458,9 @@ function _renderSentimentStrip() {
     const gexCache = _quoteCache._load().gex;
     const gexFetchStr = gexCache?.time ? new Date(gexCache.time).toLocaleTimeString('zh-TW', tFmt) : '';
     const sign = bn >= 0 ? '+' : '';
-    const tip = `GEX (Gamma Exposure)\nGamma 曝險: ${sign}${bn.toFixed(2)}B\nDIX (Dark Index): ${(gexData.dix * 100).toFixed(2)}%\nS&P 500: ${gexData.price.toFixed(2)}\n前值: ${gexData.prevGex != null ? (gexData.prevGex / 1e9).toFixed(2) + 'B' : '—'} (${gexData.prevDate || ''})\n資料日期: ${gexData.date}\n正 Gamma = MM 賣漲買跌 → 穩定\n負 Gamma = MM 追漲殺跌 → 放大波動\n本地抓取時間：${gexFetchStr}`;
+    const dixStr = Number.isFinite(gexData.dix) ? (gexData.dix * 100).toFixed(2) + '%' : '—';
+    const priceStr = Number.isFinite(gexData.price) ? gexData.price.toFixed(2) : '—';
+    const tip = `GEX (Gamma Exposure)\nGamma 曝險: ${sign}${bn.toFixed(2)}B\nDIX (Dark Index): ${dixStr}\nS&P 500: ${priceStr}\n前值: ${gexData.prevGex != null ? (gexData.prevGex / 1e9).toFixed(2) + 'B' : '—'} (${gexData.prevDate || ''})\n資料日期: ${gexData.date}\n正 Gamma = MM 賣漲買跌 → 穩定\n負 Gamma = MM 追漲殺跌 → 放大波動\n本地抓取時間：${gexFetchStr}`;
     gauges.gex = _pill('gex', 'GEX', sign + bn.toFixed(2) + 'B', lv, _chg(gexData.changeBn, 2, false), tip, 'https://squeezemetrics.com/monitor/dix');
   }
 
@@ -4237,8 +4305,8 @@ function renderGuide() {
   </div>
   <div class="course-layout">
     <nav class="course-nav" id="course-nav">${COURSE.map(p=>`<div class="course-phase${p.chapters.some(c=>c.id===g.active)?' expanded':''}">
-      <button class="phase-hdr" data-phase="${p.phase}"><span class="phase-badge">${p.phase}</span><span class="phase-title">${p.title}</span><span class="phase-sub">${p.sub}</span><svg class="phase-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg></button>
-      <ul class="phase-chs">${p.chapters.map(c=>`<li class="ch-item${c.id===g.active?' active':''}" data-ch="${c.id}"><span class="ch-status">${statusIcon(c.id)}</span><span class="ch-num">${c.num}</span><span class="ch-label">${c.title}</span></li>`).join('')}</ul>
+      <button class="phase-hdr" data-phase="${p.phase}" aria-expanded="${p.chapters.some(c=>c.id===g.active)?'true':'false'}"><span class="phase-badge">${p.phase}</span><span class="phase-title">${p.title}</span><span class="phase-sub">${p.sub}</span><svg class="phase-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg></button>
+      <ul class="phase-chs">${p.chapters.map(c=>`<li class="ch-item${c.id===g.active?' active':''}" data-ch="${c.id}" role="button" tabindex="0"${c.id===g.active?' aria-current="true"':''}><span class="ch-status">${statusIcon(c.id)}</span><span class="ch-num">${c.num}</span><span class="ch-label">${c.title}</span></li>`).join('')}</ul>
     </div>`).join('')}</nav>
     <div class="course-body" id="course-body">${allCh.map(c=>`<div class="course-ch" id="ch-${c.id}"${c.id!==g.active?' style="display:none"':''}>
       <div class="ch-head"><span class="ch-badge">Ch.${c.num}</span><div class="ch-head-text"><h3>${c.title}</h3><p class="ch-desc">${c.desc}</p></div><button class="ch-done-btn${done(c.id)?' completed':''}" data-ch="${c.id}">${done(c.id)?'已完成 ✓':'標記完成'}</button></div>
@@ -4250,11 +4318,12 @@ function renderGuide() {
   // ── Course event handlers ──
   function showChapter(id) {
     allCh.forEach(c => { const e = $(`#ch-${c.id}`); if (e) e.style.display = c.id === id ? '' : 'none'; });
-    $$('.ch-item', el).forEach(li => li.classList.toggle('active', li.dataset.ch === id));
+    $$('.ch-item', el).forEach(li => { const on = li.dataset.ch === id; li.classList.toggle('active', on); if (on) li.setAttribute('aria-current','true'); else li.removeAttribute('aria-current'); });
     // Expand parent phase
     $$('.course-phase', el).forEach(p => {
       const hasActive = !!$(`.ch-item[data-ch="${id}"]`, p);
       p.classList.toggle('expanded', hasActive);
+      p.querySelector('.phase-hdr')?.setAttribute('aria-expanded', String(hasActive));
     });
     g.active = id; _saveState();
     $('#course-body')?.scrollIntoView({block:'start',behavior:'smooth'});
@@ -4282,7 +4351,13 @@ function renderGuide() {
       _saveState(); updateProgress(); return;
     }
     const phdr = e.target.closest('.phase-hdr');
-    if (phdr) { phdr.closest('.course-phase')?.classList.toggle('expanded'); return; }
+    if (phdr) { const on = phdr.closest('.course-phase')?.classList.toggle('expanded'); phdr.setAttribute('aria-expanded', String(!!on)); return; }
+  });
+  // Keyboard activation for non-native ch-item buttons
+  el.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const li = e.target.closest('.ch-item');
+    if (li) { e.preventDefault(); showChapter(li.dataset.ch); }
   });
 }
 
@@ -4329,7 +4404,12 @@ function _updateTopbar(tabKey) {
   if (sEl) sEl.textContent = meta.subtitle || '';
 }
 function _syncTabActive(tabKey) {
-  $$('.main-tab').forEach(x => x.classList.toggle('active', x.dataset.tab === tabKey));
+  $$('.main-tab').forEach(x => {
+    const on = x.dataset.tab === tabKey;
+    x.classList.toggle('active', on);
+    if (on) x.setAttribute('aria-current', 'page');
+    else x.removeAttribute('aria-current');
+  });
 }
 
 function init() {
@@ -4390,19 +4470,42 @@ function init() {
 
   // Mobile bottom sheet (more menu)
   const moreSheet = $('#mobile-more-sheet');
+  const moreBtn = $('#btn-mobile-more');
+  if (moreBtn) { moreBtn.setAttribute('aria-haspopup', 'true'); moreBtn.setAttribute('aria-expanded', 'false'); }
+  // Tab 循環焦點：限制在 sheet 內可聚焦元素之間
+  const _sheetKeydown = (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); closeMoreSheet(); return; }
+    if (e.key !== 'Tab' || !moreSheet) return;
+    const items = $$('.sheet-item, #sheet-close-btn', moreSheet)
+      .filter(el => el.offsetParent !== null);
+    if (!items.length) return;
+    const first = items[0], last = items[items.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  };
+  const sheetDialog = moreSheet ? $('.sheet', moreSheet) : null;
   const openMoreSheet = () => {
     if (!moreSheet) return;
     moreSheet.classList.add('open');
     moreSheet.setAttribute('aria-hidden', 'false');
+    if (sheetDialog) sheetDialog.setAttribute('aria-modal', 'true');
     document.body.style.overflow = 'hidden';
+    if (moreBtn) moreBtn.setAttribute('aria-expanded', 'true');
+    document.addEventListener('keydown', _sheetKeydown);
+    // 移焦點到首個 sheet item
+    const firstItem = $$('.sheet-item', moreSheet).find(el => el.offsetParent !== null);
+    (firstItem || $('#sheet-close-btn', moreSheet))?.focus();
   };
   const closeMoreSheet = () => {
     if (!moreSheet) return;
     moreSheet.classList.remove('open');
     moreSheet.setAttribute('aria-hidden', 'true');
+    if (sheetDialog) sheetDialog.setAttribute('aria-modal', 'false');
     document.body.style.overflow = '';
+    document.removeEventListener('keydown', _sheetKeydown);
+    if (moreBtn) { moreBtn.setAttribute('aria-expanded', 'false'); moreBtn.focus(); }
   };
-  $('#btn-mobile-more')?.addEventListener('click', openMoreSheet);
+  moreBtn?.addEventListener('click', openMoreSheet);
   $('#sheet-close-btn')?.addEventListener('click', closeMoreSheet);
   moreSheet?.addEventListener('click', (e) => { if (e.target === moreSheet) closeMoreSheet(); });
   // Sheet items that are main-tab will be handled by main-tab handler; close sheet on any sheet-item click
@@ -4424,8 +4527,9 @@ function init() {
   // Toggle groups
   $$('.toggle-group').forEach(g => {
     $$('.toggle-btn', g).forEach(b => b.addEventListener('click', () => {
-      $$('.toggle-btn', g).forEach(x => x.classList.remove('active'));
+      $$('.toggle-btn', g).forEach(x => { x.classList.remove('active'); x.setAttribute('aria-pressed', 'false'); });
       b.classList.add('active');
+      b.setAttribute('aria-pressed', 'true');
       const gn = g.dataset.group, v = b.dataset.value;
       if (gn === 'margin-market')    { S.margin.market = v;    renderMarginForm(); }
       if (gn === 'margin-direction') { S.margin.direction = v; renderMarginForm(); }
@@ -4495,7 +4599,11 @@ function init() {
     Object.entries(map).forEach(([gn, val]) => {
       const g = $(`.toggle-group[data-group="${gn}"]`);
       if (!g) return;
-      $$('.toggle-btn', g).forEach(b => b.classList.toggle('active', b.dataset.value === val));
+      $$('.toggle-btn', g).forEach(b => {
+        const on = b.dataset.value === val;
+        b.classList.toggle('active', on);
+        b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      });
     });
   };
   _syncToggles();
@@ -4638,7 +4746,7 @@ function renderSettings() {
           <button type="button" class="stg-theme-btn ${curTheme==='emerald'?'active':''}" data-theme="emerald"><div class="stg-theme-swatch" data-sw="emerald"></div><span class="stg-theme-label">翡翠綠</span></button>
         </div>
         <div class="stg-row" style="margin-top:10px">
-          <label>預設市場</label>
+          <label for="stg-default-market">預設市場</label>
           <select class="stg-select" id="stg-default-market">
             <option value="tw" ${CFG.defaultMarket === 'tw' ? 'selected' : ''}>台灣</option>
             <option value="us" ${CFG.defaultMarket === 'us' ? 'selected' : ''}>美國</option>
@@ -4649,7 +4757,7 @@ function renderSettings() {
           <button class="stg-fs-open" id="stg-font-size-open"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/></svg>自訂</button>
         </div>
         <div class="stg-row">
-          <label>漲跌顏色</label>
+          <label for="stg-color-mode">漲跌顏色</label>
           <select class="stg-select" id="stg-color-mode">
             <option value="green-up" ${(CFG.colorMode||'green-up') === 'green-up' ? 'selected' : ''}>綠漲紅跌</option>
             <option value="red-up" ${CFG.colorMode === 'red-up' ? 'selected' : ''}>紅漲綠跌</option>
@@ -4667,30 +4775,30 @@ function renderSettings() {
       <h4><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>報價與行情</h4>
       <div class="stg-s-body">
         <div class="stg-row">
-          <label>台灣報價來源<span class="stg-hint" id="stg-tw-desc">${P[CFG.twSource]?.desc || ''}</span></label>
+          <label for="stg-tw-source">台灣報價來源<span class="stg-hint" id="stg-tw-desc">${P[CFG.twSource]?.desc || ''}</span></label>
           <select class="stg-select" id="stg-tw-source">${twOpts}</select>
         </div>
         <div class="stg-row">
-          <label>美國報價來源<span class="stg-hint" id="stg-us-desc">${P[CFG.usSource]?.desc || ''}</span></label>
+          <label for="stg-us-source">美國報價來源<span class="stg-hint" id="stg-us-desc">${P[CFG.usSource]?.desc || ''}</span></label>
           <select class="stg-select" id="stg-us-source">${usOpts}</select>
         </div>
         <div class="stg-row" id="stg-finnhub-row" style="display:${CFG.usSource === 'finnhub' ? '' : 'none'}">
-          <label>Finnhub API Key<span class="stg-hint">至 finnhub.io 免費註冊取得</span></label>
+          <label for="stg-finnhub-key">Finnhub API Key<span class="stg-hint">至 finnhub.io 免費註冊取得</span></label>
           <input type="text" class="stg-input" id="stg-finnhub-key" value="${CFG.finnhubKey}" placeholder="輸入 API Key" spellcheck="false">
         </div>
         <div class="stg-row">
-          <label>加密貨幣報價來源<span class="stg-hint" id="stg-crypto-desc">${P[CFG.cryptoSource]?.desc || ''}</span></label>
+          <label for="stg-crypto-source">加密貨幣報價來源<span class="stg-hint" id="stg-crypto-desc">${P[CFG.cryptoSource]?.desc || ''}</span></label>
           <select class="stg-select" id="stg-crypto-source">
             <option value="binance" ${CFG.cryptoSource === 'binance' ? 'selected' : ''}>Binance</option>
             <option value="yahoo" ${CFG.cryptoSource === 'yahoo' ? 'selected' : ''}>Yahoo Finance</option>
           </select>
         </div>
         <div class="stg-row">
-          <label>自動取得報價<span class="stg-hint">進入頁面時自動查詢</span></label>
+          <label for="stg-auto-fetch">自動取得報價<span class="stg-hint">進入頁面時自動查詢</span></label>
           <label class="stg-toggle"><input type="checkbox" id="stg-auto-fetch" ${CFG.autoFetch ? 'checked' : ''}><span class="slider"></span></label>
         </div>
         <div class="stg-row">
-          <label>報價刷新頻率<span class="stg-hint">指數列即時刷新間隔</span></label>
+          <label for="stg-refresh">報價刷新頻率<span class="stg-hint">指數列即時刷新間隔</span></label>
           <select class="stg-select" id="stg-refresh">
             <option value="0" ${CFG.refreshInterval === 0 ? 'selected' : ''}>關閉</option>
             <option value="5" ${CFG.refreshInterval === 5 ? 'selected' : ''}>5 秒</option>
@@ -4724,7 +4832,7 @@ function renderSettings() {
             </div>
           </div>
           <div class="stg-row">
-            <label>手機報價顯示數量<span class="stg-hint">行動裝置預設顯示的報價數量，其餘折疊</span></label>
+            <label for="stg-mobile-ticker">手機報價顯示數量<span class="stg-hint">行動裝置預設顯示的報價數量，其餘折疊</span></label>
             <select class="stg-select" id="stg-mobile-ticker">
               <option value="2" ${(CFG.mobileTickerCount||3)==2?'selected':''}>2</option>
               <option value="3" ${(CFG.mobileTickerCount||3)==3?'selected':''}>3</option>
@@ -4767,7 +4875,7 @@ function renderSettings() {
         <div class="stg-group-body">
           <div class="stg-sub-label">股票</div>
           <div class="stg-row">
-            <label>手續費折扣</label>
+            <label for="stg-tw-fee-disc">手續費折扣</label>
             <select class="stg-select" id="stg-tw-fee-disc">
               ${['1','0.6','0.5','0.38','0.28','0.2','0'].map(v => {
                 const lb = v === '1' ? '全額 0.1425%' : v === '0' ? '免手續費' : (parseFloat(v)*10)+'折';
@@ -4776,17 +4884,17 @@ function renderSettings() {
             </select>
           </div>
           <div class="stg-row">
-            <label>證交稅率</label>
+            <label for="stg-tw-tax-rate">證交稅率</label>
             <select class="stg-select" id="stg-tw-tax-rate">
               <option value="0.003" ${CFG.twTaxRate === '0.003' ? 'selected' : ''}>0.3%</option>
               <option value="0.0015" ${CFG.twTaxRate === '0.0015' ? 'selected' : ''}>0.15% (當沖)</option>
             </select>
           </div>
-          <div class="stg-dec-row"><label>價格位數</label><input type="number" class="stg-input stg-dec-input" id="stg-dec-tw" value="${CFG.priceDecTw}" min="0" max="10" step="1" placeholder="2"><label class="stg-toggle-label"><input type="checkbox" id="stg-dec-tw-round" ${CFG.priceDecTwRound?'checked':''}> 四捨五入</label><label class="stg-toggle-label"><input type="checkbox" id="stg-dec-tw-trim" ${CFG.priceDecTwTrim?'checked':''}> 去尾 0</label></div>
+          <div class="stg-dec-row"><label for="stg-dec-tw">價格位數</label><input type="number" class="stg-input stg-dec-input" id="stg-dec-tw" value="${CFG.priceDecTw}" min="0" max="10" step="1" placeholder="2"><label class="stg-toggle-label"><input type="checkbox" id="stg-dec-tw-round" ${CFG.priceDecTwRound?'checked':''}> 四捨五入</label><label class="stg-toggle-label"><input type="checkbox" id="stg-dec-tw-trim" ${CFG.priceDecTwTrim?'checked':''}> 去尾 0</label></div>
 
           <div class="stg-sub-label">ETF</div>
           <div class="stg-row">
-            <label>手續費折扣</label>
+            <label for="stg-tw-etf-fee-disc">手續費折扣</label>
             <select class="stg-select" id="stg-tw-etf-fee-disc">
               ${['1','0.6','0.5','0.38','0.28','0.2','0'].map(v => {
                 const lb = v === '1' ? '全額 0.1425%' : v === '0' ? '免手續費' : (parseFloat(v)*10)+'折';
@@ -4795,7 +4903,7 @@ function renderSettings() {
             </select>
           </div>
           <div class="stg-row">
-            <label>證交稅率</label>
+            <label for="stg-tw-etf-tax-rate">證交稅率</label>
             <select class="stg-select" id="stg-tw-etf-tax-rate">
               <option value="0.001" ${CFG.twEtfTaxRate === '0.001' ? 'selected' : ''}>0.1%</option>
               <option value="0.003" ${CFG.twEtfTaxRate === '0.003' ? 'selected' : ''}>0.3%</option>
@@ -4805,47 +4913,47 @@ function renderSettings() {
 
           <div class="stg-sub-label">指數期貨</div>
           <div class="stg-row">
-            <label>大台 (TX)<span class="stg-hint">NT$/口</span></label>
+            <label for="stg-tw-tx-comm">大台 (TX)<span class="stg-hint">NT$/口</span></label>
             <input type="number" class="stg-input" id="stg-tw-tx-comm" value="${CFG.twTxComm}" step="any" min="0" placeholder="60">
           </div>
           <div class="stg-row">
-            <label>小台 (MTX)<span class="stg-hint">NT$/口</span></label>
+            <label for="stg-tw-mtx-comm">小台 (MTX)<span class="stg-hint">NT$/口</span></label>
             <input type="number" class="stg-input" id="stg-tw-mtx-comm" value="${CFG.twMtxComm}" step="any" min="0" placeholder="30">
           </div>
           <div class="stg-row">
-            <label>微台 (MXF)<span class="stg-hint">NT$/口</span></label>
+            <label for="stg-tw-mxf-comm">微台 (MXF)<span class="stg-hint">NT$/口</span></label>
             <input type="number" class="stg-input" id="stg-tw-mxf-comm" value="${CFG.twMxfComm}" step="any" min="0" placeholder="16">
           </div>
           <div class="stg-row">
-            <label>其他指數期貨<span class="stg-hint">NT$/口</span></label>
+            <label for="stg-tw-fut-comm">其他指數期貨<span class="stg-hint">NT$/口</span></label>
             <input type="number" class="stg-input" id="stg-tw-fut-comm" value="${CFG.twFutComm}" step="any" min="0" placeholder="60">
           </div>
           <div class="stg-row">
-            <label>期交稅率</label>
+            <label for="stg-tw-fut-tax-rate">期交稅率</label>
             <input type="number" class="stg-input" id="stg-tw-fut-tax-rate" value="${CFG.twFutTaxRate}" step="any" min="0" placeholder="0.00002">
           </div>
 
           <div class="stg-sub-label">股票期貨</div>
           <div class="stg-row">
-            <label>手續費<span class="stg-hint">NT$/口</span></label>
+            <label for="stg-tw-stk-fut-comm">手續費<span class="stg-hint">NT$/口</span></label>
             <input type="number" class="stg-input" id="stg-tw-stk-fut-comm" value="${CFG.twStkFutComm}" step="any" min="0" placeholder="40">
           </div>
           <div class="stg-row">
-            <label>期交稅率</label>
+            <label for="stg-tw-stk-fut-tax-rate">期交稅率</label>
             <input type="number" class="stg-input" id="stg-tw-stk-fut-tax-rate" value="${CFG.twStkFutTaxRate}" step="any" min="0" placeholder="0.00002">
           </div>
-          <div class="stg-dec-row"><label>價格位數</label><input type="number" class="stg-input stg-dec-input" id="stg-dec-tw-fut" value="${CFG.priceDecTwFut}" min="0" max="10" step="1" placeholder="0"><label class="stg-toggle-label"><input type="checkbox" id="stg-dec-tw-fut-round" ${CFG.priceDecTwFutRound?'checked':''}> 四捨五入</label><label class="stg-toggle-label"><input type="checkbox" id="stg-dec-tw-fut-trim" ${CFG.priceDecTwFutTrim?'checked':''}> 去尾 0</label></div>
+          <div class="stg-dec-row"><label for="stg-dec-tw-fut">價格位數</label><input type="number" class="stg-input stg-dec-input" id="stg-dec-tw-fut" value="${CFG.priceDecTwFut}" min="0" max="10" step="1" placeholder="0"><label class="stg-toggle-label"><input type="checkbox" id="stg-dec-tw-fut-round" ${CFG.priceDecTwFutRound?'checked':''}> 四捨五入</label><label class="stg-toggle-label"><input type="checkbox" id="stg-dec-tw-fut-trim" ${CFG.priceDecTwFutTrim?'checked':''}> 去尾 0</label></div>
 
           <div class="stg-sub-label">選擇權</div>
           <div class="stg-row">
-            <label>手續費<span class="stg-hint">NT$/口</span></label>
+            <label for="stg-tw-opt-comm">手續費<span class="stg-hint">NT$/口</span></label>
             <input type="number" class="stg-input" id="stg-tw-opt-comm" value="${CFG.twOptComm}" step="any" min="0" placeholder="25">
           </div>
           <div class="stg-row">
-            <label>期交稅率</label>
+            <label for="stg-tw-opt-tax-rate">期交稅率</label>
             <input type="number" class="stg-input" id="stg-tw-opt-tax-rate" value="${CFG.twOptTaxRate}" step="any" min="0" placeholder="0.001">
           </div>
-          <div class="stg-dec-row"><label>價格位數</label><input type="number" class="stg-input stg-dec-input" id="stg-dec-tw-opt" value="${CFG.priceDecTwOpt}" min="0" max="10" step="1" placeholder="1"><label class="stg-toggle-label"><input type="checkbox" id="stg-dec-tw-opt-round" ${CFG.priceDecTwOptRound?'checked':''}> 四捨五入</label><label class="stg-toggle-label"><input type="checkbox" id="stg-dec-tw-opt-trim" ${CFG.priceDecTwOptTrim?'checked':''}> 去尾 0</label></div>
+          <div class="stg-dec-row"><label for="stg-dec-tw-opt">價格位數</label><input type="number" class="stg-input stg-dec-input" id="stg-dec-tw-opt" value="${CFG.priceDecTwOpt}" min="0" max="10" step="1" placeholder="1"><label class="stg-toggle-label"><input type="checkbox" id="stg-dec-tw-opt-round" ${CFG.priceDecTwOptRound?'checked':''}> 四捨五入</label><label class="stg-toggle-label"><input type="checkbox" id="stg-dec-tw-opt-trim" ${CFG.priceDecTwOptTrim?'checked':''}> 去尾 0</label></div>
         </div>
       </div>
 
@@ -4854,37 +4962,37 @@ function renderSettings() {
         <div class="stg-group-body">
           <div class="stg-sub-label">股票</div>
           <div class="stg-row">
-            <label>Commission<span class="stg-hint">USD/筆</span></label>
+            <label for="stg-us-comm">Commission<span class="stg-hint">USD/筆</span></label>
             <input type="number" class="stg-input" id="stg-us-comm" value="${CFG.usComm}" step="any" min="0" placeholder="0">
           </div>
 
           <div class="stg-sub-label">ETF</div>
           <div class="stg-row">
-            <label>Commission<span class="stg-hint">USD/筆</span></label>
+            <label for="stg-us-etf-comm">Commission<span class="stg-hint">USD/筆</span></label>
             <input type="number" class="stg-input" id="stg-us-etf-comm" value="${CFG.usEtfComm}" step="any" min="0" placeholder="0">
           </div>
-          <div class="stg-dec-row"><label>價格位數</label><input type="number" class="stg-input stg-dec-input" id="stg-dec-us" value="${CFG.priceDecUs}" min="0" max="10" step="1" placeholder="3"><label class="stg-toggle-label"><input type="checkbox" id="stg-dec-us-round" ${CFG.priceDecUsRound?'checked':''}> 四捨五入</label><label class="stg-toggle-label"><input type="checkbox" id="stg-dec-us-trim" ${CFG.priceDecUsTrim?'checked':''}> 去尾 0</label></div>
+          <div class="stg-dec-row"><label for="stg-dec-us">價格位數</label><input type="number" class="stg-input stg-dec-input" id="stg-dec-us" value="${CFG.priceDecUs}" min="0" max="10" step="1" placeholder="3"><label class="stg-toggle-label"><input type="checkbox" id="stg-dec-us-round" ${CFG.priceDecUsRound?'checked':''}> 四捨五入</label><label class="stg-toggle-label"><input type="checkbox" id="stg-dec-us-trim" ${CFG.priceDecUsTrim?'checked':''}> 去尾 0</label></div>
 
           <div class="stg-sub-label">期貨</div>
           <div class="stg-row">
-            <label>手續費<span class="stg-hint">USD/口</span></label>
+            <label for="stg-us-fut-comm">手續費<span class="stg-hint">USD/口</span></label>
             <input type="number" class="stg-input" id="stg-us-fut-comm" value="${CFG.usFutComm}" step="any" min="0" placeholder="2.25">
           </div>
-          <div class="stg-dec-row"><label>價格位數</label><input type="number" class="stg-input stg-dec-input" id="stg-dec-us-fut" value="${CFG.priceDecUsFut}" min="0" max="10" step="1" placeholder="2"><label class="stg-toggle-label"><input type="checkbox" id="stg-dec-us-fut-round" ${CFG.priceDecUsFutRound?'checked':''}> 四捨五入</label><label class="stg-toggle-label"><input type="checkbox" id="stg-dec-us-fut-trim" ${CFG.priceDecUsFutTrim?'checked':''}> 去尾 0</label></div>
+          <div class="stg-dec-row"><label for="stg-dec-us-fut">價格位數</label><input type="number" class="stg-input stg-dec-input" id="stg-dec-us-fut" value="${CFG.priceDecUsFut}" min="0" max="10" step="1" placeholder="2"><label class="stg-toggle-label"><input type="checkbox" id="stg-dec-us-fut-round" ${CFG.priceDecUsFutRound?'checked':''}> 四捨五入</label><label class="stg-toggle-label"><input type="checkbox" id="stg-dec-us-fut-trim" ${CFG.priceDecUsFutTrim?'checked':''}> 去尾 0</label></div>
 
           <div class="stg-sub-label">選擇權</div>
           <div class="stg-row">
-            <label>手續費<span class="stg-hint">USD/口</span></label>
+            <label for="stg-us-opt-comm">手續費<span class="stg-hint">USD/口</span></label>
             <input type="number" class="stg-input" id="stg-us-opt-comm" value="${CFG.usOptComm}" step="any" min="0" placeholder="0.65">
           </div>
-          <div class="stg-dec-row"><label>價格位數</label><input type="number" class="stg-input stg-dec-input" id="stg-dec-us-opt" value="${CFG.priceDecUsOpt}" min="0" max="10" step="1" placeholder="2"><label class="stg-toggle-label"><input type="checkbox" id="stg-dec-us-opt-round" ${CFG.priceDecUsOptRound?'checked':''}> 四捨五入</label><label class="stg-toggle-label"><input type="checkbox" id="stg-dec-us-opt-trim" ${CFG.priceDecUsOptTrim?'checked':''}> 去尾 0</label></div>
+          <div class="stg-dec-row"><label for="stg-dec-us-opt">價格位數</label><input type="number" class="stg-input stg-dec-input" id="stg-dec-us-opt" value="${CFG.priceDecUsOpt}" min="0" max="10" step="1" placeholder="2"><label class="stg-toggle-label"><input type="checkbox" id="stg-dec-us-opt-round" ${CFG.priceDecUsOptRound?'checked':''}> 四捨五入</label><label class="stg-toggle-label"><input type="checkbox" id="stg-dec-us-opt-trim" ${CFG.priceDecUsOptTrim?'checked':''}> 去尾 0</label></div>
         </div>
       </div>
 
       <div class="stg-group">
         <div class="stg-group-title"><span><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>加密貨幣</span>${_chevron}</div>
         <div class="stg-group-body">
-          <div class="stg-dec-row"><label>價格位數</label><input type="number" class="stg-input stg-dec-input" id="stg-dec-crypto" value="${CFG.priceDecCrypto}" min="0" max="10" step="1" placeholder="4"><label class="stg-toggle-label"><input type="checkbox" id="stg-dec-crypto-round" ${CFG.priceDecCryptoRound?'checked':''}> 四捨五入</label><label class="stg-toggle-label"><input type="checkbox" id="stg-dec-crypto-trim" ${CFG.priceDecCryptoTrim?'checked':''}> 去尾 0</label></div>
+          <div class="stg-dec-row"><label for="stg-dec-crypto">價格位數</label><input type="number" class="stg-input stg-dec-input" id="stg-dec-crypto" value="${CFG.priceDecCrypto}" min="0" max="10" step="1" placeholder="4"><label class="stg-toggle-label"><input type="checkbox" id="stg-dec-crypto-round" ${CFG.priceDecCryptoRound?'checked':''}> 四捨五入</label><label class="stg-toggle-label"><input type="checkbox" id="stg-dec-crypto-trim" ${CFG.priceDecCryptoTrim?'checked':''}> 去尾 0</label></div>
         </div>
       </div>
 
@@ -4892,11 +5000,11 @@ function renderSettings() {
         <div class="stg-group-title"><span><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>紀錄預設值</span>${_chevron}</div>
         <div class="stg-group-body">
           <div class="stg-row">
-            <label>預設手續費</label>
+            <label for="stg-default-fee">預設手續費</label>
             <input type="number" class="stg-input" id="stg-default-fee" value="${CFG.defaultFee}" step="any" min="0" placeholder="不設定">
           </div>
           <div class="stg-row">
-            <label>預設交易稅</label>
+            <label for="stg-default-tax">預設交易稅</label>
             <input type="number" class="stg-input" id="stg-default-tax" value="${CFG.defaultTax}" step="any" min="0" placeholder="不設定">
           </div>
         </div>
@@ -4931,7 +5039,18 @@ function renderSettings() {
     </div>`;
 
   // Collapsible group toggle
-  $$('.stg-group-title', body).forEach(t => t.addEventListener('click', () => t.parentElement.classList.toggle('open')));
+  $$('.stg-group-title', body).forEach(t => {
+    t.setAttribute('role', 'button');
+    t.setAttribute('tabindex', '0');
+    t.setAttribute('aria-expanded', t.parentElement.classList.contains('open') ? 'true' : 'false');
+    t.addEventListener('click', () => {
+      const open = t.parentElement.classList.toggle('open');
+      t.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+    t.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); t.click(); }
+    });
+  });
 
   // Account actions
   $('#stg-login')?.addEventListener('click', () => {
@@ -5112,28 +5231,33 @@ function applyTheme(theme) {
 
 // Each theme's original green/red values for color mode swap
 const _THEME_COLORS = {
-  paper:      { g: '#16a34a', gd: 'rgba(22,163,74,.08)',   r: '#dc2626', rd: 'rgba(220,38,38,.08)' },
-  ivory:      { g: '#15803d', gd: 'rgba(21,128,61,.08)',   r: '#b91c1c', rd: 'rgba(185,28,28,.08)' },
-  paperDense: { g: '#166534', gd: 'rgba(22,101,52,.08)',   r: '#991b1b', rd: 'rgba(153,27,27,.08)' },
-  dark:       { g: '#22c55e', gd: 'rgba(34,197,94,.10)',   r: '#ef4444', rd: 'rgba(239,68,68,.10)' },
-  light:      { g: '#16a34a', gd: 'rgba(22,163,74,.06)',   r: '#dc2626', rd: 'rgba(220,38,38,.06)' },
-  midnight:   { g: '#22c55e', gd: 'rgba(34,197,94,.08)',   r: '#f43f5e', rd: 'rgba(244,63,94,.08)' },
-  emerald:    { g: '#34d399', gd: 'rgba(52,211,153,.10)',  r: '#f43f5e', rd: 'rgba(244,63,94,.10)' },
-  warm:       { g: '#16a34a', gd: 'rgba(22,163,74,.08)',   r: '#dc2626', rd: 'rgba(220,38,38,.08)' },
+  paper:      { g: '#15803d', gd: 'rgba(21,128,61,.08)',   gSoft: '#dcfce7',                  r: '#dc2626', rd: 'rgba(220,38,38,.08)', rSoft: '#fee2e2' },
+  ivory:      { g: '#15803d', gd: 'rgba(21,128,61,.08)',   gSoft: '#dcfce7',                  r: '#b91c1c', rd: 'rgba(185,28,28,.08)', rSoft: '#fee2e2' },
+  paperDense: { g: '#166534', gd: 'rgba(22,101,52,.08)',   gSoft: '#dcfce7',                  r: '#991b1b', rd: 'rgba(153,27,27,.08)', rSoft: '#fee2e2' },
+  dark:       { g: '#22c55e', gd: 'rgba(34,197,94,.10)',   gSoft: 'rgba(34,197,94,.16)',      r: '#ef4444', rd: 'rgba(239,68,68,.10)', rSoft: 'rgba(239,68,68,.16)' },
+  light:      { g: '#15803d', gd: 'rgba(21,128,61,.08)',   gSoft: '#dcfce7',                  r: '#dc2626', rd: 'rgba(220,38,38,.06)', rSoft: '#fee2e2' },
+  midnight:   { g: '#22c55e', gd: 'rgba(34,197,94,.08)',   gSoft: 'rgba(34,197,94,.16)',      r: '#f43f5e', rd: 'rgba(244,63,94,.08)', rSoft: 'rgba(244,63,94,.16)' },
+  emerald:    { g: '#34d399', gd: 'rgba(52,211,153,.10)',  gSoft: 'rgba(52,211,153,.16)',     r: '#f43f5e', rd: 'rgba(244,63,94,.10)', rSoft: 'rgba(244,63,94,.16)' },
+  warm:       { g: '#15803d', gd: 'rgba(21,128,61,.08)',   gSoft: '#dcfce7',                  r: '#dc2626', rd: 'rgba(220,38,38,.08)', rSoft: '#fee2e2' },
 };
 function applyColorMode(mode) {
   const el = document.documentElement;
-  const t = _THEME_COLORS[CFG.theme || 'paper'] || _THEME_COLORS.paper;
+  const theme = (THEME_MIGRATION[CFG.theme] || CFG.theme);
+  const t = _THEME_COLORS[theme || 'paper'] || _THEME_COLORS.paper;
   if (mode === 'red-up') {
     el.style.setProperty('--green', t.r);
     el.style.setProperty('--green-d', t.rd);
+    el.style.setProperty('--green-soft', t.rSoft);
     el.style.setProperty('--red', t.g);
     el.style.setProperty('--red-d', t.gd);
+    el.style.setProperty('--red-soft', t.gSoft);
   } else {
     el.style.setProperty('--green', t.g);
     el.style.setProperty('--green-d', t.gd);
+    el.style.setProperty('--green-soft', t.gSoft);
     el.style.setProperty('--red', t.r);
     el.style.setProperty('--red-d', t.rd);
+    el.style.setProperty('--red-soft', t.rSoft);
   }
 }
 
@@ -5253,7 +5377,7 @@ function _openFontSizePage() {
       <div class="stg-fs-preview" data-preview="${g.id}">${_previewFor(g.id)}</div>
       ${g.items.map(i => `<div class="stg-fs-row">
         <span class="stg-fs-label">${i.label}</span>
-        <input type="range" class="stg-fs-slider" data-key="${i.key}" min="0.6" max="1.5" step="0.05" value="${fs[i.key]}">
+        <input type="range" class="stg-fs-slider" data-key="${i.key}" min="0.6" max="1.5" step="0.05" value="${fs[i.key]}" aria-label="${g.label} ${i.label}" aria-valuetext="${Math.round(fs[i.key] * 100)}%">
         <span class="stg-fs-val" data-val="${i.key}">${Math.round(fs[i.key] * 100)}%</span>
       </div>`).join('')}
     </div>`).join('');
@@ -5266,7 +5390,7 @@ function _openFontSizePage() {
     </div>
     <div class="stg-fs-base-row">
       <span class="stg-fs-base-label">基礎大小</span>
-      <select class="stg-select" id="stg-fs-base" style="max-width:110px">
+      <select class="stg-select" id="stg-fs-base" style="max-width:110px" aria-label="基礎大小">
         <option value="xs" ${CFG.fontScale==='xs'?'selected':''}>小 (14px)</option>
         <option value="s" ${CFG.fontScale==='s'?'selected':''}>適中 (15px)</option>
         <option value="m" ${CFG.fontScale==='m'?'selected':''}>標準 (16px)</option>
@@ -5297,7 +5421,7 @@ function _openFontSizePage() {
     CFG.fontSizes = null;
     saveSettings(CFG);
     _applyFontSizes();
-    body.querySelectorAll('.stg-fs-slider').forEach(s => { s.value = 1; });
+    body.querySelectorAll('.stg-fs-slider').forEach(s => { s.value = 1; s.setAttribute('aria-valuetext', '100%'); });
     body.querySelectorAll('[data-val]').forEach(v => { v.textContent = '100%'; });
     FONT_SIZE_GROUPS.forEach(g => {
       const prev = body.querySelector(`[data-preview="${g.id}"]`);
@@ -5310,6 +5434,7 @@ function _openFontSizePage() {
       const key = slider.dataset.key;
       const val = parseFloat(slider.value);
       fs[key] = val;
+      slider.setAttribute('aria-valuetext', Math.round(val * 100) + '%');
       const valEl = body.querySelector(`[data-val="${key}"]`);
       if (valEl) valEl.textContent = Math.round(val * 100) + '%';
       const group = FONT_SIZE_GROUPS.find(g => g.items.some(i => i.key === key));
@@ -5406,7 +5531,13 @@ async function handleFetchIndices(updateForms) {
     const results = await PriceService.fetchAllIndices();
     let ok = 0, fail = 0;
     for (const [key, q] of Object.entries(results)) {
-      if (q.error) { fail++; continue; }
+      if (q.error) {
+        fail++;
+        // 報價失敗：標記該 chip 為過期（渲染成功時 _renderTickerChip 會 remove）
+        const dispEl = $(`#disp-${key}`);
+        if (dispEl) dispEl.classList.add('stale');
+        continue;
+      }
       ok++;
       _quoteCache.setIndex(key, q);
       _renderTickerChip(key, q);
@@ -5420,7 +5551,15 @@ async function handleFetchIndices(updateForms) {
     _updateBasis(results);
     _updateTwnEstimate(results);
     _updateTickerTime(results);
-    _renderSentimentStrip();
+    // 本輪失敗的 sentiment key → 對應 pill 標 stale（與 ticker chip 一致）。tnx 對應 treasury pill；
+    // vix/vix3m 失敗時期限結構 vixRatio 也視為過期。
+    const _sentFail = new Set();
+    const _sentMap = { vix: 'vix', vvix: 'vvix', vix1d: 'vix1d', vix3m: 'vix3m', brent: 'brent', tnx: 'treasury' };
+    for (const [key, q] of Object.entries(results)) {
+      if (q.error && _sentMap[key]) _sentFail.add(_sentMap[key]);
+    }
+    if (_sentFail.has('vix') || _sentFail.has('vix3m')) _sentFail.add('vixRatio');
+    _renderSentimentStrip(_sentFail);
     _fetchFearGreed();
     _fetchCreditSpread();
     _fetchGex();
@@ -5698,7 +5837,7 @@ function renderMarginForm() {
   const curPriceHint = cash ? '賣出價格' : '目前價格';
 
   let h = secStart('product', '商品') + `
-    <div class="fg"><label>股票代號 <span class="hint">${symbolHint}</span></label>
+    <div class="fg"><label for="m-symbol">股票代號 <span class="hint">${symbolHint}</span></label>
       <div class="stock-search-row">
         <div class="sym-ac-wrap" style="flex:1;position:relative">
           <input type="text" id="m-symbol" placeholder="${tw ? '輸入代號或名稱' : 'Symbol or name'}" autocomplete="off">
@@ -5708,33 +5847,33 @@ function renderMarginForm() {
       </div>
       <div class="stock-info" id="m-stock-info"></div>
     </div>
-    <div class="fg" id="m-etf-lev-wrap" style="display:none"><label>ETF 槓桿倍數 <span class="hint">(自動偵測)</span></label><input type="number" id="m-etf-lev" value="1" step="any"></div>
+    <div class="fg" id="m-etf-lev-wrap" style="display:none"><label for="m-etf-lev">ETF 槓桿倍數 <span class="hint">(自動偵測)</span></label><input type="number" id="m-etf-lev" value="1" step="any"></div>
   ` + secEnd();
 
   // ── Section 2: 價格與數量 ──
   h += secStart('price', '價格與數量') + `
     <div class="fr">
-      <div class="fg"><label>${priceLabel} <span class="hint">(${cur})</span></label><input type="number" id="${priceId}" placeholder="${tw ? '市價' : 'Market'}" step="any"></div>
-      <div class="fg"><label>${curPriceHint} <span class="hint">(留空=同${cash ? '買進' : '進場價'})</span></label><input type="number" id="m-current-price" placeholder="即時價格" step="any"></div>
+      <div class="fg"><label for="${priceId}">${priceLabel} <span class="hint">(${cur})</span></label><input type="number" id="${priceId}" placeholder="${tw ? '市價' : 'Market'}" min="0" step="any"></div>
+      <div class="fg"><label for="m-current-price">${curPriceHint} <span class="hint">(留空=同${cash ? '買進' : '進場價'})</span></label><input type="number" id="m-current-price" placeholder="即時價格" min="0" step="any"></div>
     </div>
-    <div class="fg"><label>數量 <span class="hint">${su}</span></label><input type="number" id="m-qty" value="1" min="1" step="1"></div>
+    <div class="fg"><label for="m-qty">數量 <span class="hint">${su}</span></label><input type="number" id="m-qty" value="1" min="1" step="1"></div>
   ` + secEnd();
 
   if (cash) {
     // ── Section 3: 費用設定 (現股，可收合) ──
     h += secAdvStart('settings', '費用設定', true);
     h += tw ? (() => { const t = CFG.twTaxRate || '0.003'; return `<div class="fr">
-      <div class="fg"><label>手續費折扣</label><select id="m-fee-disc">
+      <div class="fg"><label for="m-fee-disc">手續費折扣</label><select id="m-fee-disc">
         <option value="1" ${CFG.twFeeDisc==='1'?'selected':''}>全額 0.1425%</option><option value="0.6" ${CFG.twFeeDisc==='0.6'?'selected':''}>6折 0.0855%</option>
         <option value="0.5" ${CFG.twFeeDisc==='0.5'?'selected':''}>5折 0.07125%</option><option value="0.38" ${CFG.twFeeDisc==='0.38'?'selected':''}>3.8折</option>
         <option value="0.28" ${CFG.twFeeDisc==='0.28'?'selected':''}>2.8折 0.0399%</option><option value="0" ${CFG.twFeeDisc==='0'?'selected':''}>免手續費</option>
       </select></div>
-      <div class="fg"><label>證交稅(賣出)</label><select id="m-tax-rate">
+      <div class="fg"><label for="m-tax-rate">證交稅(賣出)</label><select id="m-tax-rate">
         <option value="0.003" ${t==='0.003'?'selected':''}>0.3% 股票</option>
         <option value="0.001" ${t==='0.001'?'selected':''}>0.1% ETF</option>
         <option value="0.0015" ${t==='0.0015'?'selected':''}>0.15% 當沖減半</option>
       </select></div>
-    </div>`; })() : `<div class="fg"><label>Commission <span class="hint">(per trade)</span></label><input type="number" id="m-comm" value="${CFG.usComm||'0'}" step="any"></div>`;
+    </div>`; })() : `<div class="fg"><label for="m-comm">Commission <span class="hint">(per trade)</span></label><input type="number" id="m-comm" value="${CFG.usComm||'0'}" step="any"></div>`;
     h += secAdvEnd();
   } else {
     // ── 融資/融券模式 ──
@@ -5750,34 +5889,34 @@ function renderMarginForm() {
     // ── Section 3: 融資設定 ──
     h += secStart('margin', long ? '融資設定' : '融券設定') + `
     <div class="fr">
-      <div class="fg"><label>${long ? (tw ? '融資成數' : 'Margin') : (tw ? '券保證金成數' : 'Short Margin')}</label><select id="${marginId}">${marginOpts}</select></div>
-      <div class="fg"><label>追繳線</label><div class="isuf"><input type="number" id="m-call-rate" value="${defCall}" step="any"><span class="suf">%</span></div></div>
+      <div class="fg"><label for="${marginId}">${long ? (tw ? '融資成數' : 'Margin') : (tw ? '券保證金成數' : 'Short Margin')}</label><select id="${marginId}">${marginOpts}</select></div>
+      <div class="fg"><label for="m-call-rate">追繳線</label><div class="isuf"><input type="number" id="m-call-rate" value="${defCall}" step="any"><span class="suf">%</span></div></div>
     </div>
-    <div class="fg"><label>斷頭線</label><div class="isuf"><input type="number" id="m-forced-rate" value="${defForced}" step="any"><span class="suf">%</span></div></div>
+    <div class="fg"><label for="m-forced-rate">斷頭線</label><div class="isuf"><input type="number" id="m-forced-rate" value="${defForced}" step="any"><span class="suf">%</span></div></div>
     ` + secEnd();
 
     // ── Section 4: 費用設定 (可收合) ──
     h += secAdvStart('settings', '費用設定', true);
     h += tw ? (() => { const t = CFG.twTaxRate || '0.003'; return `<div class="fr">
-      <div class="fg"><label>手續費折扣</label><select id="m-fee-disc">
+      <div class="fg"><label for="m-fee-disc">手續費折扣</label><select id="m-fee-disc">
         <option value="1" ${CFG.twFeeDisc==='1'?'selected':''}>全額 0.1425%</option><option value="0.6" ${CFG.twFeeDisc==='0.6'?'selected':''}>6折 0.0855%</option>
         <option value="0.5" ${CFG.twFeeDisc==='0.5'?'selected':''}>5折 0.07125%</option><option value="0.38" ${CFG.twFeeDisc==='0.38'?'selected':''}>3.8折</option>
         <option value="0.28" ${CFG.twFeeDisc==='0.28'?'selected':''}>2.8折 0.0399%</option><option value="0" ${CFG.twFeeDisc==='0'?'selected':''}>免手續費</option>
       </select></div>
-      <div class="fg"><label>證交稅(賣出)</label><select id="m-tax-rate">
+      <div class="fg"><label for="m-tax-rate">證交稅(賣出)</label><select id="m-tax-rate">
         <option value="0.003" ${t==='0.003'?'selected':''}>0.3% 股票</option>
         <option value="0.001" ${t==='0.001'?'selected':''}>0.1% ETF</option>
         <option value="0.0015" ${t==='0.0015'?'selected':''}>0.15% 當沖減半</option>
       </select></div>
     </div>
     <div class="fr">
-      <div class="fg"><label>${long ? '融資年利率' : '借券費率(年)'}</label><div class="isuf"><input type="number" id="m-int-rate" value="${long ? '6.25' : '0.5'}" step="any"><span class="suf">%</span></div></div>
-      <div class="fg"><label>持有天數</label><input type="number" id="m-hold-days" value="30" min="0" step="1"></div>
+      <div class="fg"><label for="m-int-rate">${long ? '融資年利率' : '借券費率(年)'}</label><div class="isuf"><input type="number" id="m-int-rate" value="${long ? '6.25' : '0.5'}" step="any"><span class="suf">%</span></div></div>
+      <div class="fg"><label for="m-hold-days">持有天數</label><input type="number" id="m-hold-days" value="30" min="0" step="1"></div>
     </div>`; })() : `<div class="fr">
-      <div class="fg"><label>Commission <span class="hint">(per trade)</span></label><input type="number" id="m-comm" value="${CFG.usComm||'0'}" step="any"></div>
-      <div class="fg"><label>Holding Days</label><input type="number" id="m-hold-days" value="30" min="0" step="1"></div>
+      <div class="fg"><label for="m-comm">Commission <span class="hint">(per trade)</span></label><input type="number" id="m-comm" value="${CFG.usComm||'0'}" step="any"></div>
+      <div class="fg"><label for="m-hold-days">Holding Days</label><input type="number" id="m-hold-days" value="30" min="0" step="1"></div>
     </div>
-    <div class="fg"><label>Margin Interest Rate</label><div class="isuf"><input type="number" id="m-int-rate" value="${long ? '8' : '3'}" step="any"><span class="suf">%/yr</span></div></div>`;
+    <div class="fg"><label for="m-int-rate">Margin Interest Rate</label><div class="isuf"><input type="number" id="m-int-rate" value="${long ? '8' : '3'}" step="any"><span class="suf">%/yr</span></div></div>`;
     h += secAdvEnd();
   }
 
@@ -5851,7 +5990,7 @@ function calcMargin() {
   if (cash) {
     const bp = gV('m-buy-price');
     let cp = gV('m-current-price'); if (!cp) cp = bp;
-    if (!bp || !qty) { $('#margin-results').innerHTML = PLACEHOLDER; return; }
+    if (!validatePositive('#margin-results', [bp, qty])) return;
     const tc = bp * ts, cv = cp * ts, upl = (cp - bp) * ts;
     let buyFee, sellFee, sellTax, totalFees;
     if (tw) {
@@ -5899,7 +6038,7 @@ function calcMargin() {
     for (const p of steps) {
       const pr = bp * (1 + p / 100), diff = pr - bp, v = pr * ts, u = (pr - bp) * ts;
       let sf;
-      if (tw) { const d2 = parseFloat($('#m-fee-disc')?.value||'0.5'), r2 = 0.001425*d2, t2 = parseFloat($('#m-tax-rate')?.value||'0.003'); sf = Math.max(20,tc*r2)+Math.max(20,v*r2)+v*t2; }
+      if (tw) { const d2 = parseFloat($('#m-fee-disc')?.value||'0.5'), r2 = 0.001425*d2, t2 = parseFloat($('#m-tax-rate')?.value||'0.003'); sf = Math.round(Math.max(20,tc*r2))+Math.round(Math.max(20,v*r2))+Math.round(v*t2); }
       else { sf = (gV('m-comm')||0)*2+v*0.0000278; }
       const net = u - sf, r = tc > 0 ? (net / tc * 100) : 0;
       const rc2 = p === 0 ? 'rc' : '';
@@ -5909,33 +6048,33 @@ function calcMargin() {
     const stress = `<div class="st-wrap"><table class="st"><thead><tr><th>漲跌</th><th>股價</th><th>損益</th><th>淨損益</th><th>報酬率</th></tr></thead><tbody>${sRows}</tbody></table></div>`;
 
     const formula = tw ? `<div class="fc">
-      <div class="fb"><h4>1. 投入金額</h4>
+      <div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">1. 投入金額</h4>
         <span class="fl"><span class="v">投入金額</span> <span class="o">=</span> 買進價格(<span class="n">${fM(bp,cur,2)}</span>) <span class="o">×</span> 股數(<span class="n">${fmt(ts)}</span>) <span class="o">=</span> <span class="r">${fM(tc,cur)}</span></span>
       </div>
-      <div class="fb"><h4>2. 未實現損益</h4>
+      <div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">2. 未實現損益</h4>
         <span class="fl"><span class="v">損益</span> <span class="o">=</span> (目前價格(<span class="n">${fM(cp,cur,2)}</span>) <span class="o">−</span> 買進價格(<span class="n">${fM(bp,cur,2)}</span>)) <span class="o">×</span> 股數(<span class="n">${fmt(ts)}</span>) <span class="o">=</span> <span class="r">${plS}${fM(upl,cur)}</span></span>
       </div>
-      <div class="fb"><h4>3. 交易成本</h4>
+      <div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">3. 交易成本</h4>
         <span class="fl"><span class="v">買進手續費</span> <span class="o">=</span> max(20, ${fM(tc,cur)} × 0.1425% × ${parseFloat($('#m-fee-disc')?.value||'0.5')*10}折) <span class="o">=</span> <span class="r">${fM(buyFee,cur)}</span></span>
         <span class="fl"><span class="v">賣出手續費</span> <span class="o">=</span> max(20, ${fM(cv,cur)} × 0.1425% × ${parseFloat($('#m-fee-disc')?.value||'0.5')*10}折) <span class="o">=</span> <span class="r">${fM(sellFee,cur)}</span></span>
         <span class="fl"><span class="v">證交稅</span> <span class="o">=</span> ${fM(cv,cur)} × ${(parseFloat($('#m-tax-rate')?.value||'0.003')*100).toFixed(2)}% <span class="o">=</span> <span class="r">${fM(sellTax,cur)}</span></span>
       </div>
-      <div class="fb"><h4>4. 淨損益 & 報酬率</h4>
+      <div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">4. 淨損益 & 報酬率</h4>
         <span class="fl"><span class="v">淨損益</span> <span class="o">=</span> 損益(<span class="n">${plS}${fM(upl,cur)}</span>) <span class="o">−</span> 成本(<span class="n">${fM(totalFees,cur)}</span>) <span class="o">=</span> <span class="r">${(netPL>=0?'+':'')}${fM(netPL,cur)}</span></span>
         <span class="fl"><span class="v">報酬率</span> <span class="o">=</span> 淨損益 <span class="o">÷</span> 投入金額(<span class="n">${fM(tc,cur)}</span>) <span class="o">=</span> <span class="r">${roi.toFixed(2)}%</span></span>
       </div>
     </div>` : `<div class="fc">
-      <div class="fb"><h4>1. Total Cost</h4>
+      <div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">1. Total Cost</h4>
         <span class="fl"><span class="v">Cost</span> <span class="o">=</span> Price(<span class="n">${fM(bp,cur,2)}</span>) <span class="o">×</span> Shares(<span class="n">${fmt(ts)}</span>) <span class="o">=</span> <span class="r">${fM(tc,cur)}</span></span>
       </div>
-      <div class="fb"><h4>2. P&L</h4>
+      <div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">2. P&L</h4>
         <span class="fl"><span class="v">P&L</span> <span class="o">=</span> (Current(<span class="n">${fM(cp,cur,2)}</span>) <span class="o">−</span> Buy(<span class="n">${fM(bp,cur,2)}</span>)) <span class="o">×</span> Shares(<span class="n">${fmt(ts)}</span>) <span class="o">=</span> <span class="r">${plS}${fM(upl,cur)}</span></span>
       </div>
-      <div class="fb"><h4>3. Fees</h4>
+      <div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">3. Fees</h4>
         <span class="fl"><span class="v">Commission</span> <span class="o">=</span> <span class="r">${fM(buyFee+sellFee,cur)}</span></span>
         <span class="fl"><span class="v">SEC Fee</span> <span class="o">=</span> ${fM(cv,cur)} × 0.00278% <span class="o">=</span> <span class="r">${fM(sellTax,cur)}</span></span>
       </div>
-      <div class="fb"><h4>4. Net P&L & ROI</h4>
+      <div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">4. Net P&L & ROI</h4>
         <span class="fl"><span class="v">Net</span> <span class="o">=</span> P&L(<span class="n">${plS}${fM(upl,cur)}</span>) <span class="o">−</span> Fees(<span class="n">${fM(totalFees,cur)}</span>) <span class="o">=</span> <span class="r">${(netPL>=0?'+':'')}${fM(netPL,cur)}</span></span>
         <span class="fl"><span class="v">ROI</span> <span class="o">=</span> Net <span class="o">÷</span> Cost(<span class="n">${fM(tc,cur)}</span>) <span class="o">=</span> <span class="r">${roi.toFixed(2)}%</span></span>
       </div>
@@ -5948,13 +6087,16 @@ function calcMargin() {
 
   // ── MARGIN (Long / Short) ──
   const cr = gV('m-call-rate') / 100, fr = gV('m-forced-rate') / 100;
+  // 退化輸入穩健：若追繳線(cr)低於斷頭線(fr)，將追繳門檻折疊為 max(cr,fr)，
+  // 使壓力表狀態文字與 riskLvlClamp 的色階分級一致。正常 cr>fr 時 crEff===cr，行為不變。
+  const crEff = Math.max(cr, fr);
   const holdDays = gV('m-hold-days') || 0;
   const intRate = (gV('m-int-rate') || 0) / 100;
 
   if (long) {
     const bp = gV('m-buy-price'), mr = parseFloat($('#m-margin-rate')?.value || '0.5');
     let cp = gV('m-current-price'); if (!cp) cp = bp;
-    if (!bp || !qty) { $('#margin-results').innerHTML = PLACEHOLDER; return; }
+    if (!validatePositive('#margin-results', [bp, qty])) return;
 
     const lps = bp * mr, eps = bp * (1 - mr), tl = lps * ts, te = eps * ts;
     const tc = bp * ts, cv = cp * ts, upl = (cp - bp) * ts, ce = cv - tl;
@@ -5982,7 +6124,8 @@ function calcMargin() {
     if (tw) { maint = tl > 0 ? cv / tl : 0; callP = lps * cr; forcedP = lps * fr; }
     else { maint = cv > 0 ? ce / cv : 0; callP = (1 - cr) > 0 ? lps / (1 - cr) : 0; forcedP = (1 - fr) > 0 ? lps / (1 - fr) : 0; }
 
-    const rl = tw ? riskLvl(maint * 100, 166, 140, cr * 100) : riskLvl(maint * 100, 40, 30, cr * 100);
+    // 風險分級門檻衍生自使用者輸入的追繳線(cr)與斷頭線(fr)，使概覽與壓力測試表(mr<cr→追繳、mr<fr→斷頭)判定一致。
+    const rl = riskLvlClamp(maint * 100, cr * 100, cr * 100, fr * 100);
     const mp = maint * 100, fillPct = tw ? Math.min(100, (mp - 100) / 100 * 100) : Math.min(100, mp);
     const dC = bp - callP, dCP = bp > 0 ? dC / bp * 100 : 0, dF = bp - forcedP, dFP = bp > 0 ? dF / bp * 100 : 0;
     const dCur = cp - callP, dCurP = cp > 0 ? dCur / cp * 100 : 0;
@@ -6028,10 +6171,10 @@ function calcMargin() {
       const pr = bp * (1 + p / 100), diff = pr - bp, v = pr * ts, eq = v - tl;
       let mr2 = tw ? v / tl : eq / v;
       const u = (pr - bp) * ts;
-      const lvl = tw ? riskLvl(mr2 * 100, 166, cr * 100 + 10, cr * 100) : riskLvl(mr2 * 100, 40, cr * 100 + 5, cr * 100);
+      const lvl = riskLvlClamp(mr2 * 100, cr * 100, cr * 100, fr * 100);
       let st2 = '', rc2 = '';
-      if (tw) { if (mr2 < fr) { st2 = '斷頭'; rc2 = 'rf'; } else if (mr2 < cr) { st2 = '追繳'; rc2 = 'rmc'; } else st2 = '安全'; }
-      else { if (mr2 < fr) { st2 = 'Liq'; rc2 = 'rf'; } else if (mr2 < cr) { st2 = 'Call'; rc2 = 'rmc'; } else st2 = 'OK'; }
+      if (tw) { if (mr2 < fr) { st2 = '斷頭'; rc2 = 'rf'; } else if (mr2 < crEff) { st2 = '追繳'; rc2 = 'rmc'; } else st2 = '安全'; }
+      else { if (mr2 < fr) { st2 = 'Liq'; rc2 = 'rf'; } else if (mr2 < crEff) { st2 = 'Call'; rc2 = 'rmc'; } else st2 = 'OK'; }
       if (p === 0) rc2 = 'rc';
       const sc = lvl === 'safe' ? 'sb-s' : lvl === 'caution' ? 'sb-c' : lvl === 'danger' ? 'sb-d' : 'sb-x';
       const diffStr = (diff >= 0 ? '+' : '') + fM(diff, cur, 2);
@@ -6040,57 +6183,57 @@ function calcMargin() {
     const stress = `<div class="st-wrap"><table class="st"><thead><tr><th>漲跌</th><th>股價</th><th>損益</th><th>權益</th><th>${tw ? '維持率' : 'Margin%'}</th><th>狀態</th></tr></thead><tbody>${sRows}</tbody></table></div>`;
 
     const formula = tw ? `<div class="fc">
-      <div class="fb"><h4>1. 融資金額與自備款</h4>
+      <div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">1. 融資金額與自備款</h4>
         <span class="fl"><span class="v">融資金額/股</span> <span class="o">=</span> 買進價格(<span class="n">${fM(bp,cur,2)}</span>) <span class="o">×</span> 融資成數(<span class="n">${(mr*100).toFixed(0)}%</span>) <span class="o">=</span> <span class="r">${fM(lps,cur,2)}</span></span>
         <span class="fl"><span class="v">自備款/股</span> <span class="o">=</span> 買進價格(<span class="n">${fM(bp,cur,2)}</span>) <span class="o">×</span> (1−融資成數)(<span class="n">${((1-mr)*100).toFixed(0)}%</span>) <span class="o">=</span> <span class="r">${fM(eps,cur,2)}</span></span>
         <span class="fl"><span class="v">融資總額</span> <span class="o">=</span> 融資金額/股(<span class="n">${fM(lps,cur,2)}</span>) <span class="o">×</span> 股數(<span class="n">${fmt(ts)}</span>) <span class="o">=</span> <span class="r">${fM(tl,cur)}</span></span>
         <span class="fl"><span class="v">自備款總額</span> <span class="o">=</span> 自備款/股(<span class="n">${fM(eps,cur,2)}</span>) <span class="o">×</span> 股數(<span class="n">${fmt(ts)}</span>) <span class="o">=</span> <span class="r">${fM(te,cur)}</span></span>
         <span class="fl"><span class="v">總成本</span> <span class="o">=</span> 融資(<span class="n">${fM(tl,cur)}</span>) <span class="o">+</span> 自備(<span class="n">${fM(te,cur)}</span>) <span class="o">=</span> <span class="r">${fM(tc,cur)}</span></span>
       </div>
-      <div class="fb"><h4>2. 槓桿倍數</h4>
+      <div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">2. 槓桿倍數</h4>
         <span class="fl"><span class="v">槓桿</span> <span class="o">=</span> 總成本(<span class="n">${fM(tc,cur)}</span>) <span class="o">÷</span> 自備款(<span class="n">${fM(te,cur)}</span>) <span class="o">=</span> <span class="r">${lev.toFixed(2)}x</span></span>
         ${isETF ? `<span class="fl"><span class="v">有效槓桿</span> <span class="o">=</span> 融資槓桿(<span class="n">${lev.toFixed(2)}x</span>) <span class="o">×</span> ETF槓桿(<span class="n">${etfLev}x</span>) <span class="o">=</span> <span class="r">${effectiveLev.toFixed(2)}x</span></span>
         <div class="fn">指數跌1% → ETF跌${Math.abs(etfLev)}% → 權益跌${effectiveLev.toFixed(1)}%</div>` : `<div class="fn">每漲跌1%，權益變動${lev.toFixed(1)}%</div>`}
       </div>
-      <div class="fb"><h4>3. 擔保維持率</h4>
+      <div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">3. 擔保維持率</h4>
         <span class="fl"><span class="v">目前市值</span> <span class="o">=</span> 目前價格(<span class="n">${fM(cp,cur,2)}</span>) <span class="o">×</span> 股數(<span class="n">${fmt(ts)}</span>) <span class="o">=</span> <span class="r">${fM(cv,cur)}</span></span>
         <span class="fl"><span class="v">維持率</span> <span class="o">=</span> 市值(<span class="n">${fM(cv,cur)}</span>) <span class="o">÷</span> 融資金額(<span class="n">${fM(tl,cur)}</span>) <span class="o">=</span> <span class="r">${fP(mp)}</span></span>
         <div class="fn">< ${(cr*100).toFixed(0)}% → 追繳 (須於 T+2 日補繳)　< ${(fr*100).toFixed(0)}% → 斷頭 (券商強制賣出)</div>
       </div>
-      <div class="fb"><h4>4. 未實現損益</h4>
+      <div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">4. 未實現損益</h4>
         <span class="fl"><span class="v">損益</span> <span class="o">=</span> (目前價格(<span class="n">${fM(cp,cur,2)}</span>) <span class="o">−</span> 買進價格(<span class="n">${fM(bp,cur,2)}</span>)) <span class="o">×</span> 股數(<span class="n">${fmt(ts)}</span>) <span class="o">=</span> <span class="r">${plS}${fM(upl,cur)}</span></span>
         <span class="fl"><span class="v">權益</span> <span class="o">=</span> 市值(<span class="n">${fM(cv,cur)}</span>) <span class="o">−</span> 融資金額(<span class="n">${fM(tl,cur)}</span>) <span class="o">=</span> <span class="r">${fM(ce,cur)}</span></span>
         <span class="fl"><span class="v">權益報酬率</span> <span class="o">=</span> (權益(<span class="n">${fM(ce,cur)}</span>) <span class="o">−</span> 自備(<span class="n">${fM(te,cur)}</span>)) <span class="o">÷</span> 自備(<span class="n">${fM(te,cur)}</span>) <span class="o">=</span> <span class="r">${eqRet}%</span></span>
       </div>
-      <div class="fb"><h4>5. 追繳 & 斷頭價格</h4>
+      <div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">5. 追繳 & 斷頭價格</h4>
         <span class="fl"><span class="v">追繳價</span> <span class="o">=</span> 融資金額/股(<span class="n">${fM(lps,cur,2)}</span>) <span class="o">×</span> 追繳線(<span class="n">${cr}</span>) <span class="o">=</span> <span class="r">${fM(callP,cur,2)}</span></span>
         <span class="fl">　從買進價跌 <span class="r">${fM(dC,cur,2)}</span> (<span class="r">${fP(dCP)}</span>)，距目前價可跌 <span class="r">${dCur > 0 ? fM(dCur,cur,2) : '已追繳!'}</span></span>
         <span class="fl"><span class="v">斷頭價</span> <span class="o">=</span> 融資金額/股(<span class="n">${fM(lps,cur,2)}</span>) <span class="o">×</span> 斷頭線(<span class="n">${fr}</span>) <span class="o">=</span> <span class="r">${fM(forcedP,cur,2)}</span></span>
         <span class="fl">　從買進價跌 <span class="r">${fM(dF,cur,2)}</span> (<span class="r">${fP(dFP)}</span>)</span>
       </div>
-      <div class="fb"><h4>6. 券商處置流程</h4>
+      <div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">6. 券商處置流程</h4>
         <span class="fl">① <span class="v">維持率 < ${(cr*100).toFixed(0)}% (追繳線)</span>：券商發出<strong>追繳通知</strong>，投資人須在 <strong>T+2 日</strong> 收盤前補繳差額，使維持率回到 166% 以上。</span>
         <span class="fl">② <span class="v">逾期未補繳 或 維持率 < ${(fr*100).toFixed(0)}% (斷頭線)</span>：券商有權在次一營業日以市價<strong>強制賣出</strong>全部融資股票（俗稱「斷頭」），賣出後之餘額（扣除融資本息及手續費等）退還投資人；若不足，投資人仍需補繳差額。</span>
         <span class="fl">③ <span class="v">盤中急跌</span>：若盤中維持率急跌至斷頭線以下，部分券商可能在<strong>盤中即時</strong>執行斷頭，不待 T+2 補繳期限。</span>
         <div class="fn">實際追繳時程與斷頭規則以各券商信用交易契約為準，上述為一般慣例。</div>
       </div>
     </div>` : `<div class="fc">
-      <div class="fb"><h4>1. Loan & Equity</h4>
+      <div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">1. Loan & Equity</h4>
         <span class="fl"><span class="v">Loan/share</span> <span class="o">=</span> Buy Price(<span class="n">${fM(bp,cur,2)}</span>) <span class="o">×</span> Margin Rate(<span class="n">${(mr*100).toFixed(0)}%</span>) <span class="o">=</span> <span class="r">${fM(lps,cur,2)}</span></span>
         <span class="fl"><span class="v">Equity/share</span> <span class="o">=</span> Buy Price(<span class="n">${fM(bp,cur,2)}</span>) <span class="o">×</span> (1−Rate)(<span class="n">${((1-mr)*100).toFixed(0)}%</span>) <span class="o">=</span> <span class="r">${fM(eps,cur,2)}</span></span>
         <span class="fl"><span class="v">Total Loan</span> <span class="o">=</span> <span class="n">${fM(lps,cur,2)}</span> <span class="o">×</span> <span class="n">${fmt(ts)}</span> shares <span class="o">=</span> <span class="r">${fM(tl,cur)}</span></span>
       </div>
-      <div class="fb"><h4>2. Margin Ratio</h4>
+      <div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">2. Margin Ratio</h4>
         <span class="fl"><span class="v">Market Value</span> <span class="o">=</span> Current Price(<span class="n">${fM(cp,cur,2)}</span>) <span class="o">×</span> Shares(<span class="n">${fmt(ts)}</span>) <span class="o">=</span> <span class="r">${fM(cv,cur)}</span></span>
         <span class="fl"><span class="v">Equity</span> <span class="o">=</span> Value(<span class="n">${fM(cv,cur)}</span>) <span class="o">−</span> Loan(<span class="n">${fM(tl,cur)}</span>) <span class="o">=</span> <span class="r">${fM(ce,cur)}</span></span>
         <span class="fl"><span class="v">Margin%</span> <span class="o">=</span> Equity(<span class="n">${fM(ce,cur)}</span>) <span class="o">÷</span> Value(<span class="n">${fM(cv,cur)}</span>) <span class="o">=</span> <span class="r">${fP(mp)}</span></span>
         <div class="fn">FINRA minimum: 25%. Most brokers require 30-40%.</div>
       </div>
-      <div class="fb"><h4>3. Margin Call & Liquidation</h4>
+      <div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">3. Margin Call & Liquidation</h4>
         <span class="fl"><span class="v">Call Price</span> <span class="o">=</span> Loan(<span class="n">${fM(lps,cur,2)}</span>) <span class="o">÷</span> (1 − Maint%)(<span class="n">${(1-cr).toFixed(2)}</span>) <span class="o">=</span> <span class="r">${fM(callP,cur,2)}</span></span>
         <span class="fl"><span class="v">Forced Liq</span> <span class="o">=</span> Loan(<span class="n">${fM(lps,cur,2)}</span>) <span class="o">÷</span> (1 − Liq%)(<span class="n">${(1-fr).toFixed(2)}</span>) <span class="o">=</span> <span class="r">${fM(forcedP,cur,2)}</span></span>
       </div>
-      <div class="fb"><h4>4. Broker Actions</h4>
+      <div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">4. Broker Actions</h4>
         <span class="fl">① <span class="v">Equity% < ${(cr*100).toFixed(0)}% (Maintenance)</span>: Broker issues a <strong>margin call</strong>. You must deposit cash or securities within <strong>2-5 business days</strong> (varies by broker) to bring equity back above the maintenance requirement.</span>
         <span class="fl">② <span class="v">Failure to meet call / Equity% < ${(fr*100).toFixed(0)}%</span>: Broker may <strong>force-sell</strong> some or all positions <strong>without prior notice</strong> to cover the shortfall. Any remaining deficit is still owed.</span>
         <span class="fl">③ <span class="v">Rapid decline</span>: Under FINRA rules, brokers can liquidate <strong>immediately</strong> during extreme market conditions without waiting for the call period to expire.</span>
@@ -6105,7 +6248,7 @@ function calcMargin() {
     // ── SHORT ──
     const sp = gV('m-sell-price'), smr = parseFloat($('#m-short-margin-rate')?.value || '0.9');
     let cp = gV('m-current-price'); if (!cp) cp = sp;
-    if (!sp || !qty) { $('#margin-results').innerHTML = PLACEHOLDER; return; }
+    if (!validatePositive('#margin-results', [sp, qty])) return;
 
     const dep = sp * smr, col = sp, tg2 = (dep + col) * ts, cv = cp * ts, upl = (sp - cp) * ts;
 
@@ -6131,7 +6274,8 @@ function calcMargin() {
     if (tw) { maint = cp > 0 ? (dep + col) / cp : 0; callP = cr > 0 ? (dep + col) / cr : 0; forcedP = fr > 0 ? (dep + col) / fr : 0; }
     else { maint = cp > 0 ? (col + dep - cp) / cp : 0; callP = (col + dep) / (1 + cr); forcedP = (col + dep) / (1 + fr); }
     const ce = (dep + col - cp) * ts;
-    const rl = tw ? riskLvl(maint * 100, 166, 140, cr * 100) : riskLvl(maint * 100, 50, 35, cr * 100);
+    // 風險分級門檻衍生自使用者輸入的追繳線(cr)與斷頭線(fr)，使概覽與壓力測試表(mr<cr→追繳、mr<fr→斷頭)判定一致。
+    const rl = riskLvlClamp(maint * 100, cr * 100, cr * 100, fr * 100);
     const mp = maint * 100, fillPct = tw ? Math.min(100, (mp - 100) / 100 * 100) : Math.min(100, mp);
     const rC = callP - sp, rCP = sp > 0 ? rC / sp * 100 : 0;
     const statusMap = { safe: '安全', caution: '注意', danger: '追繳', critical: '斷頭' };
@@ -6174,9 +6318,9 @@ function calcMargin() {
       let mr2 = tw ? (dep + col) / pr : (col + dep - pr) / pr;
       const u = (sp - pr) * ts;
       let st2 = '', rc2 = '';
-      if (mr2 < fr) { st2 = tw ? '斷頭' : 'Liq'; rc2 = 'rf'; } else if (mr2 < cr) { st2 = tw ? '追繳' : 'Call'; rc2 = 'rmc'; } else st2 = tw ? '安全' : 'OK';
+      if (mr2 < fr) { st2 = tw ? '斷頭' : 'Liq'; rc2 = 'rf'; } else if (mr2 < crEff) { st2 = tw ? '追繳' : 'Call'; rc2 = 'rmc'; } else st2 = tw ? '安全' : 'OK';
       if (p === 0) rc2 = 'rc';
-      const lvl = tw ? riskLvl(mr2 * 100, 166, 140, cr * 100) : riskLvl(mr2 * 100, 50, 35, cr * 100);
+      const lvl = riskLvlClamp(mr2 * 100, cr * 100, cr * 100, fr * 100);
       const sc = lvl === 'safe' ? 'sb-s' : lvl === 'caution' ? 'sb-c' : lvl === 'danger' ? 'sb-d' : 'sb-x';
       const diffStr = (diff >= 0 ? '+' : '') + fM(diff, cur, 2);
       sRows += `<tr class="${rc2}"><td>${p > 0 ? '+' : ''}${p}%<br><span class="tm">${diffStr}</span></td><td>${fM(pr, cur, 2)}</td><td class="${u >= 0 ? 'tg' : 'tr'}">${u >= 0 ? '+' : ''}${fM(u, cur)}</td><td class="${mr2 < cr ? 'tr' : ''}">${fP(mr2 * 100)}</td><td><span class="sb ${sc}">${st2}</span></td></tr>`;
@@ -6184,46 +6328,46 @@ function calcMargin() {
     const stress = `<div class="st-wrap"><table class="st"><thead><tr><th>漲跌</th><th>股價</th><th>做空損益</th><th>維持率</th><th>狀態</th></tr></thead><tbody>${sRows}</tbody></table></div>`;
 
     const formula = tw ? `<div class="fc">
-      <div class="fb"><h4>1. 保證金與擔保品</h4>
+      <div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">1. 保證金與擔保品</h4>
         <span class="fl"><span class="v">融券保證金/股</span> <span class="o">=</span> 賣出價格(<span class="n">${fM(sp,cur,2)}</span>) <span class="o">×</span> 保證金成數(<span class="n">${(smr*100).toFixed(0)}%</span>) <span class="o">=</span> <span class="r">${fM(dep,cur,2)}</span></span>
         <span class="fl"><span class="v">融券擔保品/股</span> <span class="o">=</span> 賣出價格(<span class="n">${fM(sp,cur,2)}</span>) <span class="o">=</span> <span class="r">${fM(col,cur,2)}</span></span>
         <span class="fl"><span class="v">每股合計</span> <span class="o">=</span> 保證金(<span class="n">${fM(dep,cur,2)}</span>) <span class="o">+</span> 擔保品(<span class="n">${fM(col,cur,2)}</span>) <span class="o">=</span> <span class="r">${fM(dep+col,cur,2)}</span></span>
         <span class="fl"><span class="v">總擔保</span> <span class="o">=</span> 每股合計(<span class="n">${fM(dep+col,cur,2)}</span>) <span class="o">×</span> 股數(<span class="n">${fmt(ts)}</span>) <span class="o">=</span> <span class="r">${fM(tg2,cur)}</span></span>
       </div>
-      <div class="fb"><h4>2. 擔保維持率</h4>
+      <div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">2. 擔保維持率</h4>
         <span class="fl"><span class="v">維持率</span> <span class="o">=</span> (保證金+擔保品)(<span class="n">${fM(dep+col,cur,2)}</span>) <span class="o">÷</span> 目前價格(<span class="n">${fM(cp,cur,2)}</span>) <span class="o">=</span> <span class="r">${fP(mp)}</span></span>
         <div class="fn">< ${(cr*100).toFixed(0)}% → 追繳 (須於 T+2 日補繳)　< ${(fr*100).toFixed(0)}% → 斷頭 (券商強制回補)</div>
       </div>
-      <div class="fb"><h4>3. 做空損益</h4>
+      <div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">3. 做空損益</h4>
         <span class="fl"><span class="v">損益</span> <span class="o">=</span> (賣出價(<span class="n">${fM(sp,cur,2)}</span>) <span class="o">−</span> 目前價(<span class="n">${fM(cp,cur,2)}</span>)) <span class="o">×</span> 股數(<span class="n">${fmt(ts)}</span>) <span class="o">=</span> <span class="r">${plS}${fM(upl,cur)}</span></span>
         <span class="fl"><span class="v">權益</span> <span class="o">=</span> 總擔保(<span class="n">${fM(tg2,cur)}</span>) <span class="o">−</span> 目前市值(<span class="n">${fM(cv,cur)}</span>) <span class="o">=</span> <span class="r">${fM(ce,cur)}</span></span>
       </div>
-      <div class="fb"><h4>4. 追繳 & 斷頭價格</h4>
+      <div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">4. 追繳 & 斷頭價格</h4>
         <span class="fl"><span class="v">追繳價(股價漲到)</span> <span class="o">=</span> 每股合計(<span class="n">${fM(dep+col,cur,2)}</span>) <span class="o">÷</span> 追繳線(<span class="n">${(cr*100).toFixed(0)}%</span>) <span class="o">=</span> <span class="r">${fM(callP,cur,2)}</span></span>
         <span class="fl">　從賣出價上漲 <span class="r">${fM(rC,cur,2)}</span> (<span class="r">${fP(rCP)}</span>)</span>
         <span class="fl"><span class="v">斷頭價</span> <span class="o">=</span> 每股合計(<span class="n">${fM(dep+col,cur,2)}</span>) <span class="o">÷</span> 斷頭線(<span class="n">${(fr*100).toFixed(0)}%</span>) <span class="o">=</span> <span class="r">${fM(forcedP,cur,2)}</span></span>
       </div>
-      <div class="fb"><h4>5. 券商處置流程</h4>
+      <div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">5. 券商處置流程</h4>
         <span class="fl">① <span class="v">維持率 < ${(cr*100).toFixed(0)}% (追繳線)</span>：券商發出<strong>追繳通知</strong>，投資人須在 <strong>T+2 日</strong> 收盤前補繳保證金差額，使維持率回到 166% 以上。</span>
         <span class="fl">② <span class="v">逾期未補繳 或 維持率 < ${(fr*100).toFixed(0)}% (斷頭線)</span>：券商有權在次一營業日以市價<strong>強制回補</strong>（買進股票歸還借券），即「軋空斷頭」。回補後若有虧損，投資人仍需補繳差額。</span>
         <span class="fl">③ <span class="v">強制回補日</span>：除追繳斷頭外，融券亦有<strong>強制回補日</strong>（如股東會前 6 個營業日），屆時無論盈虧均須回補。</span>
         <div class="fn">實際規則以各券商信用交易契約為準。融券做空須注意借券費、強制回補日等額外成本與風險。</div>
       </div>
     </div>` : `<div class="fc">
-      <div class="fb"><h4>1. Short Margin & Collateral</h4>
+      <div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">1. Short Margin & Collateral</h4>
         <span class="fl"><span class="v">Margin Deposit</span> <span class="o">=</span> Sell Price(<span class="n">${fM(sp,cur,2)}</span>) <span class="o">×</span> Rate(<span class="n">${(smr*100).toFixed(0)}%</span>) <span class="o">=</span> <span class="r">${fM(dep,cur,2)}</span></span>
         <span class="fl"><span class="v">Sale Proceeds</span> <span class="o">=</span> <span class="r">${fM(col,cur,2)}</span></span>
         <span class="fl"><span class="v">Total Collateral</span> <span class="o">=</span> Deposit(<span class="n">${fM(dep,cur,2)}</span>) <span class="o">+</span> Proceeds(<span class="n">${fM(col,cur,2)}</span>) <span class="o">=</span> <span class="r">${fM(dep+col,cur,2)}</span></span>
       </div>
-      <div class="fb"><h4>2. Margin Ratio</h4>
+      <div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">2. Margin Ratio</h4>
         <span class="fl"><span class="v">Margin%</span> <span class="o">=</span> (Proceeds+Deposit−Price)(<span class="n">${fM(col+dep-cp,cur,2)}</span>) <span class="o">÷</span> Price(<span class="n">${fM(cp,cur,2)}</span>) <span class="o">=</span> <span class="r">${fP(mp)}</span></span>
         <div class="fn">FINRA minimum: 30%. Most brokers require 30-40%.</div>
       </div>
-      <div class="fb"><h4>3. Margin Call & Liquidation</h4>
+      <div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">3. Margin Call & Liquidation</h4>
         <span class="fl"><span class="v">Call Price</span> <span class="o">=</span> (Proceeds+Deposit)(<span class="n">${fM(col+dep,cur,2)}</span>) <span class="o">÷</span> (1+Maint%)(<span class="n">${(1+cr).toFixed(2)}</span>) <span class="o">=</span> <span class="r">${fM(callP,cur,2)}</span></span>
         <span class="fl"><span class="v">Forced Liq</span> <span class="o">=</span> (Proceeds+Deposit)(<span class="n">${fM(col+dep,cur,2)}</span>) <span class="o">÷</span> (1+Liq%)(<span class="n">${(1+fr).toFixed(2)}</span>) <span class="o">=</span> <span class="r">${fM(forcedP,cur,2)}</span></span>
       </div>
-      <div class="fb"><h4>4. Broker Actions</h4>
+      <div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">4. Broker Actions</h4>
         <span class="fl">① <span class="v">Equity% < ${(cr*100).toFixed(0)}%</span>: Broker issues a <strong>margin call</strong>. Deposit additional cash/securities within <strong>2-5 business days</strong>.</span>
         <span class="fl">② <span class="v">Failure to meet call</span>: Broker may <strong>buy-to-cover</strong> (force close) your short position <strong>without notice</strong>.</span>
         <span class="fl">③ <span class="v">Hard-to-borrow / Recall</span>: The lender may <strong>recall shares at any time</strong>, forcing a buy-to-cover regardless of P&L. Short interest and borrow cost can spike without warning.</span>
@@ -6250,7 +6394,7 @@ function renderFuturesForm() {
     // 台灣股票期貨：輸入框 + autocomplete
     const defSF = STOCK_FUTURES.CDF;
     contractRow = `
-      <div class="fg"><label>股期代號 <span class="hint">輸入代號或股票名稱</span></label>
+      <div class="fg"><label for="f-stk-input">股期代號 <span class="hint">輸入代號或股票名稱</span></label>
         <div class="sym-ac-wrap">
           <div class="stock-search-row"><input type="text" id="f-stk-input" value="CDF" placeholder="如 CDF、2330、台積電" autocomplete="off"><button type="button" class="mini-fetch-btn" id="f-sym-fetch">查詢</button></div>
           <div class="sym-ac-list" id="f-stk-ac"></div>
@@ -6262,7 +6406,7 @@ function renderFuturesForm() {
   } else if (isStock) {
     // 美國股票期貨：代號搜尋 (Yahoo)
     contractRow = `
-      <div class="fg"><label>Stock Symbol</label>
+      <div class="fg"><label for="f-sym">Stock Symbol</label>
         <div class="sym-ac-wrap">
           <div class="stock-search-row"><input type="text" id="f-sym" placeholder="e.g. AAPL" autocomplete="off"><button type="button" class="mini-fetch-btn" id="f-sym-fetch">查詢</button></div>
           <div class="sym-ac-list" id="f-sym-ac"></div>
@@ -6279,8 +6423,8 @@ function renderFuturesForm() {
     const f = presets[fk];
     contractRow = `
       <div class="fr">
-        <div class="fg"><label>合約類型</label><select id="f-contract">${opts}</select></div>
-        <div class="fg"><label>口數</label><input type="number" id="f-qty" value="1" min="1" step="1"></div>
+        <div class="fg"><label for="f-contract">合約類型</label><select id="f-contract">${opts}</select></div>
+        <div class="fg"><label for="f-qty">口數</label><input type="number" id="f-qty" value="1" min="1" step="1"></div>
       </div>
       <input type="hidden" id="f-im" value="${f.im}"><input type="hidden" id="f-mm" value="${f.mm}"><input type="hidden" id="f-mul" value="${f.mul}">`;
   }
@@ -6298,16 +6442,16 @@ function renderFuturesForm() {
 
   // ── Section 1: 商品 ──
   const h = secStart('product', isStock ? '商品' : '合約') + contractRow +
-    (isStock ? `<div class="fg"><label>口數</label><input type="number" id="f-qty" value="1" min="1" step="1"></div>` : '') +
+    (isStock ? `<div class="fg"><label for="f-qty">口數</label><input type="number" id="f-qty" value="1" min="1" step="1"></div>` : '') +
     secEnd() +
 
   // ── Section 2: 價格 ──
   secStart('price', '價格') + `
     <div class="fr">
-      <div class="fg"><label>進場${priceLabel}</label><input type="number" id="f-entry" placeholder="${pricePH}" step="any"></div>
-      <div class="fg"><label>賣出${priceLabel} <span class="hint">(留空=目前)</span></label><input type="number" id="f-current" placeholder="賣出價格" step="any"></div>
+      <div class="fg"><label for="f-entry">進場${priceLabel}</label><input type="number" id="f-entry" placeholder="${pricePH}" min="0" step="any"></div>
+      <div class="fg"><label for="f-current">賣出${priceLabel} <span class="hint">(留空=目前)</span></label><input type="number" id="f-current" placeholder="賣出價格" min="0" step="any"></div>
     </div>
-    <div class="fg"><label>即時${priceLabel} <span class="hint">(API 報價)</span></label>
+    <div class="fg"><label for="f-live-price">即時${priceLabel} <span class="hint">(API 報價)</span></label>
       <div style="display:flex;align-items:center;gap:6px">
         <input type="text" id="f-live-price" class="fg-readonly" readonly placeholder="尚未取得" style="flex:1">
         ${isStock && tw ? `<button type="button" class="ticker-fill-btn" id="f-stk-price-btn">更新報價</button>` : ''}
@@ -6328,10 +6472,10 @@ function renderFuturesForm() {
       <span id="f-margin-date" style="font-size:.62rem;color:var(--t3)">${_taifexMarginDate ? _taifexMarginDate : ''}</span>` : ''}
     </div>
     ${isStock ? `<div class="fr">
-      <div class="fg"><label>原始保證金 <span class="hint">(${tw ? '約契約價值13.5%' : 'per contract'})</span></label><input type="number" id="f-im-input" placeholder="${tw ? '自行輸入' : 'Manual'}" step="any"></div>
-      <div class="fg"><label>維持保證金 <span class="hint">(${tw ? '約契約價值10.35%' : 'per contract'})</span></label><input type="number" id="f-mm-input" placeholder="${tw ? '自行輸入' : 'Manual'}" step="any"></div>
+      <div class="fg"><label for="f-im-input">原始保證金 <span class="hint">(${tw ? '約契約價值13.5%' : 'per contract'})</span></label><input type="number" id="f-im-input" placeholder="${tw ? '自行輸入' : 'Manual'}" step="any"></div>
+      <div class="fg"><label for="f-mm-input">維持保證金 <span class="hint">(${tw ? '約契約價值10.35%' : 'per contract'})</span></label><input type="number" id="f-mm-input" placeholder="${tw ? '自行輸入' : 'Manual'}" step="any"></div>
     </div>` : ''}
-    <div class="fg"><label>初始權益數 <span class="hint">(預設=3倍保證金)</span></label><input type="number" id="f-equity" value="${f.im ? f.im * 3 : ''}" step="any" placeholder="${isStock ? '查詢股票後自動計算' : ''}">
+    <div class="fg"><label for="f-equity">初始權益數 <span class="hint">(預設=3倍保證金)</span></label><input type="number" id="f-equity" value="${f.im ? f.im * 3 : ''}" step="any" placeholder="${isStock ? '查詢股票後自動計算' : ''}">
       <div class="eq-multi-row">
         <button type="button" class="eq-multi-btn" data-mul="1">1x</button>
         <button type="button" class="eq-multi-btn" data-mul="2">2x</button>
@@ -6345,8 +6489,8 @@ function renderFuturesForm() {
   // ── Section 4: 費用設定 (可收合) ──
   secAdvStart('settings', '費用設定', true) + `
     <div class="fr">
-      <div class="fg"><label>手續費 <span class="hint">(${cur}/口·單邊)</span></label><input type="number" id="f-comm" value="${tw ? (isStock ? CFG.twStkFutComm : CFG.twFutComm) : CFG.usFutComm}" step="any"></div>
-      <div class="fg"><label>期交稅率</label><select id="f-tax-rate">
+      <div class="fg"><label for="f-comm">手續費 <span class="hint">(${cur}/口·單邊)</span></label><input type="number" id="f-comm" value="${tw ? (isStock ? CFG.twStkFutComm : (fk2 === 'TX' ? CFG.twTxComm : fk2 === 'MTX' ? CFG.twMtxComm : fk2 === 'MXF' ? CFG.twMxfComm : CFG.twFutComm)) : CFG.usFutComm}" step="any"></div>
+      <div class="fg"><label for="f-tax-rate">期交稅率</label><select id="f-tax-rate">
         ${tw ? (isStock ? `<option value="0.00004" selected>十萬分之四(股票)</option><option value="0.00002">十萬分之二(指數)</option>` : `<option value="0.00002" selected>十萬分之二(指數)</option><option value="0.00004">十萬分之四(股票)</option>`) : `<option value="0" selected>無</option>`}
       </select></div>
     </div>
@@ -6432,6 +6576,14 @@ function renderFuturesForm() {
         const qty = parseInt($('#f-qty')?.value) || 1;
         $('#f-equity').value = p.im * qty * mulVal;
         $('#f-im').dispatchEvent(new Event('input', { bubbles: true }));
+        // 依合約套用對應手續費（小台/微台與一般指數期貨不同）
+        const commMap = { TX: CFG.twTxComm, MTX: CFG.twMtxComm, MXF: CFG.twMxfComm };
+        const commVal = mk === 'tw' ? (commMap[$('#f-contract').value] ?? CFG.twFutComm) : CFG.usFutComm;
+        const commEl = $('#f-comm');
+        if (commEl && commVal != null) {
+          commEl.value = commVal;
+          commEl.dispatchEvent(new Event('input', { bubbles: true }));
+        }
       }
       const dateEl = $('#f-margin-date');
       if (dateEl && _taifexMarginDate) dateEl.textContent = '期交所 ' + _taifexMarginDate;
@@ -6452,6 +6604,11 @@ function renderFuturesForm() {
   };
   $$('.eq-multi-btn').forEach(btn => {
     btn.addEventListener('click', () => updateEquity(parseInt(btn.dataset.mul)));
+  });
+  // 口數變動時，依目前倍數重算初始權益（與保證金/倍數變動口徑一致）
+  $('#f-qty')?.addEventListener('input', () => {
+    const activeM = $('.eq-multi-btn.active');
+    updateEquity(activeM ? parseInt(activeM.dataset.mul) : 3);
   });
 
   wrapNumberInputs($('#futures-inputs'));
@@ -6670,7 +6827,7 @@ function calcFutures() {
     const liveVal = parseFloat($('#f-live-price')?.value);
     curr = liveVal || entry;
   }
-  if (!entry || !qty || !im || !mul) { $('#futures-results').innerHTML = PLACEHOLDER; return; }
+  if (!validatePositive('#futures-results', [entry, qty, im, mul])) return;
 
   // Fee calculation
   const fComm = gV('f-comm') || 0;
@@ -6776,34 +6933,34 @@ function calcFutures() {
   const stress = `<div class="st-wrap"><table class="st"><thead><tr><th>漲跌</th><th>${u}</th><th>損益</th><th>權益數</th><th>風險指標</th><th>狀態</th></tr></thead><tbody>${sRows}</tbody></table></div>`;
 
   const formula = `<div class="fc">
-    <div class="fb"><h4>1. 保證金 vs 初始權益</h4>
+    <div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">1. 保證金 vs 初始權益</h4>
       <span class="fl"><span class="v">所需原始保證金</span> <span class="o">=</span> 每口原始保證金(<span class="n">${fM(im,cur)}</span>) <span class="o">×</span> 口數(<span class="n">${qty}</span>) <span class="o">=</span> <span class="r">${fM(tIM,cur)}</span></span>
       <span class="fl"><span class="v">所需維持保證金</span> <span class="o">=</span> 每口維持保證金(<span class="n">${fM(mm,cur)}</span>) <span class="o">×</span> 口數(<span class="n">${qty}</span>) <span class="o">=</span> <span class="r">${fM(tMM,cur)}</span></span>
       <span class="fl"><span class="v">初始權益數(帳戶餘額)</span> <span class="o">=</span> <span class="r">${fM(initEq,cur)}</span></span>
       <span class="fl"><span class="v">超額保證金</span> <span class="o">=</span> 初始權益(<span class="n">${fM(initEq,cur)}</span>) <span class="o">−</span> 原始保證金(<span class="n">${fM(tIM,cur)}</span>) <span class="o">=</span> <span class="${excessMargin >= 0 ? 'r' : 'n'}">${fM(excessMargin,cur)}</span></span>
       <div class="fn">入金 > 原始保證金 → 有額外緩衝空間，追繳/砍倉距離更遠<br>入金 = 原始保證金 → 剛好達最低要求，無額外緩衝</div>
     </div>
-    <div class="fb"><h4>2. 每點損益</h4>
+    <div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">2. 每點損益</h4>
       <span class="fl"><span class="v">每點損益</span> <span class="o">=</span> 每點價值(<span class="n">${fM(mul,cur)}</span>) <span class="o">×</span> 口數(<span class="n">${qty}</span>) <span class="o">=</span> <span class="r">${fM(ppm,cur)}</span></span>
       <div class="fn">${long ? '做多' : '做空'}：指數每${long ? '漲' : '跌'}1點，獲利 ${fM(ppm,cur)}；每${long ? '跌' : '漲'}1點，虧損 ${fM(ppm,cur)}</div>
     </div>
-    <div class="fb"><h4>3. 未實現損益 & 權益數</h4>
+    <div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">3. 未實現損益 & 權益數</h4>
       <span class="fl"><span class="v">點數差</span> <span class="o">=</span> ${long ? '目前點數' : '進場點數'}(<span class="n">${long ? fmt(curr,2) : fmt(entry,2)}</span>) <span class="o">−</span> ${long ? '進場點數' : '目前點數'}(<span class="n">${long ? fmt(entry,2) : fmt(curr,2)}</span>) <span class="o">=</span> <span class="r">${fmt(pd,2)} ${u}</span></span>
       <span class="fl"><span class="v">未實現損益</span> <span class="o">=</span> 點數差(<span class="n">${fmt(pd,2)}</span>) <span class="o">×</span> 每點損益(<span class="n">${fM(ppm,cur)}</span>) <span class="o">=</span> <span class="r">${plS}${fM(upl,cur)}</span></span>
       <span class="fl"><span class="v">目前權益數</span> <span class="o">=</span> 初始權益(<span class="n">${fM(initEq,cur)}</span>) <span class="o">+</span> 損益(<span class="n">${plS}${fM(upl,cur)}</span>) <span class="o">=</span> <span class="r">${fM(eq,cur)}</span></span>
     </div>
-    <div class="fb"><h4>4. 風險指標</h4>
+    <div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">4. 風險指標</h4>
       <span class="fl"><span class="v">風險指標</span> <span class="o">=</span> 權益數(<span class="n">${fM(eq,cur)}</span>) <span class="o">÷</span> 原始保證金(<span class="n">${fM(tIM,cur)}</span>) <span class="o">=</span> <span class="r">${fP(ri)}</span></span>
       <div class="fn">權益數(<span>${fM(eq,cur)}</span>) < 維持保證金(<span>${fM(tMM,cur)}</span>) → 追繳 (需補繳至原始保證金 ${fM(tIM,cur)})<br>風險指標 ≤ 25% → 期貨商可強制砍倉</div>
     </div>
-    <div class="fb"><h4>5. 追繳 & 砍倉點位</h4>
+    <div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">5. 追繳 & 砍倉點位</h4>
       <span class="fl"><span class="v">可承受虧損(至追繳)</span> <span class="o">=</span> 初始權益(<span class="n">${fM(initEq,cur)}</span>) <span class="o">−</span> 維持保證金(<span class="n">${fM(tMM,cur)}</span>) <span class="o">=</span> <span class="r">${fM(maxLossToCall,cur)}</span></span>
       <span class="fl"><span class="v">追繳點數</span> <span class="o">=</span> 可承受虧損(<span class="n">${fM(maxLossToCall,cur)}</span>) <span class="o">÷</span> 每點損益(<span class="n">${fM(ppm,cur)}</span>) <span class="o">=</span> <span class="r">${fmt(ptToCall,2)} ${u}</span></span>
       <span class="fl"><span class="v">追繳點位</span> <span class="o">=</span> 進場(<span class="n">${fmt(entry,2)}</span>) ${long ? '−' : '+'} 追繳點數(<span class="n">${fmt(ptToCall,2)}</span>) <span class="o">=</span> <span class="r">${fmt(callLvl,2)} ${u}</span>　距目前 <span class="r">${fmt(dC,2)} ${u}</span></span>
       <span class="fl"><span class="v">可承受虧損(至砍倉)</span> <span class="o">=</span> 初始權益(<span class="n">${fM(initEq,cur)}</span>) <span class="o">−</span> 25%×原始保證金(<span class="n">${fM(0.25*tIM,cur)}</span>) <span class="o">=</span> <span class="r">${fM(maxLossToForced,cur)}</span></span>
       <span class="fl"><span class="v">砍倉點位</span> <span class="o">=</span> <span class="r">${fmt(forcedLvl,2)} ${u}</span>　距目前 <span class="r">${fmt(dF,2)} ${u}</span></span>
     </div>
-    <div class="fb"><h4>6. 期貨商處置流程</h4>
+    <div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">6. 期貨商處置流程</h4>
       <span class="fl">① <span class="v">權益數 < 維持保證金 (${fM(tMM,cur)})</span>：期貨商於盤後發出<strong>追繳通知</strong>，交易人須在<strong>次一營業日中午 12:00 前</strong>補繳至原始保證金水位 (${fM(tIM,cur)})。</span>
       <span class="fl">② <span class="v">逾期未補繳</span>：期貨商有權自<strong>次一營業日起</strong>，以市價<strong>代為沖銷</strong>（強制平倉）部分或全部部位，直至權益數回到原始保證金以上。</span>
       <span class="fl">③ <span class="v">風險指標 ≤ 25%</span>：期貨商可<strong>不另通知</strong>，立即執行代為沖銷（俗稱「砍倉」）。盤中若指標急跌至此水位，可能<strong>盤中即時砍倉</strong>。</span>
@@ -6829,7 +6986,7 @@ function renderOptionsForm() {
   // ── Section 1: 商品/標的 ──
   let ulRow;
   if (isStock) {
-    ulRow = `<div class="fg"><label>股票代號</label>
+    ulRow = `<div class="fg"><label for="o-sym">股票代號</label>
       <div class="sym-ac-wrap">
         <div class="stock-search-row"><input type="text" id="o-sym" placeholder="${tw ? '輸入代號 如 2330' : 'e.g. AAPL'}" autocomplete="off"><button type="button" class="mini-fetch-btn" id="o-sym-fetch">查詢</button></div>
         <div class="sym-ac-list" id="o-sym-ac"></div>
@@ -6841,35 +6998,35 @@ function renderOptionsForm() {
   }
 
   let h = secStart('product', '商品') + `
-    <div class="fg"><label>類型</label><select id="o-type"><option value="call">Call 買權</option><option value="put">Put 賣權</option></select></div>
+    <div class="fg"><label for="o-type">類型</label><select id="o-type"><option value="call">Call 買權</option><option value="put">Put 賣權</option></select></div>
     ${ulRow}
   ` + secEnd();
 
   // ── Section 2: 價格 ──
   h += secStart('price', '價格') + `
     <div class="fr">
-      <div class="fg"><label>${isStock ? '標的物股價' : '標的物' + (tw ? '指數' : '價格')}</label><input type="number" id="o-ul" placeholder="${isStock ? '查詢後自動帶入' : (tw ? '20000' : '500')}" step="any">
+      <div class="fg"><label for="o-ul">${isStock ? '標的物股價' : '標的物' + (tw ? '指數' : '價格')}</label><input type="number" id="o-ul" placeholder="${isStock ? '查詢後自動帶入' : (tw ? '20000' : '500')}" min="0" step="any">
         ${!isStock ? `<div style="display:flex;gap:3px;margin-top:2px;flex-wrap:wrap"><button type="button" class="ticker-fill-btn" onclick="refreshOptPrice()">更新報價</button></div>` : ''}
       </div>
-      <div class="fg"><label>履約價 Strike</label><input type="number" id="o-strike" placeholder="${isStock ? '履約價' : (tw ? '20000' : '500')}" step="any"></div>
+      <div class="fg"><label for="o-strike">履約價 Strike</label><input type="number" id="o-strike" placeholder="${isStock ? '履約價' : (tw ? '20000' : '500')}" min="0" step="any"></div>
     </div>
     <div class="fr">
-      <div class="fg"><label>權利金 <span class="hint">(${isStock ? '每股' : '每點'})</span></label><input type="number" id="o-premium" placeholder="${tw ? (isStock ? '5' : '300') : '5'}" step="any"></div>
-      <div class="fg"><label>到期結算價 <span class="hint">(選填)</span></label><input type="number" id="o-exp" placeholder="結算價" step="any"></div>
+      <div class="fg"><label for="o-premium">權利金 <span class="hint">(${isStock ? '每股' : '每點'})</span></label><input type="number" id="o-premium" placeholder="${tw ? (isStock ? '5' : '300') : '5'}" min="0" step="any"></div>
+      <div class="fg"><label for="o-exp">到期結算價 <span class="hint">(選填)</span></label><input type="number" id="o-exp" placeholder="結算價" min="0" step="any"></div>
     </div>
   ` + secEnd();
 
   // ── Section 3: 合約規格 ──
   h += secStart('margin', '合約規格') + `
     <div class="fr">
-      <div class="fg"><label>口數</label><input type="number" id="o-qty" value="1" min="1" step="1"></div>
-      <div class="fg"><label>乘數 <span class="hint">(${cur}/${isStock ? '股' : '點'})</span></label><input type="number" id="o-mul" value="${defMul}" step="any"></div>
+      <div class="fg"><label for="o-qty">口數</label><input type="number" id="o-qty" value="1" min="1" step="1"></div>
+      <div class="fg"><label for="o-mul">乘數 <span class="hint">(${cur}/${isStock ? '股' : '點'})</span></label><input type="number" id="o-mul" value="${defMul}" step="any"></div>
     </div>`;
 
   if (!buyer) {
     h += `<div class="fr">
-      <div class="fg"><label>風險保證金比率</label><div class="isuf"><input type="number" id="o-rr" value="15" step="any"><span class="suf">%</span></div></div>
-      <div class="fg"><label>最低保證金比率</label><div class="isuf"><input type="number" id="o-mr" value="10" step="any"><span class="suf">%</span></div></div>
+      <div class="fg"><label for="o-rr">風險保證金比率</label><div class="isuf"><input type="number" id="o-rr" value="15" step="any"><span class="suf">%</span></div></div>
+      <div class="fg"><label for="o-mr">最低保證金比率</label><div class="isuf"><input type="number" id="o-mr" value="10" step="any"><span class="suf">%</span></div></div>
     </div>`;
   }
   h += secEnd();
@@ -6877,8 +7034,8 @@ function renderOptionsForm() {
   // ── Section 4: 費用設定 (可收合) ──
   h += secAdvStart('settings', '費用設定', true) + `
     <div class="fr">
-      <div class="fg"><label>手續費 <span class="hint">(${cur}/口·單邊)</span></label><input type="number" id="o-comm" value="${tw ? CFG.twOptComm : CFG.usOptComm}" step="any"></div>
-      <div class="fg"><label>交易稅率</label><select id="o-tax-rate">
+      <div class="fg"><label for="o-comm">手續費 <span class="hint">(${cur}/口·單邊)</span></label><input type="number" id="o-comm" value="${tw ? CFG.twOptComm : CFG.usOptComm}" step="any"></div>
+      <div class="fg"><label for="o-tax-rate">交易稅率</label><select id="o-tax-rate">
         ${tw ? `<option value="0.001" selected>千分之一</option><option value="0">免稅</option>` : `<option value="0" selected>無</option>`}
       </select></div>
     </div>
@@ -6994,7 +7151,7 @@ function calcOptions() {
   const isCall = $('#o-type')?.value === 'call';
   const ul = gV('o-ul'), strike = gV('o-strike'), prem = gV('o-premium');
   const qty = gV('o-qty'), mul = gV('o-mul');
-  if (!ul || !strike || !prem || !qty || !mul) { $('#options-results').innerHTML = PLACEHOLDER; return; }
+  if (!validatePositive('#options-results', [ul, strike, prem, qty, mul])) return;
 
   // Fee calculation
   const oComm = gV('o-comm') || 0;
@@ -7029,8 +7186,8 @@ function calcOptions() {
         ${mc('損益平衡', fmt(be, 2), isCall ? '履約價 + 權利金' : '履約價 - 權利金')}
         ${mgLabel('損益')}
         ${mc('最大虧損 = 權利金+費用', fM(totalPrem + oFees, cur), `權利金 ${fM(totalPrem, cur)} + 費用 ${fM(oFees, cur)}`, 'h-red')}
-        ${mc('最大獲利', isCall ? '無上限' : fM((strike - prem) * mul * qty, cur))}
-        ${expPL !== null ? mc('到期損益(税前)', (expPL >= 0 ? '+' : '') + fM(expPL, cur), `結算價 ${fmt(expP)} | 報酬率 ${(expPL / totalPrem * 100).toFixed(1)}%`, expPL >= 0 ? 'h-green' : 'h-red') : ''}
+        ${mc('最大獲利', isCall ? '無上限' : fM(Math.max(0, (strike - prem) * mul * qty), cur))}
+        ${expPL !== null ? mc('到期損益(税前)', (expPL >= 0 ? '+' : '') + fM(expPL, cur), `結算價 ${fmt(expP)} | 報酬率 ${totalPrem > 0 ? fP(expPL / totalPrem * 100, 1) : '—'}`, expPL >= 0 ? 'h-green' : 'h-red') : ''}
       </div>
       ${oFees > 0 ? costTable(
         tw ? [
@@ -7047,25 +7204,25 @@ function calcOptions() {
       ) : ''}`;
     const stress = buildOptionsStress(isCall, buyer, prem, strike, mul, qty, ul, cur);
     const formula = `<div class="fc">
-      <div class="fb"><h4>1. 權利金成本</h4>
+      <div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">1. 權利金成本</h4>
         <span class="fl"><span class="v">總成本</span> <span class="o">=</span> 權利金(<span class="n">${fmt(prem,2)}</span>) <span class="o">×</span> 乘數(<span class="n">${fmt(mul)}</span>) <span class="o">×</span> 口數(<span class="n">${qty}</span>) <span class="o">=</span> <span class="r">${fM(totalPrem,cur)}</span></span>
         <div class="fn">買方最大虧損 = 全部權利金 ${fM(totalPrem,cur)}，不需保證金，不會追繳。</div>
       </div>
-      <div class="fb"><h4>2. 價值分析</h4>
+      <div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">2. 價值分析</h4>
         <span class="fl"><span class="v">內含價值</span> <span class="o">=</span> ${isCall ? `Max(0, 標的(${fmt(ul,2)}) − 履約價(${fmt(strike,2)}))` : `Max(0, 履約價(${fmt(strike,2)}) − 標的(${fmt(ul,2)}))`} <span class="o">=</span> <span class="r">${fmt(iv,2)}</span></span>
         <span class="fl"><span class="v">時間價值</span> <span class="o">=</span> 權利金(<span class="n">${fmt(prem,2)}</span>) <span class="o">−</span> 內含價值(<span class="n">${fmt(iv,2)}</span>) <span class="o">=</span> <span class="r">${fmt(tv,2)}</span></span>
         <span class="fl"><span class="v">價內外狀態</span> <span class="o">=</span> <span class="r">${money}</span>${oom > 0 ? `　價外值 = <span class="n">${fmt(oom,2)}</span>` : ''}</span>
       </div>
-      <div class="fb"><h4>3. 損益平衡</h4>
+      <div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">3. 損益平衡</h4>
         <span class="fl"><span class="v">損益平衡點</span> <span class="o">=</span> ${isCall ? `履約價(${fmt(strike,2)}) + 權利金(${fmt(prem,2)})` : `履約價(${fmt(strike,2)}) − 權利金(${fmt(prem,2)})`} <span class="o">=</span> <span class="r">${fmt(be,2)}</span></span>
         <div class="fn">${isCall ? '標的高於' : '標的低於'} ${fmt(be,2)} 才開始獲利</div>
       </div>
-      ${expPL !== null ? `<div class="fb"><h4>4. 到期損益試算</h4>
+      ${expPL !== null ? `<div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">4. 到期損益試算</h4>
         <span class="fl"><span class="v">到期內含價值</span> <span class="o">=</span> ${isCall ? `Max(0, 結算價(${fmt(expP,2)}) − 履約價(${fmt(strike,2)}))` : `Max(0, 履約價(${fmt(strike,2)}) − 結算價(${fmt(expP,2)}))`} <span class="o">=</span> <span class="r">${fmt(isCall ? Math.max(0,expP-strike) : Math.max(0,strike-expP),2)}</span></span>
         <span class="fl"><span class="v">到期損益</span> <span class="o">=</span> (到期內含值(<span class="n">${fmt(isCall ? Math.max(0,expP-strike) : Math.max(0,strike-expP),2)}</span>) <span class="o">−</span> 權利金(<span class="n">${fmt(prem,2)}</span>)) <span class="o">×</span> 乘數(<span class="n">${fmt(mul)}</span>) <span class="o">×</span> 口數(<span class="n">${qty}</span>) <span class="o">=</span> <span class="r">${(expPL>=0?'+':'')}${fM(expPL,cur)}</span></span>
-        <span class="fl"><span class="v">報酬率</span> <span class="o">=</span> 損益(<span class="n">${(expPL>=0?'+':'')}${fM(expPL,cur)}</span>) <span class="o">÷</span> 成本(<span class="n">${fM(totalPrem,cur)}</span>) <span class="o">=</span> <span class="r">${(expPL/totalPrem*100).toFixed(1)}%</span></span>
+        <span class="fl"><span class="v">報酬率</span> <span class="o">=</span> 損益(<span class="n">${(expPL>=0?'+':'')}${fM(expPL,cur)}</span>) <span class="o">÷</span> 成本(<span class="n">${fM(totalPrem,cur)}</span>) <span class="o">=</span> <span class="r">${totalPrem > 0 ? fP(expPL/totalPrem*100, 1) : '—'}</span></span>
       </div>` : ''}
-      <div class="fb"><h4>${expPL !== null ? '5' : '4'}. 買方風險說明</h4>
+      <div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">${expPL !== null ? '5' : '4'}. 買方風險說明</h4>
         <span class="fl">① <span class="v">不需保證金、不會追繳</span>：買方已在進場時支付全部權利金 ${fM(totalPrem,cur)}，此即為<strong>最大虧損上限</strong>，無論市場如何波動都不會被追繳。</span>
         <span class="fl">② <span class="v">到期處理</span>：到期時若為<strong>價內</strong>（有內含價值），台灣期交所會<strong>自動現金結算</strong>；若為<strong>價外</strong>，權利金歸零、合約自動消滅。</span>
         <span class="fl">③ <span class="v">時間價值衰減</span>：距到期越近，時間價值(${fmt(tv,2)})衰減越快（Theta 效應），即使標的不動，權利金也會下降。</span>
@@ -7092,7 +7249,7 @@ function calcOptions() {
         ${mgLabel('損益')}
         ${mc('最大獲利(税前)', fM(totalPrem, cur), '', 'h-green')}
         ${oFees > 0 ? mc('最大淨獲利(税後)', fM(totalPrem - oFees, cur), `扣除費用 ${fM(oFees, cur)}`, 'h-green') : ''}
-        ${mc('最大虧損', isCall ? '無上限' : fM((strike - prem) * mul * qty, cur), '', 'h-red')}
+        ${mc('最大虧損', isCall ? '無上限' : fM(Math.max(0, (strike - prem) * mul * qty), cur), '', 'h-red')}
         ${expPL !== null ? mc('到期損益(税前)', (expPL >= 0 ? '+' : '') + fM(expPL, cur), `結算價 ${fmt(expP)}`, expPL >= 0 ? 'h-green' : 'h-red') : ''}
       </div>
       ${oFees > 0 ? costTable(
@@ -7109,14 +7266,14 @@ function calcOptions() {
         expPL !== null ? { label: '到期淨損益(税後)', value: ((expPL - oFees) >= 0 ? '+' : '') + fM(expPL - oFees, cur), positive: (expPL - oFees) >= 0 } : null
       ) : ''}`;
     const stress = buildOptionsStress(isCall, buyer, prem, strike, mul, qty, ul, cur);
-    const maxLoss = isCall ? '無上限' : fM((strike - prem) * mul * qty, cur);
+    const maxLoss = isCall ? '無上限' : fM(Math.max(0, (strike - prem) * mul * qty), cur);
     const formula = `<div class="fc">
-      <div class="fb"><h4>1. 權利金收入</h4>
+      <div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">1. 權利金收入</h4>
         <span class="fl"><span class="v">每口收入</span> <span class="o">=</span> 權利金(<span class="n">${fmt(prem,2)}</span>) <span class="o">×</span> 乘數(<span class="n">${fmt(mul)}</span>) <span class="o">=</span> <span class="r">${fM(pmv,cur)}</span></span>
         <span class="fl"><span class="v">總收入</span> <span class="o">=</span> 每口收入(<span class="n">${fM(pmv,cur)}</span>) <span class="o">×</span> 口數(<span class="n">${qty}</span>) <span class="o">=</span> <span class="r">${fM(totalPrem,cur)}</span></span>
         <div class="fn">賣方最大獲利 = 全部權利金 ${fM(totalPrem,cur)}（買方不履約時）</div>
       </div>
-      <div class="fb"><h4>2. 保證金計算</h4>
+      <div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">2. 保證金計算</h4>
         <span class="fl"><span class="v">標的價值</span> <span class="o">=</span> 標的物(<span class="n">${fmt(ul,2)}</span>) <span class="o">×</span> 乘數(<span class="n">${fmt(mul)}</span>) <span class="o">=</span> <span class="r">${fM(uv,cur)}</span></span>
         <span class="fl"><span class="v">價外值</span> <span class="o">=</span> ${isCall ? `Max(0, 履約價(${fmt(strike,2)}) − 標的(${fmt(ul,2)}))` : `Max(0, 標的(${fmt(ul,2)}) − 履約價(${fmt(strike,2)}))`} <span class="o">=</span> <span class="r">${fmt(oom,2)}</span></span>
         <span class="fl"><span class="v">A</span> <span class="o">=</span> 標的價值(<span class="n">${fM(uv,cur)}</span>) <span class="o">×</span> 風險比率(<span class="n">${(rr*100).toFixed(0)}%</span>) <span class="o">−</span> 價外值(<span class="n">${fmt(oom,2)}</span>) <span class="o">×</span> 乘數(<span class="n">${fmt(mul)}</span>) <span class="o">=</span> <span class="r">${fM(A,cur)}</span></span>
@@ -7125,28 +7282,28 @@ function calcOptions() {
         <span class="fl"><span class="v">總保證金</span> <span class="o">=</span> 每口(<span class="n">${fM(mpc,cur)}</span>) <span class="o">×</span> 口數(<span class="n">${qty}</span>) <span class="o">=</span> <span class="r">${fM(totalMargin,cur)}</span></span>
         <div class="fn">實際保證金可能使用 SPAN 模型，以上為簡化公式。</div>
       </div>
-      <div class="fb"><h4>3. 價值分析</h4>
+      <div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">3. 價值分析</h4>
         <span class="fl"><span class="v">內含價值</span> <span class="o">=</span> ${isCall ? `Max(0, 標的(${fmt(ul,2)}) − 履約價(${fmt(strike,2)}))` : `Max(0, 履約價(${fmt(strike,2)}) − 標的(${fmt(ul,2)}))`} <span class="o">=</span> <span class="r">${fmt(iv,2)}</span></span>
         <span class="fl"><span class="v">時間價值</span> <span class="o">=</span> 權利金(<span class="n">${fmt(prem,2)}</span>) <span class="o">−</span> 內含價值(<span class="n">${fmt(iv,2)}</span>) <span class="o">=</span> <span class="r">${fmt(tv,2)}</span></span>
         <span class="fl"><span class="v">價內外狀態</span> <span class="o">=</span> <span class="r">${money}</span>${oom > 0 ? `　價外值 = <span class="n">${fmt(oom,2)}</span>（賣方有利）` : ''}</span>
       </div>
-      <div class="fb"><h4>4. 損益平衡與風險</h4>
+      <div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">4. 損益平衡與風險</h4>
         <span class="fl"><span class="v">損益平衡點</span> <span class="o">=</span> ${isCall ? `履約價(${fmt(strike,2)}) + 權利金(${fmt(prem,2)})` : `履約價(${fmt(strike,2)}) − 權利金(${fmt(prem,2)})`} <span class="o">=</span> <span class="r">${fmt(be,2)}</span></span>
         <span class="fl"><span class="v">最大獲利</span> <span class="o">=</span> 全部權利金 <span class="o">=</span> <span class="r">${fM(totalPrem,cur)}</span></span>
         <span class="fl"><span class="v">最大虧損</span> <span class="o">=</span> <span class="r">${maxLoss}</span></span>
         <div class="fn">${isCall ? '標的超過' : '標的低於'} ${fmt(be,2)} 時開始虧損，賣方風險${isCall ? '無上限' : '極大'}！</div>
       </div>
-      ${expPL !== null ? `<div class="fb"><h4>5. 到期損益試算</h4>
+      ${expPL !== null ? `<div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">5. 到期損益試算</h4>
         <span class="fl"><span class="v">到期內含價值</span> <span class="o">=</span> ${isCall ? `Max(0, 結算價(${fmt(expP,2)}) − 履約價(${fmt(strike,2)}))` : `Max(0, 履約價(${fmt(strike,2)}) − 結算價(${fmt(expP,2)}))`} <span class="o">=</span> <span class="r">${fmt(isCall ? Math.max(0,expP-strike) : Math.max(0,strike-expP),2)}</span></span>
         <span class="fl"><span class="v">到期損益</span> <span class="o">=</span> (權利金(<span class="n">${fmt(prem,2)}</span>) <span class="o">−</span> 到期內含值(<span class="n">${fmt(isCall ? Math.max(0,expP-strike) : Math.max(0,strike-expP),2)}</span>)) <span class="o">×</span> 乘數(<span class="n">${fmt(mul)}</span>) <span class="o">×</span> 口數(<span class="n">${qty}</span>) <span class="o">=</span> <span class="r">${(expPL>=0?'+':'')}${fM(expPL,cur)}</span></span>
-        <span class="fl"><span class="v">報酬率(對保證金)</span> <span class="o">=</span> 損益(<span class="n">${(expPL>=0?'+':'')}${fM(expPL,cur)}</span>) <span class="o">÷</span> 保證金(<span class="n">${fM(totalMargin,cur)}</span>) <span class="o">=</span> <span class="r">${(expPL/totalMargin*100).toFixed(1)}%</span></span>
+        <span class="fl"><span class="v">報酬率(對保證金)</span> <span class="o">=</span> 損益(<span class="n">${(expPL>=0?'+':'')}${fM(expPL,cur)}</span>) <span class="o">÷</span> 保證金(<span class="n">${fM(totalMargin,cur)}</span>) <span class="o">=</span> <span class="r">${totalMargin > 0 ? fP(expPL/totalMargin*100, 1) : '—'}</span></span>
       </div>` : ''}
-      <div class="fb"><h4>${expPL !== null ? '6' : '5'}. 期貨商處置流程（賣方）</h4>
+      <div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">${expPL !== null ? '6' : '5'}. 期貨商處置流程（賣方）</h4>
         <span class="fl">① <span class="v">保證金不足</span>：當市場不利變動導致帳戶權益低於<strong>維持保證金</strong>時，期貨商盤後發出<strong>追繳通知</strong>，須在<strong>次一營業日中午 12:00 前</strong>補繳至原始保證金水位。</span>
         <span class="fl">② <span class="v">逾期未補繳</span>：期貨商可<strong>代為沖銷</strong>（強制平倉）賣方部位。</span>
         <span class="fl">③ <span class="v">風險指標 ≤ 25%</span>：期貨商可<strong>不另通知、立即砍倉</strong>，盤中即時執行。</span>
         <span class="fl">④ <span class="v">到期結算</span>：到期時若為<strong>價內</strong>，賣方需支付內含價值差額（自動現金結算）；若為<strong>價外</strong>，賣方保留全部權利金。</span>
-        <span class="fl">⑤ <span class="v">賣方特有風險</span>：${isCall ? 'Call 賣方虧損理論上<strong>無上限</strong>（標的可無限上漲）' : 'Put 賣方虧損可達 ' + fM((strike-prem)*mul*qty, cur) + '（標的跌至0）'}，且保證金會隨市場波動而<strong>動態調整</strong>（SPAN 模型），可能需要額外補繳。</span>
+        <span class="fl">⑤ <span class="v">賣方特有風險</span>：${isCall ? 'Call 賣方虧損理論上<strong>無上限</strong>（標的可無限上漲）' : 'Put 賣方虧損可達 ' + fM(Math.max(0,(strike-prem)*mul*qty), cur) + '（標的跌至0）'}，且保證金會隨市場波動而<strong>動態調整</strong>（SPAN 模型），可能需要額外補繳。</span>
         <div class="fn">實際追繳時限與砍倉門檻以各期貨商風控規則為準。賣方風險極大，請務必做好資金管理。</div>
       </div>
     </div>`;
@@ -7224,6 +7381,10 @@ document.addEventListener('keydown', e => {
     const t = _getToast();
     t.textContent = msg;
     t.className = 'network-toast ' + (type || '');
+    // 錯誤/失敗類訊息以 alert + assertive 強制螢幕報讀器立即播報；一般狀態維持 polite。
+    const assertive = /\b(error|fail)\b/i.test(type || '');
+    t.setAttribute('role', assertive ? 'alert' : 'status');
+    t.setAttribute('aria-live', assertive ? 'assertive' : 'polite');
     t.classList.add('show');
     clearTimeout(t._timer);
     t._timer = setTimeout(() => t.classList.remove('show'), 3500);
@@ -7315,13 +7476,21 @@ document.addEventListener('click', e => {
 // ================================================================
 //  COLLAPSIBLE FORMULA SECTIONS
 // ================================================================
-document.addEventListener('click', e => {
-  const h4 = e.target.closest('.fb > h4');
-  if (!h4) return;
+function _toggleFormulaSection(h4) {
   const fb = h4.parentElement;
   if (fb && fb.classList.contains('fb')) {
-    fb.classList.toggle('collapsed');
+    const collapsed = fb.classList.toggle('collapsed');
+    h4.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
   }
+}
+document.addEventListener('click', e => {
+  const h4 = e.target.closest('.fb > h4');
+  if (h4) _toggleFormulaSection(h4);
+});
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const h4 = e.target.closest('.fb > h4');
+  if (h4) { e.preventDefault(); _toggleFormulaSection(h4); }
 });
 
 // ================================================================
@@ -7343,7 +7512,23 @@ document.addEventListener('click', e => {
     clearTimeout(_stDebounce);
     _stDebounce = setTimeout(bindScrollIndicators, 150);
   });
-  observer.observe(document.body, { childList: true, subtree: true });
+  // 僅觀察各計算器的結果容器（.st-wrap 壓力表只會注入這些容器），
+  // 不再監聽整個 document.body，避免無關 DOM 變動觸發空轉。
+  const _observeResults = () => {
+    const targets = ['#margin-results', '#futures-results', '#options-results', '#crypto-results'];
+    let bound = 0;
+    targets.forEach(sel => {
+      const el = document.querySelector(sel);
+      if (el) { observer.observe(el, { childList: true, subtree: true }); bound++; }
+    });
+    return bound;
+  };
+  // 容器可能在 DOMContentLoaded 後才存在；若初次未綁定到任何容器則延後重試一次。
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => { if (!_observeResults()) setTimeout(_observeResults, 500); }, { once: true });
+  } else if (!_observeResults()) {
+    setTimeout(_observeResults, 500);
+  }
 })();
 
 // ================================================================
@@ -7377,15 +7562,26 @@ const CRYPTO_PAIRS = [
 window.CRYPTO_PAIRS = CRYPTO_PAIRS;
 
 function renderCryptoForm() {
-  const { mode, direction } = S.crypto;
-  const isPerp = mode === 'perp';
+  const isPerp = S.crypto.mode === 'perp';
+  // 現貨無法做空：spot 模式強制 long，並隱藏做空 toggle（合約模式維持原行為）
+  if (!isPerp && S.crypto.direction === 'short') { S.crypto.direction = 'long'; _saveState(); }
+  const { direction } = S.crypto;
   const long = direction === 'long';
+  const dirGroup = $('.toggle-group[data-group="crypto-direction"]');
+  if (dirGroup) {
+    dirGroup.style.display = isPerp ? '' : 'none';
+    $$('.toggle-btn', dirGroup).forEach(b => {
+      const on = b.dataset.value === direction;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+  }
 
   const pairOpts = CRYPTO_PAIRS.map(p => `<option value="${p.symbol}">${p.base}/${p.quote} — ${p.name}</option>`).join('');
 
   // ── Section 1: 商品 ──
   let h = secStart('product', '交易對') + `
-    <div class="fg"><label>交易對</label>
+    <div class="fg"><label for="c-pair">交易對</label>
       <select id="c-pair">${pairOpts}</select>
     </div>
   ` + secEnd();
@@ -7393,18 +7589,18 @@ function renderCryptoForm() {
   // ── Section 2: 價格與數量 ──
   h += secStart('price', '價格與數量') + `
     <div class="fr">
-      <div class="fg"><label>進場價格 <span class="hint">(USDT)</span></label><input type="number" id="c-entry" placeholder="進場價格" step="any"></div>
-      <div class="fg"><label>目前價格 <span class="hint">(留空=同進場)</span></label><input type="number" id="c-current" placeholder="目前價格" step="any"></div>
+      <div class="fg"><label for="c-entry">進場價格 <span class="hint">(USDT)</span></label><input type="number" id="c-entry" placeholder="進場價格" min="0" step="any"></div>
+      <div class="fg"><label for="c-current">目前價格 <span class="hint">(留空=同進場)</span></label><input type="number" id="c-current" placeholder="目前價格" min="0" step="any"></div>
     </div>
-    <div class="fg"><label>即時報價 <span class="hint">(Binance)</span></label>
+    <div class="fg"><label for="c-live-price">即時報價 <span class="hint">(Binance)</span></label>
       <div style="display:flex;align-items:center;gap:6px">
         <input type="text" id="c-live-price" class="fg-readonly" readonly placeholder="尚未取得" style="flex:1">
         <button type="button" class="ticker-fill-btn" id="c-fetch-price">更新報價</button>
       </div>
     </div>
     <div class="fr">
-      <div class="fg"><label>數量 <span class="hint">(幣數)</span></label><input type="number" id="c-qty" placeholder="0.1" step="any"></div>
-      <div class="fg"><label>投入金額 <span class="hint">(USDT，或填數量)</span></label><input type="number" id="c-invest" placeholder="1000" step="any"></div>
+      <div class="fg"><label for="c-qty">數量 <span class="hint">(幣數)</span></label><input type="number" id="c-qty" placeholder="0.1" min="0" step="any"></div>
+      <div class="fg"><label for="c-invest">投入金額 <span class="hint">(USDT，或填數量)</span></label><input type="number" id="c-invest" placeholder="1000" min="0" step="any"></div>
     </div>
   ` + secEnd();
 
@@ -7412,18 +7608,18 @@ function renderCryptoForm() {
     // ── Section 3: 合約設定 ──
     h += secStart('margin', '合約設定') + `
     <div class="fr">
-      <div class="fg"><label>槓桿倍數</label><select id="c-leverage">
+      <div class="fg"><label for="c-leverage">槓桿倍數</label><select id="c-leverage">
         <option value="1">1x</option><option value="2">2x</option><option value="3">3x</option>
         <option value="5">5x</option><option value="10" selected>10x</option><option value="20">20x</option>
         <option value="25">25x</option><option value="50">50x</option><option value="75">75x</option>
         <option value="100">100x</option><option value="125">125x</option>
       </select></div>
-      <div class="fg"><label>保證金模式</label><select id="c-margin-mode">
+      <div class="fg"><label for="c-margin-mode">保證金模式</label><select id="c-margin-mode">
         <option value="cross">全倉 Cross</option><option value="isolated" selected>逐倉 Isolated</option>
       </select></div>
     </div>
-    <div class="fg"><label>錢包餘額 <span class="hint">(USDT，全倉模式用)</span></label><input type="number" id="c-wallet" placeholder="10000" step="any"></div>
-    <div class="fg"><label>資金費率 <span class="hint">(每8hr, 如 0.01%)</span></label>
+    <div class="fg"><label for="c-wallet">錢包餘額 <span class="hint">(USDT，全倉模式用)</span></label><input type="number" id="c-wallet" placeholder="10000" step="any"></div>
+    <div class="fg"><label for="c-funding">資金費率 <span class="hint">(每8hr, 如 0.01%)</span></label>
       <div class="isuf"><input type="number" id="c-funding" value="0.01" step="any"><span class="suf">%</span></div>
     </div>
     ` + secEnd();
@@ -7432,10 +7628,10 @@ function renderCryptoForm() {
   // ── Section 4: 費用設定 (可收合) ──
   h += secAdvStart('settings', '費用設定', true) + `
     <div class="fr">
-      <div class="fg"><label>Maker 手續費</label><div class="isuf"><input type="number" id="c-fee-maker" value="0.02" step="any"><span class="suf">%</span></div></div>
-      <div class="fg"><label>Taker 手續費</label><div class="isuf"><input type="number" id="c-fee-taker" value="0.05" step="any"><span class="suf">%</span></div></div>
+      <div class="fg"><label for="c-fee-maker">Maker 手續費</label><div class="isuf"><input type="number" id="c-fee-maker" value="0.02" step="any"><span class="suf">%</span></div></div>
+      <div class="fg"><label for="c-fee-taker">Taker 手續費</label><div class="isuf"><input type="number" id="c-fee-taker" value="0.05" step="any"><span class="suf">%</span></div></div>
     </div>
-    <div class="fg"><label>掛單類型</label><select id="c-order-type">
+    <div class="fg"><label for="c-order-type">掛單類型</label><select id="c-order-type">
       <option value="taker">Taker (吃單)</option><option value="maker">Maker (掛單)</option>
     </select></div>
   ` + secAdvEnd();
@@ -7470,15 +7666,23 @@ async function fetchCryptoPrice() {
   if (liveEl) liveEl.value = '取得中...';
   try {
     let price;
+    const base = pair.replace(/USDT$/i, '');
     if (CFG.cryptoSource === 'yahoo') {
-      const base = pair.replace(/USDT$/i, '');
       const q = await PriceService.yahoo.fetchQuote(base + '-USD');
       price = q.price;
     } else {
-      const url = `https://api.binance.com/api/v3/ticker/price?symbol=${pair}`;
-      const r = await PriceService._proxyFetch(url, 5000);
-      const data = await r.json();
-      price = parseFloat(data.price);
+      try {
+        const url = `https://api.binance.com/api/v3/ticker/price?symbol=${pair}`;
+        const r = await PriceService._proxyFetch(url, 5000);
+        const data = await r.json();
+        price = parseFloat(data.price);
+        if (!(price > 0)) throw new Error('Binance 無有效報價');
+      } catch (be) {
+        // Binance 被地理封鎖或代理失敗時，回退 Yahoo
+        console.debug('[Prism] Binance crypto fetch failed, fallback Yahoo:', be.message);
+        const q = await PriceService.yahoo.fetchQuote(base + '-USD');
+        price = q.price;
+      }
     }
     if (liveEl) liveEl.value = price;
     // Auto-fill entry if empty
@@ -7507,6 +7711,11 @@ function calcCrypto() {
   const isPerp = mode === 'perp';
   const long = direction === 'long';
 
+  // 加密價格顯示小數位：依量級動態，低價幣(<1)提高精度避免顯示成 0.00。
+  // 僅影響顯示精度，內部 PnL 計算仍用原始數值。
+  const cDec = (p) => { const a = Math.abs(p); return a >= 1 ? 2 : a >= 0.01 ? 4 : a >= 0.0001 ? 6 : 8; };
+  const cP = (p) => fmt(p, cDec(p));
+
   const entry = gV('c-entry');
   let curr = gV('c-current');
   if (!curr) {
@@ -7517,7 +7726,7 @@ function calcCrypto() {
   const invest = gV('c-invest');
   // Derive qty from invest if qty is empty
   if (!qty && invest > 0 && entry > 0) qty = invest / entry;
-  if (!entry || !qty) { $('#crypto-results').innerHTML = PLACEHOLDER; return; }
+  if (!validatePositive('#crypto-results', [entry, qty])) return;
 
   const leverage = isPerp ? (gV('c-leverage') || 10) : 1;
   const orderType = gVraw('c-order-type') || 'taker';
@@ -7538,14 +7747,19 @@ function calcCrypto() {
   const exitFee = curValue * feeRate;
   const totalFees = entryFee + exitFee;
 
-  // 資金費率 (合約)
-  let fundingCost = 0;
+  // 資金費率 (合約) — 單次結算(每8hr)。依方向決定付出/收取：
+  //   正費率：多方付空方；負費率：空方付多方。
+  //   fundingFlow > 0 表示交易者「付出」(計為成本，扣損益)；< 0 表示「收取」(計為收入，加損益)
+  let fundingMagnitude = 0;  // 金額大小（含正負，反映費率正負）
+  let fundingFlow = 0;       // 對交易者的現金流向（正=付出）
   if (isPerp) {
     const fundingRate = (gV('c-funding') || 0.01) / 100;
-    fundingCost = curValue * fundingRate; // 每8小時
+    fundingMagnitude = curValue * fundingRate; // 每8小時，依費率帶正負號
+    fundingFlow = (long ? 1 : -1) * fundingMagnitude; // long 付出為正、short 收取為負
   }
 
-  const netPL = rawPL - totalFees;
+  // 淨損益：扣手續費，並依方向納入資金費(付出扣除、收取加回)
+  const netPL = rawPL - totalFees - fundingFlow;
   const netROE = margin > 0 ? (netPL / margin * 100) : 0;
 
   // 強平價格 (合約)
@@ -7554,11 +7768,11 @@ function calcCrypto() {
     const marginMode = gVraw('c-margin-mode') || 'isolated';
     const mmRate = 0.004; // 維持保證金率 0.4% (Binance default for BTC)
     if (marginMode === 'isolated') {
-      // 逐倉強平: margin + UPL = mmRate * posValue_at_liq
-      // long: margin + (liq - entry)*qty = mmRate * liq * qty
-      // liq * qty * (1 - mmRate) = entry*qty - margin  → wrong
-      // Correct: liq = entry * (1 - 1/leverage + mmRate) for long
-      //          liq = entry * (1 + 1/leverage - mmRate) for short
+      // 逐倉強平（一階近似）：margin + UPL ≈ mmRate * posValue
+      //   long:  liq ≈ entry * (1 - 1/leverage + mmRate)
+      //   short: liq ≈ entry * (1 + 1/leverage - mmRate)
+      // 註：此為簡化近似式（未含手續費/精確 posValue_at_liq），與交易所公式有 sub-basis-point 差異，
+      //     實際強平價格請以交易所顯示為準（見計算公式分頁說明）。
       if (long) {
         liqPrice = entry * (1 - 1 / leverage + mmRate);
       } else {
@@ -7608,33 +7822,36 @@ function calcCrypto() {
     <div class="mg">
       ${mgLabel('部位資訊')}
       ${mc('交易對', `${pairInfo.base}/${pairInfo.quote}`, `${long ? '做多' : '做空'} ${mode === 'spot' ? '現貨' : '合約'}`)}
-      ${mc('進場價格', fmt(entry, 2) + ' USDT', '')}
+      ${mc('進場價格', cP(entry) + ' USDT', '')}
       ${mc('數量', fmt(qty, 6) + ' ' + pairInfo.base, `≈ ${fM(posValue, 'USDT', 2)}`)}
       ${isPerp ? mc('槓桿', leverage + 'x', `名義價值 ${fM(posValue, 'USDT', 2)}`) : ''}
       ${mc('保證金 / 投入', fM(margin, 'USDT', 2), isPerp ? `倉位 ÷ ${leverage}x` : '現貨全額')}
       ${mgLabel('損益')}
-      ${mc('未實現損益', plS + fM(rawPL, 'USDT', 2), `${long ? '(' : '('}${fmt(curr, 2)} − ${fmt(entry, 2)}) × ${fmt(qty, 6)}`, plH)}
+      ${mc('未實現損益', plS + fM(rawPL, 'USDT', 2), `${long ? '(' : '('}${cP(curr)} − ${cP(entry)}) × ${fmt(qty, 6)}`, plH)}
       ${mc('ROE (保證金報酬率)', (netROE >= 0 ? '+' : '') + fP(netROE), `淨損益 ÷ 保證金`, netROE >= 0 ? 'h-green' : 'h-red')}
       ${isPerp ? `${mgLabel('風險警示')}
-      ${mc('強平價格', fmt(liqPrice, 2) + ' USDT', distToLiq > 0 ? `距目前 ${fmt(distToLiq, 2)} USDT (${fP(distToLiqPct)})` : '已爆倉!', distToLiqPct <= 5 ? 'h-red' : 'h-yellow')}
-      ${mc('資金費率', fP((gV('c-funding') || 0.01)), `每8hr ≈ ${fM(fundingCost, 'USDT', 2)}`)}` : ''}
+      ${mc('強平價格', cP(liqPrice) + ' USDT', distToLiq > 0 ? `距目前 ${cP(distToLiq)} USDT (${fP(distToLiqPct)})` : '已爆倉!', distToLiqPct <= 5 ? 'h-red' : 'h-yellow')}
+      ${mc('資金費率', fP((gV('c-funding') || 0.01)), `每8hr ${fundingFlow >= 0 ? '付出' : '收取'} ≈ ${fM(Math.abs(fundingMagnitude), 'USDT', 2)}`)}` : ''}
     </div>
     ${costTable([
       { name: '進場手續費', detail: `${fM(posValue, 'USDT', 2)} × ${fP(feeRate * 100)}`, amt: fM(entryFee, 'USDT', 2) },
       { name: '出場手續費', detail: `${fM(curValue, 'USDT', 2)} × ${fP(feeRate * 100)}`, amt: fM(exitFee, 'USDT', 2) },
-      ...(isPerp ? [{ name: '資金費率(每8hr)', detail: `${fM(curValue, 'USDT', 2)} × ${fP((gV('c-funding') || 0.01))}`, amt: fM(fundingCost, 'USDT', 2) }] : []),
+      ...(isPerp ? [{ name: `資金費率(每8hr·${fundingFlow >= 0 ? '付出' : '收取'})`, detail: `${fM(curValue, 'USDT', 2)} × ${fP((gV('c-funding') || 0.01))}`, amt: (fundingFlow >= 0 ? '' : '−') + fM(Math.abs(fundingFlow), 'USDT', 2) }] : []),
     ],
-    fM(totalFees + (isPerp ? fundingCost : 0), 'USDT', 2),
+    fM(totalFees + (isPerp ? fundingFlow : 0), 'USDT', 2),
     { label: '淨損益(扣費後)', value: (netPL >= 0 ? '+' : '') + fM(netPL, 'USDT', 2), positive: netPL >= 0 }
     )}`;
 
   // Stress test
   const steps = [50, 30, 20, 15, 10, 8, 5, 3, 1, 0, -1, -3, -5, -8, -10, -15, -20, -30, -50];
   let sRows = '';
+  // 全倉模式的權益基準用錢包餘額（與強平判定一致），逐倉/現貨用保證金
+  const stressMode = isPerp ? (gVraw('c-margin-mode') || 'isolated') : 'isolated';
+  const eqBase = (isPerp && stressMode === 'cross') ? (gV('c-wallet') || margin) : margin;
   for (const p of steps) {
     const lv = entry * (1 + p / 100);
     const pl = long ? (lv - entry) * qty : (entry - lv) * qty;
-    const eq = margin + pl;
+    const eq = eqBase + pl;
     const r = margin > 0 ? (pl / margin * 100) : 0;
     let st = '', rc = '', sc = 'sb-s';
     if (isPerp && lv > 0) {
@@ -7648,31 +7865,31 @@ function calcCrypto() {
       if (eq <= 0) { rc = 'rf'; sc = 'sb-x'; }
     }
     if (p === 0) rc = 'rc';
-    sRows += `<tr class="${rc}"><td>${p > 0 ? '+' : ''}${p}%</td><td>${fmt(lv, 2)}</td><td class="${pl >= 0 ? 'tg' : 'tr'}">${pl >= 0 ? '+' : ''}${fM(pl, 'USDT', 2)}</td><td>${fM(eq, 'USDT', 2)}</td><td class="${r >= 0 ? 'tg' : 'tr'}">${r >= 0 ? '+' : ''}${fP(r)}</td><td><span class="sb ${sc}">${st}</span></td></tr>`;
+    sRows += `<tr class="${rc}"><td>${p > 0 ? '+' : ''}${p}%</td><td>${cP(lv)}</td><td class="${pl >= 0 ? 'tg' : 'tr'}">${pl >= 0 ? '+' : ''}${fM(pl, 'USDT', 2)}</td><td>${fM(eq, 'USDT', 2)}</td><td class="${r >= 0 ? 'tg' : 'tr'}">${r >= 0 ? '+' : ''}${fP(r)}</td><td><span class="sb ${sc}">${st}</span></td></tr>`;
   }
   const stress = `<div class="st-wrap"><table class="st"><thead><tr><th>漲跌</th><th>價格</th><th>損益</th><th>${isPerp ? '保證金餘額' : '持倉價值'}</th><th>ROE</th><th>狀態</th></tr></thead><tbody>${sRows}</tbody></table></div>`;
 
   const formula = `<div class="fc">
-    <div class="fb"><h4>1. 部位計算</h4>
-      <span class="fl"><span class="v">名義價值</span> <span class="o">=</span> 進場價格(<span class="n">${fmt(entry,2)}</span>) <span class="o">×</span> 數量(<span class="n">${fmt(qty,6)}</span>) <span class="o">=</span> <span class="r">${fM(posValue,'USDT',2)}</span></span>
+    <div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">1. 部位計算</h4>
+      <span class="fl"><span class="v">名義價值</span> <span class="o">=</span> 進場價格(<span class="n">${cP(entry)}</span>) <span class="o">×</span> 數量(<span class="n">${fmt(qty,6)}</span>) <span class="o">=</span> <span class="r">${fM(posValue,'USDT',2)}</span></span>
       <span class="fl"><span class="v">${isPerp ? '保證金' : '投入金額'}</span> <span class="o">=</span> 名義價值(<span class="n">${fM(posValue,'USDT',2)}</span>) <span class="o">÷</span> 槓桿(<span class="n">${leverage}x</span>) <span class="o">=</span> <span class="r">${fM(margin,'USDT',2)}</span></span>
     </div>
-    <div class="fb"><h4>2. 損益</h4>
+    <div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">2. 損益</h4>
       <span class="fl"><span class="v">未實現損益</span> <span class="o">=</span> (${long ? '目前' : '進場'}價格 <span class="o">−</span> ${long ? '進場' : '目前'}價格) <span class="o">×</span> 數量</span>
-      <span class="fl"><span class="o">=</span> (${fmt(long?curr:entry,2)} <span class="o">−</span> ${fmt(long?entry:curr,2)}) <span class="o">×</span> ${fmt(qty,6)} <span class="o">=</span> <span class="r">${plS}${fM(rawPL,'USDT',2)}</span></span>
-      <span class="fl"><span class="v">ROE</span> <span class="o">=</span> 損益(<span class="n">${plS}${fM(rawPL,'USDT',2)}</span>) <span class="o">÷</span> 保證金(<span class="n">${fM(margin,'USDT',2)}</span>) <span class="o">=</span> <span class="r">${(roe >= 0 ? '+' : '') + fP(roe)}</span></span>
-      <div class="fn">ROE = 報酬率 × 槓桿倍數。${leverage}x 槓桿下，標的漲跌1%，ROE 變動${leverage}%</div>
+      <span class="fl"><span class="o">=</span> (${cP(long?curr:entry)} <span class="o">−</span> ${cP(long?entry:curr)}) <span class="o">×</span> ${fmt(qty,6)} <span class="o">=</span> <span class="r">${plS}${fM(rawPL,'USDT',2)}</span></span>
+      <span class="fl"><span class="v">毛 ROE</span> <span class="o">=</span> 損益(<span class="n">${plS}${fM(rawPL,'USDT',2)}</span>) <span class="o">÷</span> 保證金(<span class="n">${fM(margin,'USDT',2)}</span>) <span class="o">=</span> <span class="r">${(roe >= 0 ? '+' : '') + fP(roe)}</span></span>
+      <div class="fn">毛 ROE = 報酬率 × 槓桿倍數。${leverage}x 槓桿下，標的漲跌1%，毛 ROE 變動${leverage}%。扣除手續費${isPerp ? '與資金費' : ''}後的「淨 ROE」見上方風險概覽。</div>
     </div>
-    ${isPerp ? `<div class="fb"><h4>3. 強平價格 (逐倉)</h4>
+    ${isPerp ? `<div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">3. 強平價格 (逐倉)</h4>
       <span class="fl"><span class="v">做多強平</span> <span class="o">=</span> 進場價格 <span class="o">×</span> (1 <span class="o">−</span> 1/槓桿 <span class="o">+</span> 維持保證金率)</span>
-      <span class="fl"><span class="o">=</span> ${fmt(entry,2)} <span class="o">×</span> (1 − 1/${leverage} + 0.4%) <span class="o">=</span> <span class="r">${fmt(liqPrice,2)} USDT</span></span>
+      <span class="fl"><span class="o">=</span> ${cP(entry)} <span class="o">×</span> (1 − 1/${leverage} + 0.4%) <span class="o">=</span> <span class="r">${cP(liqPrice)} USDT</span></span>
       <div class="fn">維持保證金率依交易所和倉位大小而異，此處以 Binance 預設 0.4% 估算。<br>實際強平價格請以交易所顯示為準。</div>
     </div>
-    <div class="fb"><h4>4. 資金費率</h4>
-      <span class="fl"><span class="v">每次資金費</span> <span class="o">=</span> 倉位價值(<span class="n">${fM(curValue,'USDT',2)}</span>) <span class="o">×</span> 費率(<span class="n">${fP((gV('c-funding')||0.01))}</span>) <span class="o">=</span> <span class="r">${fM(fundingCost,'USDT',2)}</span></span>
-      <div class="fn">永續合約每 8 小時結算一次資金費率。正費率：多方付空方；負費率：空方付多方。</div>
+    <div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">4. 資金費率</h4>
+      <span class="fl"><span class="v">每次資金費</span> <span class="o">=</span> 倉位價值(<span class="n">${fM(curValue,'USDT',2)}</span>) <span class="o">×</span> 費率(<span class="n">${fP((gV('c-funding')||0.01))}</span>) <span class="o">=</span> <span class="r">${fM(Math.abs(fundingMagnitude),'USDT',2)}</span> (${long ? '做多' : '做空'}${fundingFlow >= 0 ? '付出' : '收取'})</span>
+      <div class="fn">永續合約每 8 小時結算一次資金費率。正費率：多方付空方；負費率：空方付多方。本計算以單次結算估算，已依方向納入淨損益。</div>
     </div>` : ''}
-    <div class="fb"><h4>${isPerp ? '5' : '3'}. 手續費</h4>
+    <div class="fb"><h4 role="button" tabindex="0" aria-expanded="true">${isPerp ? '5' : '3'}. 手續費</h4>
       <span class="fl"><span class="v">進場手續費</span> <span class="o">=</span> 名義價值(<span class="n">${fM(posValue,'USDT',2)}</span>) <span class="o">×</span> ${orderType === 'maker' ? 'Maker' : 'Taker'}費率(<span class="n">${fP(feeRate*100)}</span>) <span class="o">=</span> <span class="r">${fM(entryFee,'USDT',2)}</span></span>
       <span class="fl"><span class="v">出場手續費</span> <span class="o">=</span> 名義價值(<span class="n">${fM(curValue,'USDT',2)}</span>) <span class="o">×</span> 費率 <span class="o">=</span> <span class="r">${fM(exitFee,'USDT',2)}</span></span>
     </div>
@@ -7714,7 +7931,12 @@ window._getCalcParamsForRecord = function(tab) {
     params.market = 'crypto';
     params.type = S.crypto.mode === 'perp' ? 'crypto_contract' : 'stock';
     const entry = gV('c-entry');
-    const qty = gV('c-qty');
+    let qty = gV('c-qty');
+    // 與 calcCrypto 一致：c-qty 為空時由投入金額推導，避免「僅輸入投入金額」者被 saveTrade 正數驗證誤擋
+    if (!qty) {
+      const invest = gV('c-invest');
+      if (invest > 0 && entry > 0) qty = invest / entry;
+    }
     if (entry) params.entry_price = entry;
     if (qty) params.quantity = qty;
     const pair = gVraw('c-pair');

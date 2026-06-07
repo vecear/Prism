@@ -153,7 +153,9 @@
     // 對大 n 不適合，但對 n < 300 足夠
     const M = L.map(row => row.map(v => -v));   // 取最大 -L 即等同最小 L
     for (let i = 0; i < n; i++) M[i][i] += 2;   // shift 確保正定
-    const vecs = _topKEigen(M, k);
+    const seed = opts.seed != null ? opts.seed : 42;
+    const rng = mulberry32(seed);               // seeded：確保 power iteration 初始向量可重現
+    const vecs = _topKEigen(M, k, 80, rng);
     // 行標準化
     const rows = vecs.map(row => {
       const norm = Math.sqrt(row.reduce((s, v) => s + v * v, 0)) || 1;
@@ -183,11 +185,12 @@
     return r;
   }
 
-  function _topKEigen(M, k, iters = 80) {
+  function _topKEigen(M, k, iters = 80, rng) {
+    const rand = typeof rng === 'function' ? rng : Math.random;
     const n = M.length;
     const vecs = [];
     for (let p = 0; p < k; p++) {
-      let v = new Array(n).fill(0).map(() => Math.random() - 0.5);
+      let v = new Array(n).fill(0).map(() => rand() - 0.5);
       for (let it = 0; it < iters; it++) {
         // Deflate against previous eigenvectors
         for (const u of vecs) {
@@ -199,6 +202,13 @@
         let norm = Math.sqrt(v.reduce((s, x) => s + x * x, 0)) || 1;
         v = v.map(x => x / norm);
       }
+      // 符號正規化：令第一個非零分量為正，消除 power iteration 的任意符號歧義
+      // 以穩定下游 kmeans 的輸入（特徵向量正負號不影響其作為特徵的有效性）
+      let sign = 1;
+      for (let i = 0; i < n; i++) {
+        if (Math.abs(v[i]) > 1e-9) { sign = v[i] < 0 ? -1 : 1; break; }
+      }
+      if (sign < 0) v = v.map(x => -x);
       vecs.push(v);
     }
     // Transpose: rows = data points, cols = eigenvectors

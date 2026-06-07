@@ -29,7 +29,8 @@ Prism/
 ├── schema.sql                        # D1 Schema 參考文件（實際遷移在 _worker.js 中）
 ├── manifest.json                     # PWA manifest
 ├── favicon.svg                       # SVG favicon
-├── wrangler.toml                     # Cloudflare 設定（D1 binding）
+├── wrangler.toml                     # Cloudflare 設定（D1 binding + 選用 RATE_LIMIT_KV 綁定範本）
+├── _headers                          # Cloudflare Pages 安全標頭（套用於 HTML 頁面的 CSP/X-Frame-Options/HSTS 等）
 ├── scripts/
 │   └── prism-parse-import.mjs        # 券商交易檔解析器（元大/元富/群益）
 └── start.bat                         # Windows 一鍵啟動 local-only 模式
@@ -52,7 +53,7 @@ Prism/
 | Auth（雲端） | `js/journal.js` → header auth UI | JWT token 存 localStorage |
 | 雲端 API 路由 | `_worker.js` → `export default { fetch }` | 路由分發在底部 Router 區段 |
 | 本機 API + 靜態服務 | `server.js` → `routeXxx()` + 靜態檔案 fallback | HTML/sw.js 強制 no-cache |
-| DB 自動遷移（雲端） | `_worker.js` → `ensureDB()` | v1~v11 累積遷移 |
+| DB 自動遷移（雲端） | `_worker.js` → `ensureDB()` | v1~v12 累積遷移 |
 | 密碼雜湊/JWT | `_worker.js` | 內建實作 |
 | 券商交易檔解析 | `scripts/prism-parse-import.mjs` | 元大 CSV / 元富 HTML-XLS / 群益 XLSX → FIFO 配對 |
 
@@ -79,7 +80,7 @@ npm run deploy   # 部署到 Cloudflare Pages
 `_worker.js` 是 Cloudflare Pages Advanced Mode 的唯一進入點。所有雲端 API handler 都寫在這個檔案裡。不使用 `/functions` 目錄。
 
 ### D1 Migration Pattern
-新增資料表或欄位時，在 `_worker.js` 的 `ensureDB()` 函數中追加 `try { await db.prepare("ALTER TABLE...").run(); } catch {}` 區塊。使用遞增的 `// vN migration` 註解標記版本。**同時更新** `server.js` 的本地 schema。
+新增資料表或欄位時，在 `_worker.js` 的 `ensureDB()` 函數中追加 `try { await db.prepare("ALTER TABLE...").run(); } catch {}` 區塊。使用遞增的 `// vN migration` 註解標記版本。**同時更新** `server.js` 的本地 schema。最新為 `// v12`（`trades.close_date`，用於已實現損益依「平倉日」歸期：行事曆/日記/統計/dashboard 的已實現損益與行事曆日格下鑽以平倉日歸集，未平倉與筆數仍用進場日）。
 
 ### Design Token System (CSS Variables)
 所有 UI 樣式必須使用 design tokens，**不要硬編碼數值**：
@@ -94,7 +95,9 @@ npm run deploy   # 部署到 Cloudflare Pages
 | `--radius-sm/md/lg/xl/pill` | 圓角 (4/8/12/16/999 px) |
 | `--ctrl-sm/md/lg/xl` | 控件高度 (28/32/36/42 px) |
 | `--dur-fast/base/slow` | 動效 duration (0.1/0.15/0.25 s) |
-| `--shadow-sm/md/lg/pill/card/elevated` | 陰影（card / elevated 為 theme-aware）|
+| `--shadow-sm/md/lg/pill/card/elevated/sheet` | 陰影（card / elevated / sheet 為 theme-aware；sheet 為底部上掀面板向上投射）|
+| `--on-accent`、`--on-green`、`--on-red` | accent/green/red 底色上的前景文字色（深色主題覆寫為高對比，確保 WCAG AA）|
+| `--green-d/--red-d`（含各主題覆寫）| 損益框淡色背景 tint（FOUC fallback 亦一致）|
 | `--bg-hover`、`--border-focus`、`--text-disabled` | 語意 token |
 
 **深色主題**（dark/midnight/emerald）需透過 cascade override 補上 `--shadow-card` / `--shadow-elevated` / `--shadow-inset-highlight` 的冷色版。
@@ -213,6 +216,13 @@ npm run deploy   # 部署到 Cloudflare Pages
 | 變數 | 說明 | 設定位置 |
 |------|------|----------|
 | `JWT_SECRET` | JWT 簽名密鑰 | Cloudflare Pages → Settings → Environment Variables |
+| `FRED_API_KEY` | FRED 經濟數據 API 金鑰（信用利差/通膨預期報價；缺則該來源回 503）| Cloudflare Pages 環境變數 / 本機 `.env` |
+| `RATE_LIMIT_KV`（選用） | Cloudflare KV namespace 綁定，啟用跨實例認證限流；未綁定時 `_worker.js` 自動退回 in-memory 限流。建立：`wrangler kv namespace create RATE_LIMIT_KV`，再於 `wrangler.toml` 取消註解填入 id | `wrangler.toml` `[[kv_namespaces]]` |
+
+### 安全標頭與 CSP
+- 雲端 API 回應的安全標頭與 CSP 由 `_worker.js` `withCors()` 套用；**HTML 頁面**的安全標頭與 CSP 由根目錄 `_headers` 檔套用（Cloudflare Pages 原生機制）。
+- CSP `connect-src` 收斂為 `'self'` + `PROXY_ALLOWED` 白名單主機（取代過寬的 `https:`）；`_headers` 的 CSP 另含 Google Fonts（`fonts.googleapis.com`/`fonts.gstatic.com`）。**新增報價來源主機時，須同步 `_worker.js` `PROXY_ALLOWED`、`_worker.js` `CSP_HEADER`、`_headers` 三處。**
+- `_headers` 的 CSP 變更後建議於雲端部署後以瀏覽器 Network/Console 驗證未破壞字體與報價。
 
 ## CORS Configuration
 
@@ -265,7 +275,7 @@ chub annotate <id> "note"  # 儲存學習筆記
 - Auth token 存在 `localStorage` key `prism_token`，使用者資訊在 `prism_user_info`
 - 前端在 `file://` 或 `localhost` 時自動將 API 導向 `https://prism-7t8.pages.dev`（雲端模式才有效；本機模式 server.js 直接服務 API）
 - Service Worker 在 localhost 開發時自動取消註冊以避免快取問題
-- DB 遷移是累積式的（v1~v11），雲端模式每次 API 請求都會執行 `ensureDB()`（結果有快取）
+- DB 遷移是累積式的（v1~v12），雲端模式每次 API 請求都會執行 `ensureDB()`（結果有快取）
 - 本機模式的 `prism.db` 使用 SQLite WAL 模式，實際資料在 `prism.db-wal`
 
 ## Changelog Protocol
