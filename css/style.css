@@ -806,7 +806,9 @@ textarea.prism-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px 
 .j-modal input[type="email"]:not([class]),
 .j-modal input[type="password"]:not([class]),
 .j-modal select:not([class]),
-.j-modal textarea:not([class]) {
+.j-modal textarea:not([class]),
+/* classList.remove() 會殘留空 class="" 屬性，:not([class]) 失配 → 補 [class=""] 變體 */
+:is(.main-content, .modal, .j-modal) :is(input[type="text"], input[type="number"], input[type="date"], input[type="datetime-local"], input[type="time"], input[type="email"], input[type="password"], input[type="tel"], input[type="search"], input[type="url"], select, textarea)[class=""] {
   background: var(--bg1);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
@@ -829,12 +831,14 @@ textarea.prism-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px 
 .modal input[type="time"]:not([class]),
 .j-modal input[type="date"]:not([class]),
 .j-modal input[type="datetime-local"]:not([class]),
-.j-modal input[type="time"]:not([class]) {
+.j-modal input[type="time"]:not([class]),
+:is(.main-content, .modal, .j-modal) :is(input[type="date"], input[type="datetime-local"], input[type="time"])[class=""] {
   font-family: var(--sans);
 }
 .main-content textarea:not([class]),
 .modal textarea:not([class]),
-.j-modal textarea:not([class]) {
+.j-modal textarea:not([class]),
+:is(.main-content, .modal, .j-modal) textarea[class=""] {
   height: auto; min-height: 72px;
   padding: 10px 12px;
   font-family: var(--sans); font-size: 13px;
@@ -848,7 +852,8 @@ textarea.prism-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px 
 .modal textarea:not([class]):focus,
 .j-modal input:not([class]):focus,
 .j-modal select:not([class]):focus,
-.j-modal textarea:not([class]):focus {
+.j-modal textarea:not([class]):focus,
+:is(.main-content, .modal, .j-modal) :is(input, select, textarea)[class=""]:focus {
   border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-d);
 }
 .main-content input:not([class])::placeholder,
@@ -2144,10 +2149,11 @@ html[data-theme="paperDense"] select {
 .sym-name { color: var(--t2); font-size: 12px; }
 .sym-exch { font-size: 10px; color: var(--t3); margin-left: auto; }
 .mini-fetch-btn {
-  font-size: 10px; padding: 2px 6px;
+  font-size: 11px; padding: 4px 9px;
   background: var(--accent-bg); color: var(--accent);
   border: none; border-radius: var(--radius-sm); cursor: pointer;
   font-weight: 600;
+  white-space: nowrap; flex-shrink: 0; /* 防止在 flex 列被擠壓成直排文字 */
 }
 .margin-info {
   padding: 10px 12px;
@@ -2157,8 +2163,10 @@ html[data-theme="paperDense"] select {
 }
 
 /* ── Input row helpers (.fl .fc .fr .fb .fn .fg) ──────────── */
-.fl, .fc, .fr { display: flex; gap: var(--space-3); align-items: center; margin-bottom: 8px; }
+.fl, .fc, .fr { display: flex; gap: var(--space-5); align-items: center; margin-bottom: var(--space-4); }
 .fl { flex-direction: column; align-items: stretch; }
+/* 同列欄位頂端對齊：避免某欄下方有報價/提示文字時，鄰欄 label 被垂直置中推低 */
+.fr > .fg { align-self: flex-start; }
 .fb { display: block; margin-bottom: 8px; }
 
 /* ──────────────────────────────────────────────────────────
@@ -2396,9 +2404,12 @@ html[data-theme="paperDense"] select {
   font-size: 11px; color: var(--t3);
   margin-top: 4px;
 }
-.suf, .isuf {
-  font-size: 11px; color: var(--t3); margin-left: 6px;
+.suf {
+  font-size: 11px; color: var(--t3); flex: 0 0 auto;
 }
+/* 後綴單位容器：input 與 % / 元 等單位同列排版，避免單位掉到輸入框下方 */
+.isuf { display: flex; align-items: center; gap: var(--space-2); }
+.isuf input { flex: 1 1 auto; min-width: 0; }
 
 /* ── Generic grid (.grid) ─────────────────────────────────── */
 .grid { display: grid; gap: var(--space-4); }
@@ -3654,7 +3665,8 @@ html[data-theme="paperDense"] select {
 }
 .j-wr-text {
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-  font-family: var(--mono); font-weight: 700; font-size: 11px;
+  font-family: var(--mono); font-weight: 700; font-size: 10px;
+  letter-spacing: -0.3px; /* 44px 圓環內塞下「73.5%」不溢出 */
 }
 
 /* 數字動畫（避免 layout shift） */
@@ -3892,7 +3904,12 @@ html[data-theme="paperDense"] select {
   font-size: 12px; color: var(--t2); margin-bottom: 6px;
 }
 .j-sparkline-label { font-weight: 600; color: var(--t1); }
-.j-sparkline-range { color: var(--t3); font-size: 11px; font-family: var(--mono); }
+.j-sparkline-range {
+  display: flex; justify-content: space-between; gap: var(--space-4);
+  margin-top: var(--space-2);
+  color: var(--t3); font-size: 11px; font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
 
 /* ── Insight badges ──────────────────────────────────── */
 .j-insight-badges { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: 6px 22px; }
@@ -4153,14 +4170,17 @@ html[data-theme="paperDense"] select {
 .j-row:last-child td { border-bottom: 0; }
 .j-row:hover td { background: var(--bg2); }
 
-.j-td-date { font-family: var(--mono); color: var(--t2); white-space: nowrap; }
-.j-td-sym { min-width: 180px; }
+.j-td-date { font-family: var(--mono); color: var(--t2); white-space: nowrap; width: 1%; /* 收斂到內容寬，把空間讓給標的欄 */ }
+.j-td-sym { min-width: 200px; }
 .j-td-sym strong { font-size: 14px; color: var(--t1); font-weight: 700; margin-right: 4px; }
 .j-sym-row {
   display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1);
   line-height: 1.4;
 }
-.j-sym-name { display: block; color: var(--t3); font-size: 12px; margin-top: 2px; }
+.j-sym-name {
+  display: block; color: var(--t3); font-size: 12px; margin-top: 2px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 240px;
+}
 .j-dir-long {
   padding: 1px 6px; font-size: 10px; color: var(--green);
   background: var(--green-soft, rgba(22,163,74,.1)); border-radius: 3px; font-weight: 600;
@@ -4405,21 +4425,55 @@ html[data-theme="paperDense"] select {
   margin: var(--space-3) 0;
 }
 
-/* 表單格線（modal 內的 2-column form） */
+/* 表單格線（modal 內的 2-column form）
+   水平 padding 交給 .j-modal-body 統一控制，與後續 section 對齊 */
 .j-form-grid {
   display: grid; grid-template-columns: 1fr 1fr;
-  gap: var(--space-4) var(--space-5);
-  padding: var(--space-5);
+  gap: var(--space-6) var(--space-7);
+  padding: var(--space-5) 0;
 }
-.j-form-grid .j-fg { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
+.j-form-grid .j-fg { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
 .j-form-grid .j-fg.j-fg-wide { grid-column: 1 / -1; }
 .j-form-grid .j-fg label {
   font-size: var(--text-sm); color: var(--t3);
   font-weight: 500; letter-spacing: 0.2px;
 }
 @media (max-width: 600px) {
-  .j-form-grid { grid-template-columns: 1fr; gap: var(--space-3); padding: var(--space-4); }
+  .j-form-grid { grid-template-columns: 1fr; gap: var(--space-5); padding: var(--space-4) 0; }
 }
+
+/* 費用輸入 + 單位切換鈕（元/%） */
+.j-fee-input-wrap { display: flex; align-items: stretch; gap: var(--space-2); }
+.j-fee-input-wrap input { flex: 1 1 auto; min-width: 0; }
+.j-fee-mode-btn {
+  flex: 0 0 auto; min-width: 44px; padding: 0 var(--space-3);
+  background: var(--bg2); border: 1px solid var(--line); border-radius: var(--radius-md);
+  color: var(--t2); font-size: var(--text-sm); font-family: var(--mono);
+  cursor: pointer; transition: border-color var(--dur-base), color var(--dur-base);
+}
+.j-fee-mode-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+/* 交易覆盤評分（紀律/時機/倉位 1-5 + 定價階段） */
+.j-review-section {
+  background: var(--bg1); border: 1px solid var(--line);
+  border-radius: var(--radius-lg); padding: var(--space-6);
+  margin-bottom: var(--space-6);
+  display: flex; flex-direction: column; gap: var(--space-4);
+}
+.j-review-title { font-size: var(--text-sm); font-weight: 600; color: var(--t2); letter-spacing: .02em; }
+.j-review-scores { display: flex; flex-wrap: wrap; gap: var(--space-4) var(--space-8); }
+.j-review-item { display: flex; align-items: center; gap: var(--space-3); }
+.j-review-label { font-size: var(--text-sm); color: var(--t3); flex: 0 0 auto; }
+.j-review-picker { display: inline-flex; gap: var(--space-2); }
+.j-rv-dot {
+  width: var(--ctrl-sm); height: var(--ctrl-sm);
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--bg1); border: 1px solid var(--line); border-radius: var(--radius-md);
+  color: var(--t3); font-family: var(--mono); font-size: var(--text-sm);
+  cursor: pointer; transition: border-color var(--dur-base), background var(--dur-base), color var(--dur-base);
+}
+.j-rv-dot:hover { border-color: var(--accent); color: var(--accent); }
+.j-rv-dot.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 
 /* 自訂日期時間選擇器 */
 .j-dt-picker { position: relative; display: inline-block; width: 100%; }
