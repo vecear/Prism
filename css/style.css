@@ -106,6 +106,18 @@
   --shadow-elevated: 0 1px 2px rgba(0,0,0,0.04), 0 6px 16px -4px rgba(120,80,30,0.10), 0 24px 48px -16px rgba(120,80,30,0.12);
   --shadow-sheet: 0 -8px 24px rgba(120,80,30,0.16); /* upward-cast: bottom sheet lifts above content */
   --shadow-inset-highlight: inset 0 0 0 1px rgba(255,255,255,0.6);
+  /* ── Liquid Glass tokens（paper 暖調）──────────────────── */
+  --glass-bg: rgba(255,255,255,.58);          /* 一般玻璃面板 */
+  --glass-bg-strong: rgba(255,255,255,.78);   /* topbar/sidebar/modal 等需高可讀性 */
+  --glass-bg-btn: rgba(255,255,255,.5);       /* 按鈕底（不套 blur） */
+  --glass-brd: rgba(255,255,255,.55);         /* 玻璃高光邊 */
+  --glass-brd-soft: rgba(160,140,110,.25);    /* 外緣定義邊（paper 暖調） */
+  --glass-blur: 14px;
+  --glass-blur-sm: 8px;
+  --shadow-glass: 0 8px 32px -8px rgba(120,80,30,.14), inset 0 1px 0 rgba(255,255,255,.6);
+  --bg-mesh: radial-gradient(1100px 700px at 8% -10%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 60%),
+             radial-gradient(900px 600px at 105% 15%, rgba(120,160,255,.12), transparent 55%),
+             radial-gradient(800px 700px at 50% 115%, rgba(255,180,120,.12), transparent 55%);
   /* Modal / Sheet 遮罩底色（深色主題以 cascade 覆寫為更深） */
   --overlay: rgba(0,0,0,.48);
   /* Backwards-compat aliases */
@@ -131,6 +143,16 @@ html[data-theme="ivory"] {
   --green: #15803d; --green-soft: #dcfce7; --red: #b91c1c; --red-soft: #fee2e2;
   --green-d: rgba(21,128,61,.08); --red-d: rgba(185,28,28,.08);
   --amber: #b45309; --amber-soft: #fef3c7; --blue: #0c4a6e; --blue-soft: #e0f2fe;
+  /* Liquid Glass（奶油象牙：白玻璃偏暖黃） */
+  --glass-bg: rgba(255,253,246,.58);
+  --glass-bg-strong: rgba(255,253,246,.78);
+  --glass-bg-btn: rgba(255,253,246,.5);
+  --glass-brd: rgba(255,255,255,.55);
+  --glass-brd-soft: rgba(150,125,75,.25);
+  --shadow-glass: 0 8px 32px -8px rgba(120,90,20,.14), inset 0 1px 0 rgba(255,255,255,.6);
+  --bg-mesh: radial-gradient(1100px 700px at 8% -10%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 60%),
+             radial-gradient(900px 600px at 105% 15%, rgba(250,204,21,.10), transparent 55%),
+             radial-gradient(800px 700px at 50% 115%, rgba(217,170,90,.12), transparent 55%);
 }
 
 html[data-theme="paperDense"],
@@ -142,6 +164,16 @@ html[data-theme="compact"] {
   --green: #166534; --green-soft: #dcfce7; --red: #991b1b; --red-soft: #fee2e2;
   --green-d: rgba(22,101,52,.08); --red-d: rgba(153,27,27,.08);
   --amber: #b45309; --amber-soft: #fef3c7; --blue: #075985; --blue-soft: #e0f2fe;
+  /* Liquid Glass（緊湊紙感：白玻璃微沉色溫） */
+  --glass-bg: rgba(255,252,243,.6);
+  --glass-bg-strong: rgba(255,252,243,.8);
+  --glass-bg-btn: rgba(255,252,243,.5);
+  --glass-brd: rgba(255,255,255,.55);
+  --glass-brd-soft: rgba(145,115,70,.28);
+  --shadow-glass: 0 8px 32px -8px rgba(110,75,25,.15), inset 0 1px 0 rgba(255,255,255,.6);
+  --bg-mesh: radial-gradient(1100px 700px at 8% -10%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 60%),
+             radial-gradient(900px 600px at 105% 15%, rgba(190,140,80,.10), transparent 55%),
+             radial-gradient(800px 700px at 50% 115%, rgba(255,170,100,.10), transparent 55%);
 }
 
 /* Legacy dark themes (kept for backward compatibility when user chose dark mode) */
@@ -157,6 +189,16 @@ html[data-theme="dark"] {
   /* high-contrast text on light accent/green; red stays saturated enough for white */
   --on-accent: #1a1206; --on-green: #062012; --on-red: #fff;
   --shadow-pill: 0 1px 2px rgba(255,255,255,0.08);
+  /* Liquid Glass（經典深色：冷黑玻璃 + 深藍/紫微光 mesh） */
+  --glass-bg: rgba(22,30,42,.55);
+  --glass-bg-strong: rgba(22,30,42,.75);
+  --glass-bg-btn: rgba(255,255,255,.06);
+  --glass-brd: rgba(255,255,255,.09);
+  --glass-brd-soft: rgba(255,255,255,.07);
+  --shadow-glass: 0 8px 32px -8px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.05);
+  --bg-mesh: radial-gradient(1100px 700px at 8% -10%, rgba(96,116,255,.10), transparent 60%),
+             radial-gradient(900px 600px at 105% 15%, rgba(124,58,237,.10), transparent 55%),
+             radial-gradient(800px 700px at 50% 115%, rgba(251,146,60,.07), transparent 55%);
 }
 
 html[data-theme="midnight"] {
@@ -171,6 +213,16 @@ html[data-theme="midnight"] {
   /* high-contrast text on light accent/green; red stays saturated enough for white */
   --on-accent: #06182f; --on-green: #062012; --on-red: #fff;
   --shadow-pill: 0 1px 2px rgba(255,255,255,0.08);
+  /* Liquid Glass（午夜藍：深藍玻璃 + 藍青 mesh） */
+  --glass-bg: rgba(15,28,52,.55);
+  --glass-bg-strong: rgba(15,28,52,.75);
+  --glass-bg-btn: rgba(255,255,255,.06);
+  --glass-brd: rgba(255,255,255,.10);
+  --glass-brd-soft: rgba(148,180,255,.12);
+  --shadow-glass: 0 8px 32px -8px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.06);
+  --bg-mesh: radial-gradient(1100px 700px at 8% -10%, rgba(96,165,250,.12), transparent 60%),
+             radial-gradient(900px 600px at 105% 15%, rgba(34,211,238,.08), transparent 55%),
+             radial-gradient(800px 700px at 50% 115%, rgba(59,130,246,.10), transparent 55%);
 }
 
 html[data-theme="emerald"] {
@@ -185,6 +237,16 @@ html[data-theme="emerald"] {
   /* high-contrast text on light accent/green; red stays saturated enough for white */
   --on-accent: #04231b; --on-green: #04231b; --on-red: #fff;
   --shadow-pill: 0 1px 2px rgba(255,255,255,0.08);
+  /* Liquid Glass（翡翠綠：墨綠玻璃 + 翠綠 mesh） */
+  --glass-bg: rgba(12,38,32,.55);
+  --glass-bg-strong: rgba(12,38,32,.75);
+  --glass-bg-btn: rgba(255,255,255,.06);
+  --glass-brd: rgba(255,255,255,.09);
+  --glass-brd-soft: rgba(110,231,183,.12);
+  --shadow-glass: 0 8px 32px -8px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.05);
+  --bg-mesh: radial-gradient(1100px 700px at 8% -10%, rgba(52,211,153,.12), transparent 60%),
+             radial-gradient(900px 600px at 105% 15%, rgba(45,212,191,.08), transparent 55%),
+             radial-gradient(800px 700px at 50% 115%, rgba(16,185,129,.10), transparent 55%);
 }
 
 /* ── Base ─────────────────────────────────────────────────── */
@@ -197,6 +259,9 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   min-height: 100vh;
+  /* Liquid Glass：bg0 底色 + 環境光 mesh（玻璃面板透出層次） */
+  background-image: var(--bg-mesh);
+  background-attachment: fixed;
 }
 button { font-family: inherit; cursor: pointer; }
 a { color: var(--accent); text-decoration: none; }
@@ -594,14 +659,14 @@ html, body {
   height: 34px;
   padding: 0 14px;
   font-size: 13px;
-  font-weight: 500;
-  background: var(--bg1); color: var(--t1);
-  border: 1px solid var(--line);
+  font-weight: 600;
+  background: var(--glass-bg-btn); color: var(--t2);
+  border: 1px solid var(--glass-brd-soft);
   border-radius: var(--radius-md);
   display: inline-flex; align-items: center; gap: var(--space-2);
   cursor: pointer;
   white-space: nowrap;
-  transition: background var(--dur) var(--ease-out), border-color var(--dur) var(--ease-out);
+  transition: opacity var(--dur-base), border-color var(--dur-base), background var(--dur-base), color var(--dur-base);
 }
 .btn:hover { background: var(--bg2); }
 .btn svg { flex-shrink: 0; }
@@ -633,13 +698,13 @@ html, body {
 .icon-btn, button.icon-btn {
   width: 36px; height: 36px;
   border-radius: var(--radius-md);
-  background: var(--bg1); color: var(--t2);
-  border: 1px solid var(--line);
+  background: transparent; color: var(--t2);
+  border: 1px solid transparent;
   display: inline-flex; align-items: center; justify-content: center;
   cursor: pointer;
-  transition: background var(--dur) var(--ease-out);
+  transition: opacity var(--dur-base), border-color var(--dur-base), background var(--dur-base), color var(--dur-base);
 }
-.icon-btn:hover { background: var(--bg2); color: var(--t1); }
+.icon-btn:hover { background: var(--bg-hover); color: var(--t1); }
 .icon-btn.icon-btn-ghost { background: transparent; border-color: transparent; }
 .icon-btn.icon-btn-ghost:hover { background: var(--bg2); }
 
@@ -2432,8 +2497,8 @@ html[data-theme="paperDense"] select {
 }
 .j-btn, button.j-btn {
   height: 32px; padding: 0 12px; font-size: 12px;
-  background: var(--bg1); color: var(--t1);
-  border: 1px solid var(--line); border-radius: var(--radius-md);
+  background: var(--glass-bg-btn); color: var(--t2);
+  border: 1px solid var(--glass-brd-soft); border-radius: var(--radius-md);
   display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer;
 }
 .j-btn:hover { background: var(--bg2); }
@@ -4225,8 +4290,8 @@ html[data-theme="paperDense"] select {
 /* Header CSV/import/export 按鈕：邊框、背景、圖示都顯著放大 */
 .j-csv-btns { display: inline-flex; gap: 5px; }
 .j-csv-btns .j-act-btn {
-  border-color: var(--line-strong);
-  background: var(--bg1);
+  border-color: var(--glass-brd-soft);
+  background: var(--glass-bg-btn);
   width: 40px !important; height: 32px !important;
   padding: 0 !important;  /* override @1280px 的 padding: 7px 14px */
   color: var(--t1);
@@ -4594,3 +4659,226 @@ html[data-theme="paperDense"] select {
 }
 
 
+
+/* ═══════════════════════════════════════════════════════════
+   Liquid Glass · 全站玻璃表面（置於檔尾以贏得 cascade）
+   效能守則：blur 僅用於「面板級」表面；重複渲染的小元素
+   （按鈕/pill/badge/列表卡/日曆格）只用半透明底、不套 blur
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── 高可讀性玻璃（strong）：導航/浮層/設定面板 ─────────── */
+.sidebar, .topbar, .mobile-tabbar,
+.modal, .j-modal, .j-modal.open, .sheet,
+.j-dt-dropdown, .sym-ac-list,
+.stg-section, .stg-fs-page {
+  background: var(--glass-bg-strong);
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  backdrop-filter: blur(var(--glass-blur));
+  border-color: var(--glass-brd-soft);
+  box-shadow: var(--shadow-glass);
+}
+/* 底部 sheet 維持向上投射陰影（覆寫 strong 群組的 glass 陰影） */
+.sheet { box-shadow: var(--shadow-sheet); }
+
+/* ── 一般玻璃面板：內容卡 / 工具列 / 圖表 / 表格 ─────────── */
+.input-section, .card, .j-toolbar,
+.j-table, .j-summary-bar, .j-sparkline-wrap,
+.j-checklist-section, .j-review-section {
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  backdrop-filter: blur(var(--glass-blur));
+  border-color: var(--glass-brd-soft);
+  box-shadow: var(--shadow-glass);
+}
+/* 表格外層捲動容器退為透明，避免雙層玻璃疊 blur */
+.j-table-wrap { background: transparent; }
+/* thead 稍實底維持可讀性（不額外 blur） */
+.j-table thead th { background: color-mix(in srgb, var(--bg0) 70%, transparent); }
+
+/* hero 結果卡：accent 色調玻璃（保留原 accent-soft 邊） */
+.hero-result {
+  background: color-mix(in srgb, var(--accent) 10%, var(--glass-bg));
+  -webkit-backdrop-filter: blur(var(--glass-blur-sm));
+  backdrop-filter: blur(var(--glass-blur-sm));
+  box-shadow: var(--shadow-glass);
+}
+/* 語意 tint 卡保留色彩識別（疊在 .card 玻璃 blur 上，僅換底色） */
+.card-accent { background: color-mix(in srgb, var(--accent) 10%, var(--glass-bg)); border-color: var(--accent-soft); }
+.card-red { background: color-mix(in srgb, var(--red) 12%, var(--glass-bg)); }
+
+/* 重複渲染的小卡：半透明底、不套 blur（效能） */
+.j-card, .j-ck-cell, .j-prk-card {
+  background: var(--glass-bg-btn);
+  border-color: var(--glass-brd-soft);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   統一按鈕基底（Liquid Glass）
+   個別按鈕的 padding/尺寸/語意色由原規則保留；
+   底/邊框/圓角/hover 在此統一。
+   ═══════════════════════════════════════════════════════════ */
+
+/* 1) 共同基礎（全部按鈕 class） */
+.btn, .btn-full, .ch-done-btn, .ch-nav-btn, .eq-multi-btn, .fab, .icon-btn,
+.j-act-btn, .j-add-btn, .j-btn, .j-btn-cancel, .j-btn-save,
+.j-detail-close-btn, .j-detail-nav-btn, .j-diary-emoji-btn, .j-diary-star-btn,
+.j-empty-add-btn, .j-fee-mode-btn, .j-filter-toggle, .j-kpi-more-toggle,
+.j-login-btn, .j-lt-btn, .j-mood-btn, .j-offset-btn, .j-refresh-quotes-btn,
+.j-tag-btn, .j-tpl-btn, .j-tutorial-toggle, .j-view-toggle, .j-vt-btn,
+.jd-tag-btn, .mini-fetch-btn, .stg-db-btn, .stg-logout-btn, .stg-reset-btn,
+.stg-save-btn, .stg-theme-btn, .stg-toggle, .ticker-fill-btn, .ticker-toggle,
+.toggle-btn, .j-rv-dot {
+  font-family: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity var(--dur-base), border-color var(--dur-base), background var(--dur-base), color var(--dur-base);
+}
+
+/* 2) 矩形玻璃按鈕（neutral） */
+.btn, .ch-done-btn, .ch-nav-btn, .eq-multi-btn, .j-btn, .j-btn-cancel,
+.j-detail-close-btn, .j-diary-emoji-btn, .j-diary-star-btn, .j-fee-mode-btn,
+.j-filter-toggle, .j-offset-btn, .j-rv-dot, .j-tutorial-toggle,
+.j-view-toggle, .stg-db-btn {
+  background: var(--glass-bg-btn);
+  border: 1px solid var(--glass-brd-soft);
+  color: var(--t2);
+  border-radius: var(--radius-md);
+}
+/* hover 統一走 opacity（見第 9 節），底色不跳動 */
+.btn:hover, .ch-done-btn:hover, .ch-nav-btn:hover, .eq-multi-btn:hover,
+.j-btn:hover, .j-btn-cancel:hover, .j-detail-close-btn:hover,
+.j-fee-mode-btn:hover, .j-filter-toggle:hover, .j-offset-btn:hover,
+.j-tutorial-toggle:hover, .stg-db-btn:hover {
+  background: var(--glass-bg-btn);
+}
+
+/* 3) Pill toggle（chip 類：玻璃底 + 全圓角） */
+.j-tag-btn, .jd-tag-btn, .j-tpl-btn, .j-qf-chip, .j-kpi-more-toggle, .ticker-toggle {
+  background: var(--glass-bg-btn);
+  border: 1px solid var(--glass-brd-soft);
+  border-radius: var(--radius-pill);
+}
+.j-qf-chip:hover, .j-tag-btn:hover, .jd-tag-btn:hover { background: var(--glass-bg-btn); }
+/* Pill toggle（segmented 內項目：透明底 + 全圓角；容器同步 pill） */
+.toggle-btn, .seg-item, .j-vt-btn, .j-lt-btn { border-radius: var(--radius-pill); }
+.segmented, .toggle-group, .j-view-toggle, .j-login-tabs { border-radius: var(--radius-pill); }
+/* active/selected：accent 底 + on-accent 字 */
+.toggle-btn.active, .seg-item.active, .j-vt-btn.active, .j-lt-btn.active,
+.j-tag-btn.active, .jd-tag-btn.active, .j-qf-chip.active {
+  background: var(--accent);
+  color: var(--on-accent);
+  border-color: transparent;
+}
+
+/* 4) Primary（主行動） */
+.j-add-btn, .j-btn-save, .stg-save-btn, .j-login-btn, .j-btn.j-empty-add-btn {
+  background: var(--accent);
+  color: var(--on-accent);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+}
+
+/* 5) Danger（紅 soft 底 + 紅字） */
+.stg-reset-btn, .stg-logout-btn {
+  background: var(--red-soft);
+  color: var(--red);
+  border: 1px solid color-mix(in srgb, var(--red) 30%, transparent);
+  border-radius: var(--radius-md);
+}
+
+/* 6) Icon / ghost（透明底，hover 才有底） */
+.icon-btn, .j-act-btn, .j-modal-close, .j-detail-nav-btn,
+.j-refresh-quotes-btn, .j-mood-btn {
+  background: transparent;
+  border-color: transparent;
+  border-radius: var(--radius-md);
+}
+.j-act-btn:hover, .j-modal-close:hover, .j-detail-nav-btn:hover,
+.j-refresh-quotes-btn:hover {
+  background: var(--bg-hover);
+}
+
+/* 7) Soft-accent 迷你動作鈕（帶入/查價） */
+.ticker-fill-btn, .mini-fetch-btn {
+  background: var(--accent-bg);
+  color: var(--accent);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+}
+
+/* 8) 特例 */
+.fab {
+  border-radius: var(--radius-pill); /* 保持圓形 */
+  background: color-mix(in srgb, var(--accent) 82%, transparent);
+  color: var(--on-accent);
+  -webkit-backdrop-filter: blur(var(--glass-blur-sm));
+  backdrop-filter: blur(var(--glass-blur-sm));
+}
+.stg-toggle { border-radius: var(--radius-pill); background: var(--bg3); border: none; }
+.stg-toggle.on { background: var(--accent); }
+.stg-theme-btn { background: var(--glass-bg-btn); border-color: var(--glass-brd-soft); border-radius: var(--radius-lg); }
+.stg-theme-btn.active { border-color: var(--accent); background: var(--accent-bg); }
+
+/* 9) 統一互動狀態 */
+.btn:hover, .btn-full:hover, .ch-done-btn:hover, .ch-nav-btn:hover,
+.eq-multi-btn:hover, .fab:hover, .icon-btn:hover, .j-act-btn:hover,
+.j-add-btn:hover, .j-btn:hover, .j-btn-cancel:hover, .j-btn-save:hover,
+.j-detail-close-btn:hover, .j-detail-nav-btn:hover, .j-diary-emoji-btn:hover,
+.j-diary-star-btn:hover, .j-empty-add-btn:hover, .j-fee-mode-btn:hover,
+.j-filter-toggle:hover, .j-kpi-more-toggle:hover, .j-login-btn:hover,
+.j-lt-btn:hover, .j-mood-btn:hover, .j-offset-btn:hover,
+.j-refresh-quotes-btn:hover, .j-tag-btn:hover, .j-tpl-btn:hover,
+.j-tutorial-toggle:hover, .j-vt-btn:hover, .jd-tag-btn:hover,
+.mini-fetch-btn:hover, .stg-db-btn:hover, .stg-logout-btn:hover,
+.stg-reset-btn:hover, .stg-save-btn:hover, .stg-theme-btn:hover,
+.stg-toggle:hover, .ticker-fill-btn:hover, .ticker-toggle:hover,
+.toggle-btn:hover, .j-rv-dot:hover {
+  opacity: .85;
+}
+.btn:focus-visible, .ch-done-btn:focus-visible, .ch-nav-btn:focus-visible,
+.eq-multi-btn:focus-visible, .fab:focus-visible, .icon-btn:focus-visible,
+.j-act-btn:focus-visible, .j-add-btn:focus-visible, .j-btn:focus-visible,
+.j-btn-cancel:focus-visible, .j-btn-save:focus-visible,
+.j-detail-nav-btn:focus-visible, .j-diary-emoji-btn:focus-visible,
+.j-diary-star-btn:focus-visible, .j-fee-mode-btn:focus-visible,
+.j-filter-toggle:focus-visible, .j-kpi-more-toggle:focus-visible,
+.j-login-btn:focus-visible, .j-lt-btn:focus-visible, .j-mood-btn:focus-visible,
+.j-offset-btn:focus-visible, .j-refresh-quotes-btn:focus-visible,
+.j-tag-btn:focus-visible, .j-tpl-btn:focus-visible,
+.j-tutorial-toggle:focus-visible, .j-vt-btn:focus-visible,
+.jd-tag-btn:focus-visible, .mini-fetch-btn:focus-visible,
+.stg-db-btn:focus-visible, .stg-logout-btn:focus-visible,
+.stg-reset-btn:focus-visible, .stg-save-btn:focus-visible,
+.stg-theme-btn:focus-visible, .ticker-fill-btn:focus-visible,
+.ticker-toggle:focus-visible, .toggle-btn:focus-visible, .j-rv-dot:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.btn:disabled, .ch-done-btn:disabled, .ch-nav-btn:disabled,
+.eq-multi-btn:disabled, .fab:disabled, .icon-btn:disabled,
+.j-act-btn:disabled, .j-add-btn:disabled, .j-btn:disabled,
+.j-btn-cancel:disabled, .j-btn-save:disabled, .j-detail-nav-btn:disabled,
+.j-fee-mode-btn:disabled, .j-login-btn:disabled, .j-lt-btn:disabled,
+.j-mood-btn:disabled, .j-tag-btn:disabled, .j-tpl-btn:disabled,
+.j-vt-btn:disabled, .mini-fetch-btn:disabled, .stg-db-btn:disabled,
+.stg-logout-btn:disabled, .stg-reset-btn:disabled, .stg-save-btn:disabled,
+.ticker-fill-btn:disabled, .toggle-btn:disabled, .j-rv-dot:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+/* ── 不支援 backdrop-filter 的瀏覽器：退回實底 ───────────── */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .sidebar, .topbar, .mobile-tabbar,
+  .modal, .j-modal, .j-modal.open, .sheet,
+  .j-dt-dropdown, .sym-ac-list, .stg-section, .stg-fs-page,
+  .input-section, .card, .j-toolbar,
+  .j-table, .j-summary-bar, .j-sparkline-wrap,
+  .j-checklist-section, .j-review-section,
+  .j-card, .j-ck-cell, .j-prk-card {
+    background: var(--bg1);
+  }
+  .hero-result, .card-accent { background: var(--accent-bg); }
+  .card-red { background: var(--red-soft); }
+  .fab { background: var(--accent); }
+}

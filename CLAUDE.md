@@ -105,8 +105,15 @@ npm run deploy   # 部署到 Cloudflare Pages
 | `--on-accent`、`--on-green`、`--on-red` | accent/green/red 底色上的前景文字色（深色主題覆寫為高對比，確保 WCAG AA）|
 | `--green-d/--red-d`（含各主題覆寫）| 損益框淡色背景 tint（FOUC fallback 亦一致）|
 | `--bg-hover`、`--border-focus`、`--text-disabled` | 語意 token |
+| `--glass-bg/-strong/-btn`、`--glass-brd/-soft`、`--glass-blur/-sm`、`--shadow-glass`、`--bg-mesh` | Liquid Glass 表面 tokens（半透明底/高光邊/blur 半徑/玻璃陰影/body 背景 mesh 漸層），**6 主題各自完整覆寫** |
 
 **深色主題**（dark/midnight/emerald）需透過 cascade override 補上 `--shadow-card` / `--shadow-elevated` / `--shadow-inset-highlight` 的冷色版。
+
+**Liquid Glass 設計系統**（2026-06 全站重設計）：
+- 面板級表面（sidebar/topbar/modal/card/toolbar/dropdown/fab/tabbar）用 `--glass-bg` + `backdrop-filter: blur(var(--glass-blur))` + `--glass-brd-soft` 邊 + `--shadow-glass`
+- **小元素（按鈕/pill/badge/table row/日曆格）禁用 backdrop-filter**，只用半透明底（效能）；全檔 blur 使用點上限 20 處
+- 已有 `@supports not (backdrop-filter…)` 彙總 fallback 區塊（退回 `--bg1` 實底），新增玻璃表面時須同步加入
+- 統一按鈕系統：41 個按鈕 class 共用檔尾「統一按鈕基底」（glass 底/600 字重/hover opacity .85/focus-visible accent ring）；變體 = Primary（accent 實底）/Danger（red-soft）/Pill chip/Segmented pill/Ghost icon。**新增按鈕時必須納入基底群組 selector 並選擇變體**，不可另起爐灶
 
 **禁止** 寫死 RGB 或 px 值（除非是極特殊情況有註解說明）。
 
@@ -190,7 +197,7 @@ npm run deploy   # 部署到 Cloudflare Pages
 
 ### 效能規範（適用所有裝置）
 - **禁止** 常駐的 `animation: ... infinite`（loading 指示器除外）
-- **禁止** 常駐的 `backdrop-filter:blur()`（modal overlay 除外）
+- `backdrop-filter:blur()` **僅允許**用於 Liquid Glass 面板級表面（透過 `--glass-blur` token；見 Design Token System 一節），小元素與列表重複元素禁用；**禁止**在動畫中變化 blur 值
 - **禁止** 動畫中使用 `filter:blur()` 變化
 - **禁止** `transition: all`，必須列明具體屬性
 - **必須** 保留 `@media(prefers-reduced-motion:reduce)` 全域停用動畫
