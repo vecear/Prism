@@ -26,6 +26,7 @@
 - 統計面板：權益曲線、勝率、獲利因子、期望值、最大回撤、R-Multiple 分佈、虧損後行為分析、星期/時段熱圖
 - 每日交易日記：心情評分、紀律/時機/部位三軸覆盤
 - 標籤、帳戶、星級評價、截圖 URL
+- **CSV 匯出**：含已實現損益與 R 倍數欄位，可直接在 Excel 做系統分析
 - **券商檔案匯入**：支援元大台股 CSV、元富 HTML-XLS、群益期貨 XLSX 自動 FIFO 配對
 
 ### 風險管理系統（Van Tharp）
@@ -42,9 +43,11 @@
 
 ### 設計系統
 
-- **6 種主題**：暖米白 (paper)、奶油象牙 (ivory)、緊湊紙感 (paperDense)、經典深色 (dark)、午夜藍 (midnight)、翡翠綠 (emerald)
+- **Liquid Glass 液態玻璃**：全站玻璃面板（半透明 + backdrop blur + 漸層 mesh 背景），可於設定**開關**並以滑桿調整**透明度 0~90%**（調高時 blur/飽和度自動加重，近似 iPhone 全透流動玻璃）；關閉時退回實底，適合省電與低階裝置
+- **6 種主題**：暖米白 (paper)、奶油象牙 (ivory)、緊湊紙感 (paperDense)、經典深色 (dark)、午夜藍 (midnight)、翡翠綠 (emerald) — 各主題有專屬玻璃色溫與 mesh 配色
+- **統一按鈕系統**：40+ 按鈕 class 共用玻璃基底與五種變體（Primary / Danger / Pill chip / Segmented / Ghost），hover、focus ring、disabled 行為一致
 - **紅綠雙模式**：綠漲紅跌 / 紅漲綠跌（台股慣例）即時切換
-- **完整 Design Tokens**：spacing/text/radius/duration/control-height scale，theme-aware shadows
+- **完整 Design Tokens**：spacing/text/radius/duration/control-height scale，theme-aware shadows + glass tokens
 - **PWA**：可安裝至主畫面、離線可用 (Service Worker)
 - **RWD**：桌面/平板/手機全裝置優化
 
@@ -62,11 +65,11 @@ Prism 同時支援兩種部署模式：
 ```
 Prism/
 ├── index.html                       # 主頁面結構，所有 tab 的 HTML 骨架
-├── css/style.css                    # 全域樣式 + design tokens + 6 主題 (~4,300 行)
+├── css/style.css                    # 全域樣式 + design tokens + 6 主題 + Liquid Glass (~4,800 行)
 ├── js/
 │   ├── ml.js                        # ML 工具：K-Means、Spectral Clustering、Z-score
-│   ├── app.js                       # 計算引擎、即時報價、設定、Guide、Regime 偵測 (~5,700 行)
-│   └── journal.js                   # 交易日誌、Van Tharp 風險工具、modal、CSV 匯入 UI (~3,800 行)
+│   ├── app.js                       # 計算引擎、即時報價、設定、Guide、Regime 偵測 (~7,600 行)
+│   └── journal.js                   # 交易日誌、Van Tharp 風險工具、modal、CSV 匯入 UI (~5,100 行)
 ├── server.js                        # Local-only Node 伺服器 (使用 node:sqlite)
 ├── _worker.js                       # Cloudflare Pages Worker (API 路由、認證、CORS proxy、DB 遷移)
 ├── sw.js                            # Service Worker (stale-while-revalidate)
@@ -91,9 +94,9 @@ Prism/
 雲端模式（`_worker.js`）：
 - Cloudflare Pages Advanced Mode 處理 API 路由 + 靜態資源
 - D1 SQLite 自動遷移（v1 ~ v13；v12 = 平倉日歸期、v13 = 交易論點欄位）
-- JWT (HMAC-SHA256, 7d) + PBKDF2 (100,000 iterations) 雜湊
+- JWT (HMAC-SHA256, 7d) + PBKDF2 (600,000 iterations，版本化格式、舊雜湊向後相容) 雜湊
 - Rate Limiting（選用 KV 跨實例）、CORS 白名單、輸入驗證
-- 安全標頭與 CSP：API 回應由 `_worker.js` 套用，HTML 頁面由 `_headers` 套用
+- 安全標頭與 CSP：API 回應由 `_worker.js` 套用，HTML 頁面由 `_headers` 套用（含 `frame-ancestors`/`base-uri`/`form-action` 與 Permissions-Policy）
 
 本機模式（`server.js`）：
 - Node.js 24+ 內建 `node:sqlite`，無需 npm install 額外 deps
