@@ -7245,7 +7245,7 @@ function calcOptions() {
         ${mc('價外值', fmt(oom, 2), `A=${fM(A, cur)} B=${fM(B, cur)}`)}
         ${mc('損益平衡', fmt(be, 2))}
         ${mgLabel('保證金')}
-        ${mc('所需保證金', fM(totalMargin, cur), `每口 ${fM(mpc, cur)}`, 'h-yellow')}
+        ${mc('所需保證金', fM(totalMargin, cur), `每口 ${fM(mpc, cur)}<br>⚠ 簡化保證金模型，實際 SPAN 保證金隨波動率與時間價值變動，請以期貨商試算為準`, 'h-yellow')}
         ${mgLabel('損益')}
         ${mc('最大獲利(税前)', fM(totalPrem, cur), '', 'h-green')}
         ${oFees > 0 ? mc('最大淨獲利(税後)', fM(totalPrem - oFees, cur), `扣除費用 ${fM(oFees, cur)}`, 'h-green') : ''}

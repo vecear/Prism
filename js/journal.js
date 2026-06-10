@@ -489,8 +489,21 @@ function getLiveQuoteKey(t) { return `${t.symbol}|${t.market}`; }
 function exportCSV() {
   const cols = ['date','market','type','symbol','name','direction','status','entryPrice','exitPrice','quantity','contractMul','stopLoss','takeProfit','fee','tax','account','rating','tags','notes','pricingStage','thesis'];
   const filtered = getFilteredTrades();
-  const rows = [cols.join(',')];
+  const rows = [[...cols, '已實現損益(net)', 'R倍數'].join(',')];
   for (const t of filtered) {
+    // 已平倉：追加已實現損益(net) 與 R 倍數（與 computeStats 的 R 計算一致）；開倉中留空
+    let plNet = '', rMult = '';
+    if (t.status === 'closed') {
+      const pl = calcPL(t);
+      if (pl) {
+        plNet = String(Math.round(pl.net * 100) / 100);
+        const en = parseFloat(t.entryPrice), sl = parseFloat(t.stopLoss);
+        if (!isNaN(en) && !isNaN(sl) && en !== sl) {
+          const risk = Math.abs(en - sl) * (parseFloat(t.quantity) || 1) * ((isFuturesType(t.type) || t.type === 'options') ? (parseFloat(t.contractMul) || 1) : 1);
+          if (risk > 0) rMult = (pl.net / risk).toFixed(2);
+        }
+      }
+    }
     rows.push(cols.map(c => {
       let v = t[c] ?? '';
       if (c === 'tags') v = (t.tags || []).join(';');
@@ -501,7 +514,7 @@ function exportCSV() {
       if (/^[=+\-@]/.test(_tv) && !(_tv !== '' && Number.isFinite(Number(_tv)))) v = "'" + v;
       v = v.replace(/"/g, '""');
       return /[,"\n\r]/.test(v) ? `"${v}"` : v;
-    }).join(','));
+    }).concat([plNet, rMult]).join(','));
   }
   const blob = new Blob(['\uFEFF' + rows.join('\n')], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a');
@@ -1126,8 +1139,8 @@ function quickCloseTrade(id) {
     <div class="j-modal-header"><h3 id="j-close-title">平倉 — ${esc(t.symbol)} ${DL[t.direction]}</h3><button class="j-modal-close" type="button" aria-label="關閉" id="j-close-cancel">✕</button></div>
     <div class="j-modal-body">
       <div style="font-size:.82rem;color:var(--t3);margin-bottom:10px">進場 ${fmtPrice(parseFloat(t.entryPrice), t.market, t.type)} × ${totalQty}</div>
-      <div class="j-form-row"><label for="j-close-price">出場價格</label><input type="number" id="j-close-price" value="${defaultPrice}" step="any" class="j-input" placeholder="輸入平倉價格"></div>
-      <div class="j-form-row"><label for="j-close-qty">平倉數量</label><input type="number" id="j-close-qty" value="${totalQty}" step="any" min="0" max="${totalQty}" class="j-input"><span style="font-size:.78rem;color:var(--t3);margin-top:2px">持倉 ${totalQty}，留空=全部平倉</span></div>
+      <div class="j-form-row"><label for="j-close-price">出場價格</label><input type="number" inputmode="decimal" id="j-close-price" value="${defaultPrice}" step="any" class="j-input" placeholder="輸入平倉價格"></div>
+      <div class="j-form-row"><label for="j-close-qty">平倉數量</label><input type="number" inputmode="decimal" id="j-close-qty" value="${totalQty}" step="any" min="0" max="${totalQty}" class="j-input"><span style="font-size:.78rem;color:var(--t3);margin-top:2px">持倉 ${totalQty}，留空=全部平倉</span></div>
       <div id="j-close-preview" style="margin-top:10px"></div>
       <div class="j-form-actions" style="margin-top:14px">
         <button class="j-btn j-btn-primary" id="j-close-exec">確認平倉</button>
@@ -1305,13 +1318,13 @@ async function offsetClose(symbol, market, direction) {
     <div class="j-modal-header"><h3 id="j-offset-title">沖銷平倉 — ${esc(symbol)} ${DL[direction]}</h3><button class="j-modal-close" type="button" aria-label="關閉" id="j-offset-cancel">✕</button></div>
     <div class="j-modal-body">
       <p style="font-size:.85rem;color:var(--t2);margin-bottom:12px">系統將依 FIFO（先進先出）順序自動沖銷持倉</p>
-      <div class="j-offset-holdings" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+      <div class="j-offset-holdings" style="overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none">
         <table class="j-stats-table" style="margin-bottom:12px"><thead><tr><th>進場日</th><th>進場價</th><th>數量</th></tr></thead><tbody>
         ${openList.map(t => `<tr><td>${fmtDate(t.date)}</td><td>${fmtPrice(parseFloat(t.entryPrice), market, t.type)}</td><td>${t.quantity}</td></tr>`).join('')}
         </tbody></table>
       </div>
-      <div class="j-form-row"><label for="j-offset-price">出場價格</label><input type="number" id="j-offset-price" value="${defaultPrice}" step="any" class="j-input" placeholder="出場價格"></div>
-      <div class="j-form-row"><label for="j-offset-qty">沖銷數量</label><input type="number" id="j-offset-qty" value="${totalQty}" step="any" max="${totalQty}" class="j-input" placeholder="最多 ${totalQty}"><span style="font-size:.78rem;color:var(--t3);margin-top:2px">持倉共 ${totalQty}，留空或填滿=全部沖銷</span></div>
+      <div class="j-form-row"><label for="j-offset-price">出場價格</label><input type="number" inputmode="decimal" id="j-offset-price" value="${defaultPrice}" step="any" class="j-input" placeholder="出場價格"></div>
+      <div class="j-form-row"><label for="j-offset-qty">沖銷數量</label><input type="number" inputmode="decimal" id="j-offset-qty" value="${totalQty}" step="any" max="${totalQty}" class="j-input" placeholder="最多 ${totalQty}"><span style="font-size:.78rem;color:var(--t3);margin-top:2px">持倉共 ${totalQty}，留空或填滿=全部沖銷</span></div>
       <div id="j-offset-preview" style="margin-top:12px"></div>
       <div class="j-form-actions" style="margin-top:16px">
         <button class="j-btn j-btn-primary" id="j-offset-exec">確認沖銷</button>
@@ -1364,7 +1377,7 @@ async function offsetClose(symbol, market, direction) {
     const totalGross = plan.reduce((s, p) => s + p.gross, 0);
     preview.innerHTML = `
       <div style="font-size:.82rem;color:var(--t2);margin-bottom:6px"><strong>沖銷預覽</strong></div>
-      <div style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table class="j-stats-table"><thead><tr><th>進場日</th><th>進場價</th><th>沖銷量</th><th>剩餘</th><th>原損益</th></tr></thead><tbody>
+      <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none"><table class="j-stats-table"><thead><tr><th>進場日</th><th>進場價</th><th>沖銷量</th><th>剩餘</th><th>原損益</th></tr></thead><tbody>
       ${plan.map(p => `<tr><td>${fmtDate(p.trade.date)}</td><td>${fmtPrice(parseFloat(p.trade.entryPrice), market, p.trade.type)}</td><td>${p.used}</td><td>${p.leftover > 0 ? p.leftover : '—'}</td><td class="${p.gross >= 0 ? 'tg' : 'tr'}">${fmtMoney(p.gross, market)}</td></tr>`).join('')}
       </tbody></table></div>
       <div style="margin-top:6px;font-size:.85rem">預估原損益合計：<strong class="${totalGross >= 0 ? 'tg' : 'tr'}">${fmtMoney(totalGross, market)}</strong></div>`;
@@ -2404,9 +2417,22 @@ function renderFilters() {
   $('#jf-search')?.addEventListener('input', debounce(update, 200));
   // Mobile filter toggle
   $('#j-filter-toggle')?.addEventListener('click', () => {
-    el.classList.toggle('expanded');
+    const on = el.classList.toggle('expanded');
+    if (on) $('#jf-search')?.focus();
   });
+  // Esc 收合篩選面板（document 層級只綁一次；modal 開啟時讓 modal 的 Esc 優先，不動面板）
+  if (!_filterEscBound) {
+    _filterEscBound = true;
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
+      const panel = $('#j-filters');
+      if (!panel || !panel.classList.contains('expanded')) return;
+      if (document.querySelector('.j-modal.open')) return;
+      panel.classList.remove('expanded');
+    });
+  }
 }
+let _filterEscBound = false;
 
 function getFilteredTrades(opts = {}) {
   let list=[...trades]; const f=filterState;
@@ -4007,7 +4033,7 @@ function renderStatsPage(st, market, fm) {
         ${sqnKpi('月頻率', tradesPerMonth.toFixed(1), '', '平均每月交易筆數（機會因素）')}
         ${expectunity!=null?sqnKpi('期望實現報酬', `${expectunity>=0?'+':''}${expectunity.toFixed(2)}R/月`, expectunity>=0?'tg':'tr', '平均R × 月頻率 = 每月可期望賺得的 R 數\n（聖盃 Ch13：高頻低期望也可能勝過低頻高期望）'):''}
       </div>
-      <div class="j-sqn-note">基於 ${rN} 筆設有停損的交易${rN<30?'（樣本 < 30，數值僅供參考；建議累積至 100 筆）':rN<100?'（建議累積至 100 筆使 SQN 更可靠）':''}</div>
+      <div class="j-sqn-note">基於 ${rN} 筆設有停損的交易${rN<30?'（樣本 < 30，數值僅供參考；建議累積至 100 筆）':rN<100?'（建議累積至 100 筆使 SQN 更可靠）':rN>100?'（SQN 取 √min(N,100) 標準化）':''}</div>
     </div>`;
   }
 
@@ -4374,11 +4400,11 @@ function openPositionSizer(prefill) {
       <p class="j-ps-intro">固定風險百分比模型：<strong>部位 = (帳戶 × 風險%) ÷ 每單位風險</strong>。每筆風險建議 ≤ 帳戶 1–2%（Van Tharp）。</p>
       <div class="j-ps-grid">
         <div class="j-fg"><label for="ps-mkt">市場</label><select id="ps-mkt">${MKT_OPTS.map(([v, l]) => `<option value="${v}"${v === mkt0 ? ' selected' : ''}>${l}</option>`).join('')}</select></div>
-        <div class="j-fg"><label for="ps-acct">帳戶資金</label><input type="number" id="ps-acct" step="any" min="0" value="${cfg.acct[mkt0] || ''}" placeholder="例如 1000000"></div>
-        <div class="j-fg"><label for="ps-risk">每筆風險 %</label><input type="number" id="ps-risk" step="0.1" min="0.1" max="10" value="${cfg.riskPct}"></div>
-        <div class="j-fg"><label for="ps-entry">進場價</label><input type="number" id="ps-entry" step="any" min="0" value="${prefill?.entryPrice || ''}"></div>
-        <div class="j-fg"><label for="ps-stop">停損價</label><input type="number" id="ps-stop" step="any" min="0" value="${prefill?.stopLoss || ''}"></div>
-        <div class="j-fg"><label for="ps-mul">合約乘數</label><input type="number" id="ps-mul" step="any" min="1" value="${prefill?.contractMul || 1}"></div>
+        <div class="j-fg"><label for="ps-acct">帳戶資金</label><input type="number" inputmode="decimal" id="ps-acct" step="any" min="0" value="${cfg.acct[mkt0] || ''}" placeholder="例如 1000000"></div>
+        <div class="j-fg"><label for="ps-risk">每筆風險 %</label><input type="number" inputmode="decimal" id="ps-risk" step="0.1" min="0.1" max="10" value="${cfg.riskPct}"></div>
+        <div class="j-fg"><label for="ps-entry">進場價</label><input type="number" inputmode="decimal" id="ps-entry" step="any" min="0" value="${prefill?.entryPrice || ''}"></div>
+        <div class="j-fg"><label for="ps-stop">停損價</label><input type="number" inputmode="decimal" id="ps-stop" step="any" min="0" value="${prefill?.stopLoss || ''}"></div>
+        <div class="j-fg"><label for="ps-mul">合約乘數</label><input type="number" inputmode="decimal" id="ps-mul" step="any" min="1" value="${prefill?.contractMul || 1}"></div>
       </div>
       <div class="j-ps-result" id="ps-result"></div>
     </div>
@@ -4601,14 +4627,14 @@ function openTradeForm(id, prefill) {
         <div class="j-fg"><label for="jf-name">名稱</label><input type="text" id="jf-name" value="${esc(t.name)}" placeholder="例：台積電"></div>
         <div class="j-fg"><label for="jf-dir">動作</label><select id="jf-dir"><option value="long" ${t.direction==='long'?'selected':''}>買進</option><option value="short" ${t.direction==='short'?'selected':''}>賣出</option></select></div>
         ${editingId ? `<div class="j-fg"><label for="jf-status">狀態</label><select id="jf-status"><option value="open" ${t.status==='open'?'selected':''}>持倉中</option><option value="closed" ${t.status==='closed'?'selected':''}>已平倉</option></select></div>` : ''}
-        <div class="j-fg"><label for="jf-entry">價格</label><input type="number" id="jf-entry" step="any" value="${t.entryPrice||''}" placeholder="成交價"></div>
-        ${editingId ? `<div class="j-fg"><label for="jf-exit">出場價格</label><input type="number" id="jf-exit" step="any" value="${t.exitPrice||''}" placeholder="未平倉可留空"></div>` : ''}
-        <div class="j-fg"><label for="jf-qty">數量 <span class="j-fg-hint">(股數/張數/口數)</span></label><input type="number" id="jf-qty" step="any" value="${t.quantity||''}" placeholder="0"></div>
-        <div class="j-fg ${isFuturesType(t.type)||t.type==='options'?'':'j-hidden'}" id="jf-mul-wrap"><label for="jf-mul">合約乘數</label><input type="number" id="jf-mul" step="any" value="${t.contractMul||''}" placeholder="例：200 (大台)"></div>
-        <div class="j-fg"><label for="jf-sl">停損價</label><input type="number" id="jf-sl" step="any" value="${t.stopLoss||''}" placeholder="可選"></div>
-        <div class="j-fg"><label for="jf-tp">停利價</label><input type="number" id="jf-tp" step="any" value="${t.takeProfit||''}" placeholder="可選"></div>
-        <div class="j-fg"><label for="jf-fee">手續費</label><div class="j-fee-input-wrap"><input type="number" id="jf-fee" step="any" value="${t.fee||''}" placeholder="0"><button type="button" class="j-fee-mode-btn" id="jf-fee-mode" data-mode="fixed" aria-label="切換手續費計算方式">元</button></div></div>
-        <div class="j-fg"><label for="jf-tax">交易稅</label><div class="j-fee-input-wrap"><input type="number" id="jf-tax" step="any" value="${t.tax||''}" placeholder="0"><button type="button" class="j-fee-mode-btn" id="jf-tax-mode" data-mode="fixed" aria-label="切換交易稅計算方式">元</button></div></div>
+        <div class="j-fg"><label for="jf-entry">價格</label><input type="number" inputmode="decimal" id="jf-entry" step="any" value="${t.entryPrice||''}" placeholder="成交價"></div>
+        ${editingId ? `<div class="j-fg"><label for="jf-exit">出場價格</label><input type="number" inputmode="decimal" id="jf-exit" step="any" value="${t.exitPrice||''}" placeholder="未平倉可留空"></div>` : ''}
+        <div class="j-fg"><label for="jf-qty">數量 <span class="j-fg-hint">(股數/張數/口數)</span></label><input type="number" inputmode="decimal" id="jf-qty" step="any" value="${t.quantity||''}" placeholder="0"></div>
+        <div class="j-fg ${isFuturesType(t.type)||t.type==='options'?'':'j-hidden'}" id="jf-mul-wrap"><label for="jf-mul">合約乘數</label><input type="number" inputmode="decimal" id="jf-mul" step="any" value="${t.contractMul||''}" placeholder="例：200 (大台)"></div>
+        <div class="j-fg"><label for="jf-sl">停損價</label><input type="number" inputmode="decimal" id="jf-sl" step="any" value="${t.stopLoss||''}" placeholder="可選"></div>
+        <div class="j-fg"><label for="jf-tp">停利價</label><input type="number" inputmode="decimal" id="jf-tp" step="any" value="${t.takeProfit||''}" placeholder="可選"></div>
+        <div class="j-fg"><label for="jf-fee">手續費</label><div class="j-fee-input-wrap"><input type="number" inputmode="decimal" id="jf-fee" step="any" value="${t.fee||''}" placeholder="0"><button type="button" class="j-fee-mode-btn" id="jf-fee-mode" data-mode="fixed" aria-label="切換手續費計算方式">元</button></div></div>
+        <div class="j-fg"><label for="jf-tax">交易稅</label><div class="j-fee-input-wrap"><input type="number" inputmode="decimal" id="jf-tax" step="any" value="${t.tax||''}" placeholder="0"><button type="button" class="j-fee-mode-btn" id="jf-tax-mode" data-mode="fixed" aria-label="切換交易稅計算方式">元</button></div></div>
         <div class="j-fg"><label for="jf-account">帳戶</label><input type="text" id="jf-account" value="${esc(t.account||'')}" placeholder="例：元大、IB" list="jf-acct-list"><datalist id="jf-acct-list">${[...new Set(trades.map(x=>x.account).filter(Boolean))].map(a=>`<option value="${esc(a)}">`).join('')}</datalist></div>
         <div class="j-fg"><label for="jf-image-url">截圖網址</label><input type="url" id="jf-image-url" value="${esc(t.imageUrl||'')}" placeholder="貼上圖片連結 (可選)"></div>
         <div class="j-fg"><label id="jf-rating-label">自評 (1-5)</label><div class="j-rating-picker" id="jf-rating" role="radiogroup" aria-labelledby="jf-rating-label">${[1,2,3,4,5].map(i=>`<span class="j-star ${i<=(t.rating||0)?'j-star-on':''}" data-rate="${i}" role="radio" aria-checked="${i===(t.rating||0)?'true':'false'}" aria-label="${i} 星" tabindex="${i===((t.rating||0)||1)?'0':'-1'}" style="cursor:pointer;font-size:1.2rem">${i<=(t.rating||0)?'★':'☆'}</span>`).join('')}</div><input type="hidden" id="jf-rating-val" value="${t.rating||0}"></div>
@@ -5001,8 +5027,11 @@ function openTradeForm(id, prefill) {
     btn.disabled = true; btn.textContent = '儲存中...';
     try {
       const goToJournal = !id;
+      // 停損=進場 警告（非阻斷）：此情況會被 R-multiple 統計排除（computeStats 的 en!==sl filter）
+      const _slv = parseFloat($('#jf-sl')?.value), _env = parseFloat($('#jf-entry')?.value);
       await saveTrade();
       closeModal();
+      if (!isNaN(_slv) && !isNaN(_env) && _slv === _env && window._showToast) window._showToast('⚠ 停損價等於進場價，此筆將不列入 R 統計');
       if (goToJournal && !$('#tab-journal')?.classList.contains('active')) {
         showSavedToast();
       }

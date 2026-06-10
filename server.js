@@ -516,13 +516,22 @@ const server = http.createServer(async (req, res) => {
   }
 
   // Static files
-  let filePath = pathname === '/' ? '/index.html' : pathname.replace(/\.\./g, '');
+  let filePath;
+  try {
+    filePath = decodeURIComponent(pathname === '/' ? '/index.html' : pathname);
+  } catch {
+    res.writeHead(400); res.end('Bad request'); return;
+  }
   // Strip query string from file path
   filePath = filePath.split('?')[0];
-  const absPath = path.join(__dirname, filePath);
+  const rootDir = path.resolve(__dirname);
+  const absPath = path.resolve(path.join(rootDir, filePath));
 
   // Security: must stay within project directory
-  if (!absPath.startsWith(__dirname)) { res.writeHead(403); res.end('Forbidden'); return; }
+  // (path.sep 結尾比對，防止 C:\foo 與 C:\foobar 這類前綴誤判)
+  if (absPath !== rootDir && !absPath.startsWith(rootDir + path.sep)) {
+    res.writeHead(403); res.end('Forbidden'); return;
+  }
 
   try {
     const stat = fs.statSync(absPath);

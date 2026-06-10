@@ -76,6 +76,7 @@ const SECURITY_HEADERS = {
   'X-Frame-Options': 'DENY',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
   'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
 };
 // connect-src 收斂：僅允許 'self' + PROXY_ALLOWED 白名單主機（取代過寬的 https:）。
 // 任何遺漏的外部端點仍會經前端 _proxyFetch 的 proxy fallback → 'self' 代理，優雅降級不破壞報價。
@@ -162,19 +163,32 @@ async function verifyJWT(token, secret) {
   return payload;
 }
 
+// PBKDF2 迭代次數：新雜湊用 600000（OWASP 2023+ 建議），以版本化格式 "迭代數:hex" 存入 password_hash 欄位。
+// 舊雜湊為純 hex（無冒號前綴），verify 時 fallback 至 100000，確保既有使用者仍可登入。
+const PBKDF2_ITERATIONS = 600000;
+const PBKDF2_LEGACY_ITERATIONS = 100000;
+
 async function hashPassword(password) {
   const enc = new TextEncoder();
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const key = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']);
-  const hash = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' }, key, 256);
-  return { hash: bufToHex(hash), salt: bufToHex(salt) };
+  const hash = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: PBKDF2_ITERATIONS, hash: 'SHA-256' }, key, 256);
+  return { hash: `${PBKDF2_ITERATIONS}:${bufToHex(hash)}`, salt: bufToHex(salt) };
 }
 
-async function verifyPassword(password, hash, saltHex) {
+async function verifyPassword(password, stored, saltHex) {
+  // 解析版本化格式 "迭代數:hex"；無冒號前綴的舊格式 fallback 至 legacy 迭代數
+  let iterations = PBKDF2_LEGACY_ITERATIONS;
+  let hash = stored;
+  const sep = stored.indexOf(':');
+  if (sep > 0) {
+    const n = parseInt(stored.slice(0, sep), 10);
+    if (Number.isFinite(n) && n > 0) { iterations = n; hash = stored.slice(sep + 1); }
+  }
   const enc = new TextEncoder();
   const salt = hexToBuf(saltHex);
   const key = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']);
-  const derived = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' }, key, 256);
+  const derived = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations, hash: 'SHA-256' }, key, 256);
   // Constant-time comparison via HMAC to prevent timing side-channel
   const cmpKey = await crypto.subtle.generateKey({ name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
   const sig1 = await crypto.subtle.sign('HMAC', cmpKey, new TextEncoder().encode(bufToHex(derived)));
@@ -211,7 +225,7 @@ const PROXY_ALLOWED = ['mis.twse.com.tw','mis.taifex.com.tw','query1.finance.yah
 // 注意：此 CSP 僅套用於 API 回應（JSON，不載字體故 style/font-src 不含 Google Fonts）；
 // HTML 頁面的 CSP 在根目錄 /_headers 檔（含 Google Fonts 於 style-src/font-src）。
 // 兩處的 connect-src 主機清單須與此 PROXY_ALLOWED 保持同步（新增報價來源時三處一起改）。
-const CSP_HEADER = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' " + PROXY_ALLOWED.map(h => 'https://' + h).join(' ') + "; font-src 'self';";
+const CSP_HEADER = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' " + PROXY_ALLOWED.map(h => 'https://' + h).join(' ') + "; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self';";
 
 async function handleProxy(request) {
   if (!['GET', 'POST'].includes(request.method)) return jsonErr(405, 'Method not allowed');

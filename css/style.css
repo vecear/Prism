@@ -106,6 +106,8 @@
   --shadow-elevated: 0 1px 2px rgba(0,0,0,0.04), 0 6px 16px -4px rgba(120,80,30,0.10), 0 24px 48px -16px rgba(120,80,30,0.12);
   --shadow-sheet: 0 -8px 24px rgba(120,80,30,0.16); /* upward-cast: bottom sheet lifts above content */
   --shadow-inset-highlight: inset 0 0 0 1px rgba(255,255,255,0.6);
+  /* Modal / Sheet 遮罩底色（深色主題以 cascade 覆寫為更深） */
+  --overlay: rgba(0,0,0,.48);
   /* Backwards-compat aliases */
   --b1: var(--line);   /* fix: var(--b1) was used by journal modal */
 }
@@ -118,6 +120,7 @@ html[data-theme="emerald"] {
   --shadow-elevated: 0 1px 2px rgba(0,0,0,0.25), 0 6px 16px -4px rgba(0,0,0,0.35), 0 24px 48px -16px rgba(0,0,0,0.40);
   --shadow-sheet: 0 -8px 24px rgba(0,0,0,0.45); /* upward-cast: bottom sheet lifts above content */
   --shadow-inset-highlight: inset 0 0 0 1px rgba(255,255,255,0.06);
+  --overlay: rgba(0,0,0,.62); /* 深色主題遮罩需更深才看得出層次 */
 }
 
 html[data-theme="ivory"] {
@@ -1426,7 +1429,7 @@ html[data-theme="paperDense"] select {
 /* ── Modal ────────────────────────────────────────────────── */
 .modal-overlay {
   position: fixed; inset: 0;
-  background: rgba(0,0,0,0.48);
+  background: var(--overlay);
   z-index: var(--z-modal-overlay);
   display: flex; align-items: center; justify-content: center;
   padding: var(--space-8);
@@ -1512,7 +1515,7 @@ html[data-theme="paperDense"] select {
 /* ── Mobile bottom sheet (more menu) ──────────────────────── */
 .sheet-overlay {
   position: fixed; inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--overlay);
   z-index: var(--z-modal-overlay, 1000);
   display: none;
   align-items: flex-end;
@@ -1848,6 +1851,8 @@ html[data-theme="paperDense"] select {
     min-width: 0; width: auto;
     max-width: calc(100vw - 24px);
   }
+  /* 小螢幕觸控目標提升至 38px（38 而非 40，避免擠壓列佈局） */
+  .j-act-btn, .j-modal-close { min-width: 38px; min-height: 38px; }
 }
 
 /* ================================================================
@@ -2484,9 +2489,13 @@ html[data-theme="paperDense"] select {
 .j-card-head { display: flex; align-items: center; gap: var(--space-4); flex: 1; min-width: 0; }
 .j-card-left, .j-card-right { display: flex; flex-direction: column; gap: var(--space-0); min-width: 0; }
 .j-card-right { align-items: flex-end; text-align: right; }
-.j-card-symbol { font-weight: 600; color: var(--t1); }
+.j-card-symbol {
+  font-weight: 600; color: var(--t1);
+  /* 長代號截斷，避免擠壓卡片右側數值 */
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 140px;
+}
 .j-card-sub, .j-card-date, .j-card-label { font-size: 11px; color: var(--t3); }
-.j-card-price, .j-card-val { font-family: var(--mono); font-weight: 600; }
+.j-card-price, .j-card-val { font-family: var(--mono); font-weight: 600; font-variant-numeric: tabular-nums; }
 .j-card-val.up, .j-card-val.profit { color: var(--green); }
 .j-card-val.down, .j-card-val.loss { color: var(--red); }
 .j-card-actions { display: flex; gap: var(--space-2); }
@@ -2747,8 +2756,8 @@ html[data-theme="paperDense"] select {
 
 /* Empty state */
 .j-empty, .j-empty-state {
-  padding: 40px 20px; text-align: center;
-  color: var(--t3); font-size: 13px;
+  padding: var(--space-11) var(--space-8); text-align: center;
+  color: var(--t2); font-size: 13px; /* t2 提升深色主題可讀性 */
 }
 .j-empty-title { font-size: 14px; font-weight: 600; color: var(--t2); margin-bottom: 6px; }
 .j-empty-add-btn, .j-empty-clear-btn {
@@ -3474,7 +3483,7 @@ html[data-theme="paperDense"] select {
 /* Trade form modal */
 .j-modal-overlay {
   position: fixed; inset: 0;
-  background: rgba(0,0,0,0.48);
+  background: var(--overlay);
   z-index: var(--z-modal-overlay);
   display: none;
   align-items: center; justify-content: center;
@@ -3570,6 +3579,8 @@ html[data-theme="paperDense"] select {
 .tc-price.flash-down { animation: flashDown 0.6s ease-out; }
 @media(prefers-reduced-motion: reduce) {
   .tc-price.flash-up, .tc-price.flash-down { animation: none; }
+  /* 減少動態：overlay 不套用 backdrop blur */
+  .modal-overlay, .j-modal-overlay { backdrop-filter: none; }
 }
 
 /* ── Section headers inside guide ─────────────────────────── */
@@ -3694,7 +3705,7 @@ html[data-theme="paperDense"] select {
   border-radius: var(--radius-pill); font-size: 11px; line-height: 1.4;
 }
 .j-stat-lbl { color: var(--t3); }
-.j-stat-val { color: var(--t1); font-family: var(--mono); font-weight: 600; }
+.j-stat-val { color: var(--t1); font-family: var(--mono); font-weight: 600; font-variant-numeric: tabular-nums; }
 .j-stat-sep { color: var(--t3); opacity: .6; }
 .j-stat-mkt { font-weight: 600; color: var(--accent); }
 .j-badge-tw, .j-badge-us {
@@ -4075,6 +4086,10 @@ html[data-theme="paperDense"] select {
   .j-tutorial { grid-template-columns: 1fr; gap: var(--space-3); }
   .j-insight-badges { margin: 6px 12px; }
   .j-sparkline-wrap { padding: var(--space-4); }
+  /* 權益曲線圖：行動版降高（base 已用 !important，需跟用以覆寫） */
+  .j-equity-svg { height: 120px !important; }
+  /* Modal 高度改用 dvh + safe-area，避免行動瀏覽器位址列遮擋 */
+  .modal, .j-modal, .j-modal.open { max-height: calc(100dvh - 24px - env(safe-area-inset-bottom, 0px)); }
 }
 @media (max-width: 420px) {
   .j-stats { padding: 6px 10px; gap: 6px 10px; }
@@ -4085,6 +4100,11 @@ html[data-theme="paperDense"] select {
   .j-qf-count { font-size: 10px; min-width: 16px; height: 14px; }
   .j-tutorial-step { padding: 8px 10px; gap: var(--space-3); }
   .j-tutorial-num { width: 22px; height: 22px; font-size: 11px; }
+  /* 部位規模計算機：小螢幕收斂欄數 */
+  .j-ps-grid { grid-template-columns: 1fr; }
+  .j-ps-ror-grid { grid-template-columns: repeat(2, 1fr); }
+  /* 權益曲線圖：小螢幕再降高 */
+  .j-equity-svg { height: 100px !important; }
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -4156,7 +4176,7 @@ html[data-theme="paperDense"] select {
 .j-td-price { font-family: var(--mono); color: var(--t1); white-space: nowrap; }
 .j-td-price .j-td-num { font-weight: 500; }
 .j-price-arrow { color: var(--t3); margin: 0 4px; }
-.j-td-num { font-family: var(--mono); text-align: right; white-space: nowrap; }
+.j-td-num { font-family: var(--mono); text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .j-td-num.tg { color: var(--green); font-weight: 700; }
 .j-td-num.tr { color: var(--red); font-weight: 700; }
 .j-live-price { font-size: 11px; color: var(--t3); margin-top: 2px; font-weight: 400; }
