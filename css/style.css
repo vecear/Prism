@@ -660,7 +660,7 @@ html, body {
   padding: 0 14px;
   font-size: 13px;
   font-weight: 600;
-  background: var(--glass-bg-btn); color: var(--t2);
+  background: var(--glass-bg-btn); color: var(--t1);
   border: 1px solid var(--glass-brd-soft);
   border-radius: var(--radius-md);
   display: inline-flex; align-items: center; gap: var(--space-2);
@@ -2464,7 +2464,13 @@ html[data-theme="paperDense"] select {
 }
 .fn { font-family: var(--mono); }
 .fg { flex: 1; }
-.fg-readonly { color: var(--t3); background: var(--bg2); cursor: not-allowed; }
+.fg-readonly {
+  color: var(--t3); background: var(--bg2); cursor: not-allowed;
+  /* 自帶完整外觀：掛上此 class 會使 :not([class]) fallback 失配，不能依賴它 */
+  border: 1px solid var(--line); border-radius: var(--radius-md);
+  height: 36px; padding: 0 12px; width: 100%; max-width: 100%;
+  font-family: var(--mono); font-size: 14px; box-sizing: border-box; outline: none;
+}
 .hint {
   font-size: 11px; color: var(--t3);
   margin-top: 4px;
@@ -2497,11 +2503,11 @@ html[data-theme="paperDense"] select {
 }
 .j-btn, button.j-btn {
   height: 32px; padding: 0 12px; font-size: 12px;
-  background: var(--glass-bg-btn); color: var(--t2);
+  background: var(--glass-bg-btn); color: var(--t1);
   border: 1px solid var(--glass-brd-soft); border-radius: var(--radius-md);
   display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer;
 }
-.j-btn:hover { background: var(--bg2); }
+.j-btn:hover { background: var(--glass-bg-btn); }
 .j-btn.j-btn-primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
 .j-btn.j-btn-primary:hover { opacity: 0.9; background: var(--accent); }
 .j-btn.j-btn-sm { height: 28px; font-size: 11px; padding: 0 10px; }
@@ -2687,6 +2693,18 @@ html[data-theme="paperDense"] select {
   padding: var(--space-5); background: var(--bg2); border-radius: var(--radius-md);
   margin-bottom: 10px; font-size: 12px;
 }
+/* 歷史日記搜尋框（漏網補齊） */
+.j-diary-search {
+  width: 100%; max-width: 320px; height: var(--ctrl-md);
+  padding: 0 var(--space-5); background: var(--bg1);
+  border: 1px solid var(--line); border-radius: var(--radius-md);
+  color: var(--t1); font-size: var(--text-md);
+  outline: none; box-sizing: border-box;
+  transition: border-color var(--dur-base);
+}
+.j-diary-search:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-d); }
+.j-diary-search::placeholder { color: var(--t3); }
+
 .j-diary-history-header, .j-diary-history-filters {
   display: flex; gap: var(--space-4); align-items: center; flex-wrap: wrap;
   margin-bottom: 10px;
@@ -4572,6 +4590,14 @@ html[data-theme="paperDense"] select {
   display: inline-flex; align-items: center; justify-content: center;
 }
 .j-dt-nav button:hover { background: var(--bg-hover); color: var(--t1); }
+/* 交易表單的月份切換鈕直接掛 .j-dt-nav 在 button 上（非容器用法），需獨立樣式 */
+button.j-dt-nav {
+  width: var(--ctrl-md); height: var(--ctrl-md); margin-bottom: 0;
+  background: transparent; border: 1px solid transparent; border-radius: var(--radius-md);
+  color: var(--t1); cursor: pointer; font-weight: 600; font-size: var(--text-lg);
+  display: inline-flex; align-items: center; justify-content: center;
+}
+button.j-dt-nav:hover { background: var(--bg-hover); }
 .j-dt-nav-title { font-weight: 600; font-size: var(--text-md); flex: 1; text-align: center; }
 .j-dt-weekdays {
   display: grid; grid-template-columns: repeat(7, 1fr);
@@ -4727,22 +4753,36 @@ html[data-theme="paperDense"] select {
 .j-tag-btn, .j-tpl-btn, .j-tutorial-toggle, .j-view-toggle, .j-vt-btn,
 .jd-tag-btn, .mini-fetch-btn, .stg-db-btn, .stg-logout-btn, .stg-reset-btn,
 .stg-save-btn, .stg-theme-btn, .stg-toggle, .ticker-fill-btn, .ticker-toggle,
-.toggle-btn, .j-rv-dot {
+.toggle-btn, .j-rv-dot,
+.jd-filter-btn, .j-diary-load-more, .j-record-btn, .j-toast-btn, .scroll-top-btn {
   font-family: inherit;
   font-weight: 600;
   cursor: pointer;
   transition: opacity var(--dur-base), border-color var(--dur-base), background var(--dur-base), color var(--dur-base);
 }
 
+/* 按鈕安全網：沒掛任何 class 的 button 也維持玻璃外觀，不出現瀏覽器原生灰鈕 */
+button:not([class]), button[class=""] {
+  font-family: inherit; font-weight: 600; cursor: pointer;
+  background: var(--glass-bg-btn); color: var(--t1);
+  border: 1px solid var(--glass-brd-soft); border-radius: var(--radius-md);
+  padding: 4px 10px;
+}
+
 /* 2) 矩形玻璃按鈕（neutral） */
 .btn, .ch-done-btn, .ch-nav-btn, .eq-multi-btn, .j-btn, .j-btn-cancel,
 .j-detail-close-btn, .j-diary-emoji-btn, .j-diary-star-btn, .j-fee-mode-btn,
 .j-filter-toggle, .j-offset-btn, .j-rv-dot, .j-tutorial-toggle,
-.j-view-toggle, .stg-db-btn {
+.j-view-toggle, .stg-db-btn, .j-diary-load-more {
   background: var(--glass-bg-btn);
   border: 1px solid var(--glass-brd-soft);
-  color: var(--t2);
+  color: var(--t1); /* 文字用最高層級，確保與玻璃底對比清楚 */
   border-radius: var(--radius-md);
+}
+/* 漏網補齊：歷史日記載入更多（置中塊狀） */
+.j-diary-load-more {
+  display: block; margin: var(--space-4) auto 0;
+  height: var(--ctrl-md); padding: 0 var(--space-7); font-size: var(--text-md);
 }
 /* hover 統一走 opacity（見第 9 節），底色不跳動 */
 .btn:hover, .ch-done-btn:hover, .ch-nav-btn:hover, .eq-multi-btn:hover,
@@ -4753,12 +4793,21 @@ html[data-theme="paperDense"] select {
 }
 
 /* 3) Pill toggle（chip 類：玻璃底 + 全圓角） */
-.j-tag-btn, .jd-tag-btn, .j-tpl-btn, .j-qf-chip, .j-kpi-more-toggle, .ticker-toggle {
+.j-tag-btn, .jd-tag-btn, .j-tpl-btn, .j-qf-chip, .j-kpi-more-toggle, .ticker-toggle,
+.jd-filter-btn {
   background: var(--glass-bg-btn);
   border: 1px solid var(--glass-brd-soft);
   border-radius: var(--radius-pill);
+  color: var(--t1);
 }
-.j-qf-chip:hover, .j-tag-btn:hover, .jd-tag-btn:hover { background: var(--glass-bg-btn); }
+.j-qf-chip:hover, .j-tag-btn:hover, .jd-tag-btn:hover, .jd-filter-btn:hover { background: var(--glass-bg-btn); }
+/* 漏網補齊：歷史日記書籤過濾 chip */
+.jd-filter-btn {
+  height: var(--ctrl-sm); padding: 0 var(--space-4); font-size: var(--text-sm);
+  display: inline-flex; align-items: center; gap: var(--space-1);
+}
+.jd-filter-btn.active { background: var(--accent); color: var(--on-accent); border-color: transparent; }
+.jd-filter-btn.disabled { opacity: .45; cursor: not-allowed; }
 /* Pill toggle（segmented 內項目：透明底 + 全圓角；容器同步 pill） */
 .toggle-btn, .seg-item, .j-vt-btn, .j-lt-btn { border-radius: var(--radius-pill); }
 .segmented, .toggle-group, .j-view-toggle, .j-login-tabs { border-radius: var(--radius-pill); }
@@ -4771,12 +4820,19 @@ html[data-theme="paperDense"] select {
 }
 
 /* 4) Primary（主行動） */
-.j-add-btn, .j-btn-save, .stg-save-btn, .j-login-btn, .j-btn.j-empty-add-btn {
+.j-add-btn, .j-btn-save, .stg-save-btn, .j-login-btn, .j-btn.j-empty-add-btn,
+.j-record-btn, .j-toast-btn {
   background: var(--accent);
   color: var(--on-accent);
   border: 1px solid transparent;
   border-radius: var(--radius-md);
 }
+/* 漏網補齊：計算器「記錄到日誌」與 toast 內行動鈕 */
+.j-record-btn {
+  height: var(--ctrl-md); padding: 0 var(--space-7); font-size: var(--text-md);
+  display: inline-flex; align-items: center; gap: var(--space-2);
+}
+.j-toast-btn { height: 26px; padding: 0 var(--space-4); font-size: var(--text-sm); }
 
 /* 5) Danger（紅 soft 底 + 紅字） */
 .stg-reset-btn, .stg-logout-btn {
@@ -4792,6 +4848,7 @@ html[data-theme="paperDense"] select {
   background: transparent;
   border-color: transparent;
   border-radius: var(--radius-md);
+  color: var(--t1); /* icon 用最高層級文字色，避免淡灰難辨識 */
 }
 .j-act-btn:hover, .j-modal-close:hover, .j-detail-nav-btn:hover,
 .j-refresh-quotes-btn:hover {
@@ -4818,6 +4875,23 @@ html[data-theme="paperDense"] select {
 .stg-toggle.on { background: var(--accent); }
 .stg-theme-btn { background: var(--glass-bg-btn); border-color: var(--glass-brd-soft); border-radius: var(--radius-lg); }
 .stg-theme-btn.active { border-color: var(--accent); background: var(--accent-bg); }
+/* 漏網補齊：回到頂部浮動鈕（固定左下，捲動 >300px 才浮現；FAB 在右下） */
+.scroll-top-btn {
+  position: fixed; left: var(--space-7); bottom: calc(var(--space-7) + env(safe-area-inset-bottom, 0px));
+  width: 38px; height: 38px; z-index: var(--z-dropdown);
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--glass-bg-strong); color: var(--t1);
+  border: 1px solid var(--glass-brd-soft); border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-md);
+  opacity: 0; pointer-events: none; transform: translateY(6px);
+  transition: opacity var(--dur-base), transform var(--dur-base);
+}
+.scroll-top-btn.show { opacity: 1; pointer-events: auto; transform: none; }
+.scroll-top-btn.show:hover { opacity: .85; }
+@media (max-width: 768px) {
+  /* 行動版避開底部 tabbar */
+  .scroll-top-btn { bottom: calc(80px + env(safe-area-inset-bottom, 0px)); }
+}
 
 /* 9) 統一互動狀態 */
 .btn:hover, .btn-full:hover, .ch-done-btn:hover, .ch-nav-btn:hover,
@@ -4832,7 +4906,8 @@ html[data-theme="paperDense"] select {
 .mini-fetch-btn:hover, .stg-db-btn:hover, .stg-logout-btn:hover,
 .stg-reset-btn:hover, .stg-save-btn:hover, .stg-theme-btn:hover,
 .stg-toggle:hover, .ticker-fill-btn:hover, .ticker-toggle:hover,
-.toggle-btn:hover, .j-rv-dot:hover {
+.toggle-btn:hover, .j-rv-dot:hover,
+.jd-filter-btn:hover, .j-diary-load-more:hover, .j-record-btn:hover, .j-toast-btn:hover {
   opacity: .85;
 }
 .btn:focus-visible, .ch-done-btn:focus-visible, .ch-nav-btn:focus-visible,
@@ -4850,7 +4925,9 @@ html[data-theme="paperDense"] select {
 .stg-db-btn:focus-visible, .stg-logout-btn:focus-visible,
 .stg-reset-btn:focus-visible, .stg-save-btn:focus-visible,
 .stg-theme-btn:focus-visible, .ticker-fill-btn:focus-visible,
-.ticker-toggle:focus-visible, .toggle-btn:focus-visible, .j-rv-dot:focus-visible {
+.ticker-toggle:focus-visible, .toggle-btn:focus-visible, .j-rv-dot:focus-visible,
+.jd-filter-btn:focus-visible, .j-diary-load-more:focus-visible,
+.j-record-btn:focus-visible, .j-toast-btn:focus-visible, .scroll-top-btn:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
