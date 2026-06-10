@@ -1105,6 +1105,8 @@ function wrapNumberInputs(container) {
 // ── Settings (persisted in localStorage) ──
 const DEFAULT_SETTINGS = {
   theme: 'paper',              // 'paper' | 'ivory' | 'paperDense' | 'dark' | 'midnight' | 'emerald'
+  glassEnabled: true,          // Liquid Glass 玻璃效果開關
+  glassTransparency: 0,        // 玻璃透明度 0~90（0=預設濃度，90≈iPhone 全透流動玻璃）
   autoFetch: true,
   refreshInterval: 10,
   indices: { taiex: true, txf: true, twn: true, es: true, nq: true, ym: true, sox: true, nkd: true, kospi: true, shanghai: true, hsi: true, btc: true, eth: true, sol: true },
@@ -4746,6 +4748,15 @@ function renderSettings() {
           <button type="button" class="stg-theme-btn ${curTheme==='emerald'?'active':''}" data-theme="emerald"><div class="stg-theme-swatch" data-sw="emerald"></div><span class="stg-theme-label">翡翠綠</span></button>
         </div>
         <div class="stg-row" style="margin-top:10px">
+          <label for="stg-glass-toggle">Liquid Glass 玻璃效果<span class="stg-hint">關閉後改為實底面板（省電/低階裝置）</span></label>
+          <label class="stg-toggle ${CFG.glassEnabled !== false ? 'on' : ''}" style="cursor:pointer"><input type="checkbox" id="stg-glass-toggle" ${CFG.glassEnabled !== false ? 'checked' : ''} style="display:none"><span class="slider"></span></label>
+        </div>
+        <div class="stg-row" id="stg-glass-trans-row" style="${CFG.glassEnabled !== false ? '' : 'display:none'}">
+          <label for="stg-glass-trans">玻璃透明度<span class="stg-hint">調高＝更通透，似 iPhone 流動玻璃（blur 自動加重）</span></label>
+          <input type="range" class="stg-range" id="stg-glass-trans" min="0" max="90" step="5" value="${Math.min(90, Math.max(0, parseInt(CFG.glassTransparency, 10) || 0))}" aria-label="玻璃透明度">
+          <span class="stg-range-val" id="stg-glass-trans-val">${Math.min(90, Math.max(0, parseInt(CFG.glassTransparency, 10) || 0))}%</span>
+        </div>
+        <div class="stg-row">
           <label for="stg-default-market">預設市場</label>
           <select class="stg-select" id="stg-default-market">
             <option value="tw" ${CFG.defaultMarket === 'tw' ? 'selected' : ''}>台灣</option>
@@ -5098,6 +5109,8 @@ function renderSettings() {
     CFG.refreshInterval = parseInt($('#stg-refresh')?.value || '0', 10);
     CFG.defaultMarket = $('#stg-default-market')?.value || 'tw';
     CFG.colorMode = $('#stg-color-mode')?.value || 'green-up';
+    CFG.glassEnabled = $('#stg-glass-toggle')?.checked ?? true;
+    CFG.glassTransparency = Math.min(90, Math.max(0, parseInt($('#stg-glass-trans')?.value, 10) || 0));
     CFG.twFeeDisc = $('#stg-tw-fee-disc')?.value || '0.5';
     CFG.twTaxRate = $('#stg-tw-tax-rate')?.value || '0.003';
     CFG.twEtfFeeDisc = $('#stg-tw-etf-fee-disc')?.value || '0.5';
@@ -5159,6 +5172,26 @@ function renderSettings() {
     _renderSentimentStrip();
   };
   body.addEventListener('change', save);
+
+  // Liquid Glass：開關同步 .on 視覺與透明度列顯示；滑桿拖曳即時預覽（change 落地由 save 統一處理）
+  const _glassToggle = $('#stg-glass-toggle');
+  const _glassTrans = $('#stg-glass-trans');
+  const _glassFill = () => _glassTrans?.style.setProperty('--_fill', (((parseInt(_glassTrans.value, 10) || 0) / 90) * 100).toFixed(1) + '%');
+  _glassFill();
+  _glassToggle?.addEventListener('change', () => {
+    _glassToggle.closest('.stg-toggle')?.classList.toggle('on', _glassToggle.checked);
+    const row = $('#stg-glass-trans-row');
+    if (row) row.style.display = _glassToggle.checked ? '' : 'none';
+  });
+  _glassTrans?.addEventListener('input', e => {
+    const v = Math.min(90, Math.max(0, parseInt(e.target.value, 10) || 0));
+    const valEl = $('#stg-glass-trans-val');
+    if (valEl) valEl.textContent = v + '%';
+    CFG.glassTransparency = v;
+    _glassFill();
+    applyGlass();
+  });
+
   $('#stg-finnhub-key')?.addEventListener('input', debounce(save, 500));
   $$('input[type="number"].stg-input', body).forEach(el => el.addEventListener('input', debounce(save, 500)));
 
@@ -5449,9 +5482,19 @@ function _openFontSizePage() {
   });
 }
 
+// Liquid Glass：開關寫入 html[data-glass]，透明度轉為 --glass-level 乘數（CSS token 公式消化）
+function applyGlass() {
+  const on = CFG.glassEnabled !== false;
+  document.documentElement.setAttribute('data-glass', on ? 'on' : 'off');
+  const t = Math.min(90, Math.max(0, parseInt(CFG.glassTransparency, 10) || 0));
+  document.documentElement.style.setProperty('--glass-level', String((100 - t) / 100));
+}
+
 function applySettings() {
   // Apply theme
   applyTheme(CFG.theme);
+  // Apply Liquid Glass 開關與透明度
+  applyGlass();
   // Apply font scale
   document.documentElement.setAttribute('data-font-scale', CFG.fontScale || 'm');
   // Apply per-area font sizes

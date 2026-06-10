@@ -111,6 +111,7 @@ npm run deploy   # 部署到 Cloudflare Pages
 
 **Liquid Glass 設計系統**（2026-06 全站重設計）：
 - 面板級表面（sidebar/topbar/modal/card/toolbar/dropdown/fab/tabbar）用 `--glass-bg` + `backdrop-filter: blur(var(--glass-blur))` + `--glass-brd-soft` 邊 + `--shadow-glass`
+- **使用者可控**：設定 → 外觀有「Liquid Glass 開關」與「玻璃透明度 0~90%」滑桿（CFG keys：`glassEnabled`/`glassTransparency`）。開關寫入 `html[data-glass="on|off"]`（off 時 token 全面退回實底、mesh 移除）；透明度轉為 `--glass-level` 乘數（1→0.1）由 JS inline 設定，玻璃底色 token 為 `rgb(var(--glass-rgb) / calc(基準α × var(--glass-level)))` 公式，blur/saturate 隨透明度自動加重（iOS 流動玻璃感）。`index.html` 早期 script 與 `app.js applyGlass()` 兩處同步套用，改語意時兩處都要改
 - **小元素（按鈕/pill/badge/table row/日曆格）禁用 backdrop-filter**，只用半透明底（效能）；全檔 blur 使用點上限 20 處
 - 已有 `@supports not (backdrop-filter…)` 彙總 fallback 區塊（退回 `--bg1` 實底），新增玻璃表面時須同步加入
 - 統一按鈕系統：41 個按鈕 class 共用檔尾「統一按鈕基底」（glass 底/600 字重/hover opacity .85/focus-visible accent ring）；變體 = Primary（accent 實底）/Danger（red-soft）/Pill chip/Segmented pill/Ghost icon。**新增按鈕時必須納入基底群組 selector 並選擇變體**，不可另起爐灶

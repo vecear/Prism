@@ -107,13 +107,19 @@
   --shadow-sheet: 0 -8px 24px rgba(120,80,30,0.16); /* upward-cast: bottom sheet lifts above content */
   --shadow-inset-highlight: inset 0 0 0 1px rgba(255,255,255,0.6);
   /* ── Liquid Glass tokens（paper 暖調）──────────────────── */
-  --glass-bg: rgba(255,255,255,.58);          /* 一般玻璃面板 */
-  --glass-bg-strong: rgba(255,255,255,.78);   /* topbar/sidebar/modal 等需高可讀性 */
-  --glass-bg-btn: rgba(255,255,255,.5);       /* 按鈕底（不套 blur） */
+  /* --glass-level 由設定面板控制（1=預設濃度，0.1≈iPhone 全透流動玻璃）；
+     透明度越高 blur 與飽和度自動加重，維持 iOS 玻璃質感與可讀性 */
+  --glass-level: 1;
+  --glass-rgb: 255 255 255;                   /* 玻璃面板底色（RGB 通道） */
+  --glass-btn-rgb: 255 255 255;               /* 按鈕底色（深色主題用白微光） */
+  --glass-bg: rgb(var(--glass-rgb) / calc(.58 * var(--glass-level)));
+  --glass-bg-strong: rgb(var(--glass-rgb) / calc(.78 * var(--glass-level)));
+  --glass-bg-btn: rgb(var(--glass-btn-rgb) / calc(.5 * var(--glass-level)));
   --glass-brd: rgba(255,255,255,.55);         /* 玻璃高光邊 */
   --glass-brd-soft: rgba(160,140,110,.25);    /* 外緣定義邊（paper 暖調） */
-  --glass-blur: 14px;
-  --glass-blur-sm: 8px;
+  --glass-blur: calc(14px + 14px * (1 - var(--glass-level)));
+  --glass-blur-sm: calc(8px + 8px * (1 - var(--glass-level)));
+  --glass-sat: calc(1 + .6 * (1 - var(--glass-level)));
   --shadow-glass: 0 8px 32px -8px rgba(120,80,30,.14), inset 0 1px 0 rgba(255,255,255,.6);
   --bg-mesh: radial-gradient(1100px 700px at 8% -10%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 60%),
              radial-gradient(900px 600px at 105% 15%, rgba(120,160,255,.12), transparent 55%),
@@ -144,9 +150,11 @@ html[data-theme="ivory"] {
   --green-d: rgba(21,128,61,.08); --red-d: rgba(185,28,28,.08);
   --amber: #b45309; --amber-soft: #fef3c7; --blue: #0c4a6e; --blue-soft: #e0f2fe;
   /* Liquid Glass（奶油象牙：白玻璃偏暖黃） */
-  --glass-bg: rgba(255,253,246,.58);
-  --glass-bg-strong: rgba(255,253,246,.78);
-  --glass-bg-btn: rgba(255,253,246,.5);
+  --glass-rgb: 255 253 246;
+  --glass-btn-rgb: 255 253 246;
+  --glass-bg: rgb(var(--glass-rgb) / calc(.58 * var(--glass-level)));
+  --glass-bg-strong: rgb(var(--glass-rgb) / calc(.78 * var(--glass-level)));
+  --glass-bg-btn: rgb(var(--glass-btn-rgb) / calc(.5 * var(--glass-level)));
   --glass-brd: rgba(255,255,255,.55);
   --glass-brd-soft: rgba(150,125,75,.25);
   --shadow-glass: 0 8px 32px -8px rgba(120,90,20,.14), inset 0 1px 0 rgba(255,255,255,.6);
@@ -165,9 +173,11 @@ html[data-theme="compact"] {
   --green-d: rgba(22,101,52,.08); --red-d: rgba(153,27,27,.08);
   --amber: #b45309; --amber-soft: #fef3c7; --blue: #075985; --blue-soft: #e0f2fe;
   /* Liquid Glass（緊湊紙感：白玻璃微沉色溫） */
-  --glass-bg: rgba(255,252,243,.6);
-  --glass-bg-strong: rgba(255,252,243,.8);
-  --glass-bg-btn: rgba(255,252,243,.5);
+  --glass-rgb: 255 252 243;
+  --glass-btn-rgb: 255 252 243;
+  --glass-bg: rgb(var(--glass-rgb) / calc(.6 * var(--glass-level)));
+  --glass-bg-strong: rgb(var(--glass-rgb) / calc(.8 * var(--glass-level)));
+  --glass-bg-btn: rgb(var(--glass-btn-rgb) / calc(.5 * var(--glass-level)));
   --glass-brd: rgba(255,255,255,.55);
   --glass-brd-soft: rgba(145,115,70,.28);
   --shadow-glass: 0 8px 32px -8px rgba(110,75,25,.15), inset 0 1px 0 rgba(255,255,255,.6);
@@ -190,9 +200,11 @@ html[data-theme="dark"] {
   --on-accent: #1a1206; --on-green: #062012; --on-red: #fff;
   --shadow-pill: 0 1px 2px rgba(255,255,255,0.08);
   /* Liquid Glass（經典深色：冷黑玻璃 + 深藍/紫微光 mesh） */
-  --glass-bg: rgba(22,30,42,.55);
-  --glass-bg-strong: rgba(22,30,42,.75);
-  --glass-bg-btn: rgba(255,255,255,.06);
+  --glass-rgb: 22 30 42;
+  --glass-btn-rgb: 255 255 255;
+  --glass-bg: rgb(var(--glass-rgb) / calc(.55 * var(--glass-level)));
+  --glass-bg-strong: rgb(var(--glass-rgb) / calc(.75 * var(--glass-level)));
+  --glass-bg-btn: rgb(var(--glass-btn-rgb) / calc(.06 * var(--glass-level)));
   --glass-brd: rgba(255,255,255,.09);
   --glass-brd-soft: rgba(255,255,255,.07);
   --shadow-glass: 0 8px 32px -8px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.05);
@@ -214,9 +226,11 @@ html[data-theme="midnight"] {
   --on-accent: #06182f; --on-green: #062012; --on-red: #fff;
   --shadow-pill: 0 1px 2px rgba(255,255,255,0.08);
   /* Liquid Glass（午夜藍：深藍玻璃 + 藍青 mesh） */
-  --glass-bg: rgba(15,28,52,.55);
-  --glass-bg-strong: rgba(15,28,52,.75);
-  --glass-bg-btn: rgba(255,255,255,.06);
+  --glass-rgb: 15 28 52;
+  --glass-btn-rgb: 255 255 255;
+  --glass-bg: rgb(var(--glass-rgb) / calc(.55 * var(--glass-level)));
+  --glass-bg-strong: rgb(var(--glass-rgb) / calc(.75 * var(--glass-level)));
+  --glass-bg-btn: rgb(var(--glass-btn-rgb) / calc(.06 * var(--glass-level)));
   --glass-brd: rgba(255,255,255,.10);
   --glass-brd-soft: rgba(148,180,255,.12);
   --shadow-glass: 0 8px 32px -8px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.06);
@@ -238,15 +252,32 @@ html[data-theme="emerald"] {
   --on-accent: #04231b; --on-green: #04231b; --on-red: #fff;
   --shadow-pill: 0 1px 2px rgba(255,255,255,0.08);
   /* Liquid Glass（翡翠綠：墨綠玻璃 + 翠綠 mesh） */
-  --glass-bg: rgba(12,38,32,.55);
-  --glass-bg-strong: rgba(12,38,32,.75);
-  --glass-bg-btn: rgba(255,255,255,.06);
+  --glass-rgb: 12 38 32;
+  --glass-btn-rgb: 255 255 255;
+  --glass-bg: rgb(var(--glass-rgb) / calc(.55 * var(--glass-level)));
+  --glass-bg-strong: rgb(var(--glass-rgb) / calc(.75 * var(--glass-level)));
+  --glass-bg-btn: rgb(var(--glass-btn-rgb) / calc(.06 * var(--glass-level)));
   --glass-brd: rgba(255,255,255,.09);
   --glass-brd-soft: rgba(110,231,183,.12);
   --shadow-glass: 0 8px 32px -8px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.05);
   --bg-mesh: radial-gradient(1100px 700px at 8% -10%, rgba(52,211,153,.12), transparent 60%),
              radial-gradient(900px 600px at 105% 15%, rgba(45,212,191,.08), transparent 55%),
              radial-gradient(800px 700px at 50% 115%, rgba(16,185,129,.10), transparent 55%);
+}
+
+/* ── 玻璃效果關閉（設定 → 外觀 → Liquid Glass 開關）──────────
+   tokens 全面退回實底；置於主題區塊之後，同 specificity 靠順序勝出 */
+html[data-glass="off"] {
+  --glass-bg: var(--bg1);
+  --glass-bg-strong: var(--bg1);
+  --glass-bg-btn: var(--bg2);
+  --glass-brd: var(--line);
+  --glass-brd-soft: var(--line);
+  --glass-blur: 0px;
+  --glass-blur-sm: 0px;
+  --glass-sat: 1;
+  --shadow-glass: var(--shadow-card);
+  --bg-mesh: none;
 }
 
 /* ── Base ─────────────────────────────────────────────────── */
@@ -3037,6 +3068,30 @@ html[data-theme="paperDense"] select {
 }
 .stg-input:focus, .stg-select:focus { border-color: var(--accent); }
 .stg-input.stg-dec-input { width: 60px; }
+/* 設定用 range 滑桿（玻璃透明度等）：thumb ≥22px 符合觸控規範 */
+.stg-range {
+  -webkit-appearance: none; appearance: none;
+  flex: 1 1 140px; min-width: 120px; max-width: 240px; height: 22px;
+  background: transparent; cursor: pointer;
+}
+.stg-range::-webkit-slider-runnable-track {
+  height: 6px; border-radius: var(--radius-pill);
+  background: linear-gradient(to right, var(--accent) var(--_fill, 0%), var(--bg3) var(--_fill, 0%));
+}
+.stg-range::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 22px; height: 22px; margin-top: -8px;
+  border-radius: 50%; background: var(--bg1);
+  border: 2px solid var(--accent); box-shadow: var(--shadow-sm);
+}
+.stg-range::-moz-range-track { height: 6px; border-radius: var(--radius-pill); background: var(--bg3); }
+.stg-range::-moz-range-progress { height: 6px; border-radius: var(--radius-pill); background: var(--accent); }
+.stg-range::-moz-range-thumb {
+  width: 18px; height: 18px; border-radius: 50%;
+  background: var(--bg1); border: 2px solid var(--accent); box-shadow: var(--shadow-sm);
+}
+.stg-range:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: var(--radius-pill); }
+.stg-range-val { font-family: var(--mono); font-size: 12px; color: var(--t2); min-width: 38px; text-align: right; font-variant-numeric: tabular-nums; }
 .stg-hint { font-size: 11px; color: var(--t3); margin-top: 4px; }
 .stg-toggle {
   width: 36px; height: 20px; border-radius: 10px;
@@ -4698,8 +4753,8 @@ button.j-dt-nav:hover { background: var(--bg-hover); }
 .j-dt-dropdown, .sym-ac-list,
 .stg-section, .stg-fs-page {
   background: var(--glass-bg-strong);
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat, 1));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat, 1));
   border-color: var(--glass-brd-soft);
   box-shadow: var(--shadow-glass);
 }
@@ -4711,8 +4766,8 @@ button.j-dt-nav:hover { background: var(--bg-hover); }
 .j-table, .j-summary-bar, .j-sparkline-wrap,
 .j-checklist-section, .j-review-section {
   background: var(--glass-bg);
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat, 1));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat, 1));
   border-color: var(--glass-brd-soft);
   box-shadow: var(--shadow-glass);
 }

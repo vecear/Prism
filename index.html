@@ -28,7 +28,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;600;700&family=Instrument+Serif&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=20260611c">
+  <link rel="stylesheet" href="css/style.css?v=20260611d">
 </head>
 <body>
   <a class="skip-link" href="#main-content">跳至主內容</a>
@@ -328,6 +328,11 @@
       // Migrate old theme keys
       if (theme === 'warm' || theme === 'light') theme = 'paper';
       document.documentElement.setAttribute('data-theme', theme);
+      // Liquid Glass 開關與透明度（早期套用避免閃爍）
+      var glassOn = !s || s.glassEnabled !== false;
+      document.documentElement.setAttribute('data-glass', glassOn ? 'on' : 'off');
+      var gt = (s && typeof s.glassTransparency === 'number') ? Math.min(90, Math.max(0, s.glassTransparency)) : 0;
+      document.documentElement.style.setProperty('--glass-level', String((100 - gt) / 100));
       // Sync browser UI theme-color with selected theme's --bg0
       var themeBg = {
         paper: '#faf7f0', ivory: '#fbf8f1',
@@ -391,7 +396,7 @@
   }
   </script>
   <script src="js/ml.js?v=20260606a" defer></script>
-  <script src="js/app.js?v=20260610a" defer></script>
+  <script src="js/app.js?v=20260611d" defer></script>
   <script src="js/journal.js?v=20260610a" defer></script>
 </body>
 </html>
