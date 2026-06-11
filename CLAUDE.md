@@ -22,7 +22,9 @@ Prism/
 ├── js/
 │   ├── ml.js                         # ML 工具：K-Means、Spectral Clustering、Z-score、silhouette
 │   ├── app.js                        # 主模組：計算引擎、PriceService、UI 渲染、設定面板、Guide、Regime 偵測
-│   └── journal.js                    # 交易日誌：CRUD、5 視圖（list/calendar/stats/holdings/diary）、Auth UI、行為分群、Van Tharp 風險工具（SQN/部位計算/投組風險/出場四問/論點）
+│   ├── journal.js                    # 交易日誌：CRUD、5 視圖（list/calendar/stats/holdings/diary）、Auth UI、行為分群、Van Tharp 風險工具（SQN/部位計算/投組風險/出場四問/論點）
+│   ├── industry-data.js              # 台股產業地圖靜態資料庫（14 條產業鏈 × 上中下游 × 細分環節；代號/簡稱經官方清單驗證）
+│   └── industry.js                   # 產業地圖模組：squarified treemap 熱力圖、產業鏈視圖、個股資訊卡、TWSE MIS 批次報價
 ├── server.js                         # 本機單機 Node 伺服器（使用 node:sqlite）
 ├── _worker.js                        # Cloudflare Worker：API 路由、CORS proxy、DB 遷移
 ├── sw.js                             # Service Worker：離線快取策略
@@ -32,7 +34,8 @@ Prism/
 ├── wrangler.toml                     # Cloudflare 設定（D1 binding + 選用 RATE_LIMIT_KV 綁定範本）
 ├── _headers                          # Cloudflare Pages 安全標頭（套用於 HTML 頁面的 CSP/X-Frame-Options/HSTS 等）
 ├── scripts/
-│   └── prism-parse-import.mjs        # 券商交易檔解析器（元大/元富/群益）
+│   ├── prism-parse-import.mjs        # 券商交易檔解析器（元大/元富/群益）
+│   └── validate-industry-data.mjs    # 產業地圖資料驗證（代號/簡稱比對 TWSE/TPEx openapi）
 └── start.bat                         # Windows 一鍵啟動 local-only 模式
 ```
 
@@ -49,6 +52,7 @@ Prism/
 | 指數定義 | `js/app.js` → `INDEX_DEFS` | 12 個指數/幣種的定義 |
 | 設定面板 | `js/app.js` → `renderSettings()` | 報價來源、主題、字體、小數位等 |
 | 交易日誌 UI | `js/journal.js` | IIFE 模組，獨立的 state 管理 |
+| 台股產業地圖 | `js/industry.js` + `js/industry-data.js` | `window.PrismIndustry.onActivate()`；熱力圖（市值平方根加權 squarified treemap）+ 14 條產業鏈視圖 + 個股資訊卡（帶入日誌 `openTradeFormPrefill` / 帶入計算機）；報價走 MIS 批次（25 檔/批、60s 快取），資料更新時跑 `node scripts/validate-industry-data.mjs` 驗證 |
 | Modal 系統 | `js/journal.js` → `openTradeForm()` / `openTradeDetail()` | 共用 `#j-global-modal` + `#j-global-modal-overlay` |
 | 系統品質（SQN / 期望實現報酬） | `js/journal.js` → `computeStats()` / `sqnGrade()` / `renderStatsPage()` 的 `secSQN` | Van Tharp SQN = √(min(N,100))×平均R÷R標準差 + expectunity |
 | 部位規模計算機 | `js/journal.js` → `openPositionSizer()` | 固定風險百分比模型 + 破產風險表，可「套用到新交易」 |
@@ -150,7 +154,7 @@ npm run deploy   # 部署到 Cloudflare Pages
 - 變數定義在 `:root`，各主題透過 `html[data-theme="xxx"]` 覆寫
 - **優先使用 design tokens**（`var(--space-5)` 而不是 `padding: 12px`）
 - 使用 BEM-like 命名（`.calc-layout`、`.input-panel`、`.toggle-btn`）
-- Journal 區用 `.j-` 前綴；計算器用 `.calc-` 前綴；設定用 `.stg-` 前綴
+- Journal 區用 `.j-` 前綴；計算器用 `.calc-` 前綴；設定用 `.stg-` 前綴；產業地圖用 `.ind-` 前綴
 - 響應式斷點透過 `@media` query
 - **避免 `!important`**，遇到 specificity 衝突先思考 selector 層級而非加 important
 - Modal 用 `position: fixed; top:50%; left:50%; transform: translate(-50%,-50%)` 居中（不依賴 flex parent）

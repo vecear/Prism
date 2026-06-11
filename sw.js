@@ -1,12 +1,14 @@
 // Prism Service Worker — Stale-while-revalidate for static assets, network-first for API
-const CACHE_NAME = 'prism-v93';
+const CACHE_NAME = 'prism-v95';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
-  '/css/style.css?v=20260611d',
+  '/css/style.css?v=20260611e',
   '/js/ml.js?v=20260606a',
-  '/js/app.js?v=20260611d',
-  '/js/journal.js?v=20260610a',
+  '/js/app.js?v=20260611f',
+  '/js/journal.js?v=20260611b',
+  '/js/industry-data.js?v=20260611a',
+  '/js/industry.js?v=20260611a',
   '/favicon.svg',
   '/manifest.json',
 ];
@@ -54,7 +56,7 @@ self.addEventListener('fetch', event => {
           caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone)).catch(() => {});
         }
         return response;
-      }).catch(() => cached);
+      }).catch(() => cached || new Response('Offline', { status: 503, headers: { 'Content-Type': 'text/plain' } }));
 
       return cached || fetchPromise;
     })

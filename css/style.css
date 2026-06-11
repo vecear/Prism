@@ -4794,6 +4794,171 @@ button.j-dt-nav:hover { background: var(--bg-hover); }
 }
 
 /* ═══════════════════════════════════════════════════════════
+   產業地圖（.ind- 前綴）
+   熱力圖 treemap 與供應鏈視圖；tile/row 為重複元素，禁用 blur
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── 產業 pill 導航 ── */
+.ind-nav {
+  display: flex; gap: var(--space-2); margin-bottom: var(--space-4);
+  overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none;
+  padding-bottom: var(--space-1);
+}
+.ind-nav::-webkit-scrollbar { display: none; }
+.ind-pill {
+  flex: 0 0 auto; height: var(--ctrl-sm); padding: 0 var(--space-5);
+  font-size: var(--text-sm); display: inline-flex; align-items: center;
+  white-space: nowrap;
+}
+.ind-pill.active { background: var(--accent); color: var(--on-accent); border-color: transparent; }
+
+/* ── meta 列（報價時間 / 估算註記 / 色階） ── */
+.ind-meta {
+  display: flex; align-items: center; gap: var(--space-5); flex-wrap: wrap;
+  margin-bottom: var(--space-3); font-size: var(--text-xs); color: var(--t3);
+}
+.ind-meta-status { font-variant-numeric: tabular-nums; }
+.ind-meta-loading { color: var(--accent); }
+.ind-meta-note { margin-left: auto; }
+.ind-legend { display: inline-flex; align-items: center; gap: 2px; }
+.ind-legend-cell { width: 16px; height: 10px; border-radius: 2px; }
+.ind-legend-label { font-size: var(--text-xs); color: var(--t3); padding: 0 var(--space-1); font-variant-numeric: tabular-nums; }
+
+/* ── 熱力圖 treemap ── */
+.ind-heatmap {
+  position: relative; overflow: hidden;
+  border: 1px solid var(--glass-brd-soft); border-radius: var(--radius-lg);
+  background: var(--bg1);
+}
+.ind-sector { position: absolute; overflow: hidden; }
+.ind-sector-head {
+  position: absolute; top: 0; left: 0; right: 0; height: 20px;
+  display: flex; align-items: center; gap: var(--space-2);
+  padding: 0 var(--space-2); background: var(--bg1);
+  border-bottom: 1px solid var(--bg0);
+  cursor: pointer; z-index: 1; overflow: hidden; white-space: nowrap;
+}
+.ind-sector-head:hover { background: var(--bg-hover); }
+.ind-sector-name { font-size: var(--text-xs); font-weight: 700; color: var(--t2); overflow: hidden; text-overflow: ellipsis; }
+.ind-sector-pct { font-size: var(--text-xs); font-family: var(--mono, monospace); font-variant-numeric: tabular-nums; }
+.ind-sector-tiles { position: absolute; left: 0; right: 0; bottom: 0; }
+.ind-tile {
+  position: absolute; overflow: hidden; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  border: 1px solid var(--bg0); gap: 0;
+}
+.ind-tile:hover { opacity: .85; }
+.ind-tile:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.ind-tile-code {
+  font-size: var(--text-xs); font-weight: 700; line-height: 1.25;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  padding: 0 2px;
+}
+.ind-tile-pct {
+  font-size: var(--text-xs); line-height: 1.2;
+  font-family: var(--mono, monospace); font-variant-numeric: tabular-nums;
+  opacity: .92;
+}
+.ind-empty {
+  padding: var(--space-10); text-align: center; color: var(--t3); font-size: var(--text-md);
+  border: 1px dashed var(--line-strong, var(--bg3)); border-radius: var(--radius-lg);
+}
+
+/* ── 產業鏈視圖 ── */
+.ind-chain-head { margin: var(--space-2) 0 var(--space-3); }
+.ind-chain-head h2 { font-size: var(--text-xl); margin: 0 0 var(--space-1); }
+.ind-chain-desc { margin: 0; font-size: var(--text-sm); color: var(--t3); }
+.ind-strip {
+  display: flex; gap: var(--space-6); align-items: center;
+  padding: var(--space-3) var(--space-5); margin-bottom: var(--space-5);
+  background: var(--glass-bg-btn); border: 1px solid var(--glass-brd-soft);
+  border-radius: var(--radius-md);
+  overflow-x: auto; scrollbar-width: none; white-space: nowrap;
+}
+.ind-strip::-webkit-scrollbar { display: none; }
+.ind-strip-item { display: inline-flex; align-items: baseline; gap: var(--space-2); flex: 0 0 auto; }
+.ind-strip-item[role="button"] { cursor: pointer; }
+.ind-strip-label { font-size: var(--text-xs); color: var(--t3); }
+.ind-strip-item b {
+  font-size: var(--text-md); font-weight: 700;
+  font-family: var(--mono, monospace); font-variant-numeric: tabular-nums;
+}
+.ind-stages { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-5); align-items: start; }
+.ind-stage {
+  background: var(--bg1); border: 1px solid var(--glass-brd-soft);
+  border-radius: var(--radius-lg); padding: var(--space-4);
+  box-shadow: var(--shadow-card);
+}
+.ind-stage-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: var(--space-3); padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--line-strong, var(--bg3));
+}
+.ind-stage-name { font-size: var(--text-md); font-weight: 700; color: var(--t1); }
+.ind-stage-arrow { color: var(--accent); font-weight: 700; }
+.ind-group { margin-bottom: var(--space-4); }
+.ind-group:last-child { margin-bottom: 0; }
+.ind-group-head { display: flex; align-items: baseline; gap: var(--space-2); margin-bottom: var(--space-1); flex-wrap: wrap; }
+.ind-group-name { font-size: var(--text-sm); font-weight: 700; color: var(--accent); }
+.ind-group-note { font-size: var(--text-xs); color: var(--t3); }
+.ind-row {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
+  padding: var(--space-1) var(--space-2); border-radius: var(--radius-sm);
+  cursor: pointer; min-height: 30px;
+}
+.ind-row:hover { background: var(--bg-hover); }
+.ind-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.ind-row-id { display: inline-flex; align-items: baseline; gap: var(--space-2); min-width: 0; }
+.ind-row-code { font-size: var(--text-xs); color: var(--t3); font-family: var(--mono, monospace); }
+.ind-row-name { font-size: var(--text-sm); color: var(--t1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ind-row-quote { display: inline-flex; align-items: baseline; gap: var(--space-3); flex: 0 0 auto; }
+.ind-row-price { font-size: var(--text-sm); font-family: var(--mono, monospace); font-variant-numeric: tabular-nums; color: var(--t1); }
+.ind-row-pct { font-size: var(--text-xs); font-family: var(--mono, monospace); font-variant-numeric: tabular-nums; min-width: 52px; text-align: right; }
+.ind-dim { color: var(--t3); }
+
+/* ── 個股資訊卡 ── */
+.ind-modal { max-width: 440px; width: calc(100vw - var(--space-8)); }
+.ind-card-code { color: var(--t3); font-family: var(--mono, monospace); font-weight: 600; }
+.ind-card-quote { display: flex; align-items: baseline; gap: var(--space-4); margin-bottom: var(--space-3); }
+.ind-card-price { font-size: var(--text-3xl); font-weight: 700; font-family: var(--mono, monospace); font-variant-numeric: tabular-nums; }
+.ind-card-pct { font-size: var(--text-lg); font-family: var(--mono, monospace); font-variant-numeric: tabular-nums; }
+.ind-card-ohlc {
+  display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-5);
+  font-size: var(--text-sm); font-family: var(--mono, monospace); font-variant-numeric: tabular-nums;
+  color: var(--t1); margin-bottom: var(--space-4);
+}
+.ind-card-ohlc i { font-style: normal; color: var(--t3); font-size: var(--text-xs); margin-right: var(--space-1); }
+.ind-card-sec-title { font-size: var(--text-xs); font-weight: 700; color: var(--t3); margin: var(--space-4) 0 var(--space-2); letter-spacing: .04em; }
+.ind-card-pos { display: flex; flex-direction: column; gap: var(--space-2); align-items: flex-start; }
+.ind-pos-link { font-size: var(--text-sm); padding: var(--space-1) var(--space-4); text-align: left; }
+.ind-card-peers { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.ind-peer {
+  display: inline-flex; align-items: baseline; gap: var(--space-2);
+  font-size: var(--text-sm); padding: var(--space-1) var(--space-4);
+}
+.ind-peer b { font-family: var(--mono, monospace); font-variant-numeric: tabular-nums; font-size: var(--text-xs); }
+.ind-card-actions { display: flex; flex-wrap: wrap; gap: var(--space-3); margin-top: var(--space-5); }
+.ind-act-btn {
+  height: var(--ctrl-md); padding: 0 var(--space-5); font-size: var(--text-sm);
+  display: inline-flex; align-items: center; gap: var(--space-1);
+}
+.ind-act-primary { background: var(--accent); color: var(--on-accent); border-color: transparent; }
+a.ind-act-link { text-decoration: none; font-weight: 600; }
+
+/* ── RWD ── */
+@media (max-width: 768px) {
+  .ind-stages { grid-template-columns: 1fr; }
+  .ind-stage-arrow { display: inline-block; transform: rotate(90deg); }
+  .ind-meta-note { margin-left: 0; flex-basis: 100%; }
+}
+@media (max-width: 420px) {
+  .ind-strip { gap: var(--space-4); padding: var(--space-2) var(--space-3); }
+  .ind-strip-item b { font-size: var(--text-sm); }
+  .ind-card-price { font-size: var(--text-2xl); }
+  .ind-card-actions .ind-act-btn { flex: 1 1 45%; justify-content: center; }
+}
+
+/* ═══════════════════════════════════════════════════════════
    統一按鈕基底（Liquid Glass）
    個別按鈕的 padding/尺寸/語意色由原規則保留；
    底/邊框/圓角/hover 在此統一。
@@ -4809,7 +4974,8 @@ button.j-dt-nav:hover { background: var(--bg-hover); }
 .jd-tag-btn, .mini-fetch-btn, .stg-db-btn, .stg-logout-btn, .stg-reset-btn,
 .stg-save-btn, .stg-theme-btn, .stg-toggle, .ticker-fill-btn, .ticker-toggle,
 .toggle-btn, .j-rv-dot,
-.jd-filter-btn, .j-diary-load-more, .j-record-btn, .j-toast-btn, .scroll-top-btn {
+.jd-filter-btn, .j-diary-load-more, .j-record-btn, .j-toast-btn, .scroll-top-btn,
+.ind-pill, .ind-act-btn, .ind-pos-link, .ind-peer {
   font-family: inherit;
   font-weight: 600;
   cursor: pointer;
@@ -4828,7 +4994,7 @@ button:not([class]), button[class=""] {
 .btn, .ch-done-btn, .ch-nav-btn, .eq-multi-btn, .j-btn, .j-btn-cancel,
 .j-detail-close-btn, .j-diary-emoji-btn, .j-diary-star-btn, .j-fee-mode-btn,
 .j-filter-toggle, .j-offset-btn, .j-rv-dot, .j-tutorial-toggle,
-.j-view-toggle, .stg-db-btn, .j-diary-load-more {
+.j-view-toggle, .stg-db-btn, .j-diary-load-more, .ind-act-btn {
   background: var(--glass-bg-btn);
   border: 1px solid var(--glass-brd-soft);
   color: var(--t1); /* 文字用最高層級，確保與玻璃底對比清楚 */
@@ -4849,7 +5015,7 @@ button:not([class]), button[class=""] {
 
 /* 3) Pill toggle（chip 類：玻璃底 + 全圓角） */
 .j-tag-btn, .jd-tag-btn, .j-tpl-btn, .j-qf-chip, .j-kpi-more-toggle, .ticker-toggle,
-.jd-filter-btn {
+.jd-filter-btn, .ind-pill, .ind-pos-link, .ind-peer {
   background: var(--glass-bg-btn);
   border: 1px solid var(--glass-brd-soft);
   border-radius: var(--radius-pill);
@@ -4962,7 +5128,8 @@ button:not([class]), button[class=""] {
 .stg-reset-btn:hover, .stg-save-btn:hover, .stg-theme-btn:hover,
 .stg-toggle:hover, .ticker-fill-btn:hover, .ticker-toggle:hover,
 .toggle-btn:hover, .j-rv-dot:hover,
-.jd-filter-btn:hover, .j-diary-load-more:hover, .j-record-btn:hover, .j-toast-btn:hover {
+.jd-filter-btn:hover, .j-diary-load-more:hover, .j-record-btn:hover, .j-toast-btn:hover,
+.ind-pill:hover, .ind-act-btn:hover, .ind-pos-link:hover, .ind-peer:hover {
   opacity: .85;
 }
 .btn:focus-visible, .ch-done-btn:focus-visible, .ch-nav-btn:focus-visible,
@@ -4982,7 +5149,9 @@ button:not([class]), button[class=""] {
 .stg-theme-btn:focus-visible, .ticker-fill-btn:focus-visible,
 .ticker-toggle:focus-visible, .toggle-btn:focus-visible, .j-rv-dot:focus-visible,
 .jd-filter-btn:focus-visible, .j-diary-load-more:focus-visible,
-.j-record-btn:focus-visible, .j-toast-btn:focus-visible, .scroll-top-btn:focus-visible {
+.j-record-btn:focus-visible, .j-toast-btn:focus-visible, .scroll-top-btn:focus-visible,
+.ind-pill:focus-visible, .ind-act-btn:focus-visible,
+.ind-pos-link:focus-visible, .ind-peer:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }

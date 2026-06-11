@@ -4574,6 +4574,8 @@ function openExitReview(id) {
 //  Trade Form Modal
 // ================================================================
 window.openTradeForm = openTradeForm;
+// 供產業地圖等外部模組以部分欄位預填開啟新增交易表單
+window.openTradeFormPrefill = (fields) => openTradeForm(null, Object.assign(newTrade(), fields));
 function openTradeForm(id, prefill) {
   editingId = id;
   const t = id ? trades.find(x => x.id === id) : (prefill || newTrade());

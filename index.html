@@ -28,7 +28,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;600;700&family=Instrument+Serif&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=20260611d">
+  <link rel="stylesheet" href="css/style.css?v=20260611e">
 </head>
 <body>
   <a class="skip-link" href="#main-content">跳至主內容</a>
@@ -67,6 +67,10 @@
       <button class="sidebar-item main-tab" data-tab="crypto">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 2h5l3.5 7-6 13-6-13z"/><path d="M6.5 9h11"/></svg>
         <span class="label">加密貨幣</span>
+      </button>
+      <button class="sidebar-item main-tab" data-tab="industry">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="16" y="16" width="6" height="6" rx="1"/><path d="M12 8v3M5 16v-2.5h14V16"/></svg>
+        <span class="label">產業地圖</span>
       </button>
 
       <div class="sidebar-spacer"></div>
@@ -237,6 +241,11 @@
           <div id="journal-root"></div>
         </section>
 
+        <!-- INDUSTRY MAP TAB -->
+        <section id="tab-industry" class="tab-content">
+          <div id="industry-root"></div>
+        </section>
+
         <!-- GUIDE TAB -->
         <section id="tab-guide" class="tab-content">
           <div id="guide-content"></div>
@@ -290,6 +299,14 @@
       <div class="sheet-handle"></div>
       <div class="sheet-title">更多</div>
       <div class="sheet-items">
+        <button class="sheet-item main-tab" data-tab="industry">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="16" y="16" width="6" height="6" rx="1"/><path d="M12 8v3M5 16v-2.5h14V16"/></svg>
+          <div class="sheet-item-body">
+            <div class="sheet-item-title">產業地圖</div>
+            <div class="sheet-item-sub">台股產業鏈、熱力圖</div>
+          </div>
+          <svg class="sheet-item-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+        </button>
         <button class="sheet-item main-tab" data-tab="settings">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg>
           <div class="sheet-item-body">
@@ -396,7 +413,9 @@
   }
   </script>
   <script src="js/ml.js?v=20260606a" defer></script>
-  <script src="js/app.js?v=20260611d" defer></script>
-  <script src="js/journal.js?v=20260610a" defer></script>
+  <script src="js/app.js?v=20260611f" defer></script>
+  <script src="js/journal.js?v=20260611b" defer></script>
+  <script src="js/industry-data.js?v=20260611a" defer></script>
+  <script src="js/industry.js?v=20260611a" defer></script>
 </body>
 </html>

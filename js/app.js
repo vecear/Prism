@@ -4396,6 +4396,7 @@ const TAB_META = {
   futures:  { title: '期貨保證金',   subtitle: 'RI · 追繳 / 砍倉點位對照' },
   options:  { title: '選擇權計算',   subtitle: '損益圖 · 兩平點 · Greeks' },
   crypto:   { title: '加密貨幣合約', subtitle: '強平價 · 槓桿損益情境' },
+  industry: { title: '產業地圖',    subtitle: '台股產業鏈 · 熱力圖 · 即時報價' },
   settings: { title: '設定',        subtitle: '外觀 · 字體 · 漲跌顏色 · 同步' },
   guide:    { title: '說明',        subtitle: '計算公式、用法與常見問題' },
 };
@@ -4444,6 +4445,7 @@ function init() {
     window.scrollTo({top: savedPos, behavior: savedPos > 0 ? 'smooth' : 'instant'});
     if (clicked === 'guide') renderGuide();
     if (clicked === 'settings') { if (!window._stgRendered) { renderSettings(); window._stgRendered = true; } }
+    if (clicked === 'industry') window.PrismIndustry?.onActivate();
     if (clicked === 'journal' && window.PrismJournal?._refreshOnTabSwitch) window.PrismJournal._refreshOnTabSwitch();
     // Refresh ticker if stale (>30s) when switching to a calculator tab
     if (['margin','futures','options','crypto'].includes(clicked)) {
@@ -4618,6 +4620,7 @@ function init() {
     _updateTopbar(S.activeTab);
     if (S.activeTab === 'guide') renderGuide();
     if (S.activeTab === 'settings') { if (!window._stgRendered) { renderSettings(); window._stgRendered = true; } }
+    if (S.activeTab === 'industry') setTimeout(() => window.PrismIndustry?.onActivate(), 0);
   } else {
     _updateTopbar('journal');
   }
