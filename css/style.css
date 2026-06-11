@@ -4804,13 +4804,22 @@ button.j-dt-nav:hover { background: var(--bg-hover); }
   max-width: 1600px; margin: 0 auto;
 }
 
-/* ── 產業 pill 導航 ── */
+/* ── 產業 pill 導航：桌面換行全顯示（避免邊界裁切）、行動橫向捲動 ── */
 .ind-nav {
-  display: flex; gap: var(--space-2); margin-bottom: var(--space-5);
-  overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none;
+  display: flex; flex-wrap: wrap; gap: var(--space-2);
+  margin-bottom: var(--space-5);
   padding: var(--space-1) var(--space-1) var(--space-2);
 }
 .ind-nav::-webkit-scrollbar { display: none; }
+@media (max-width: 768px) {
+  .ind-nav {
+    flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none;
+    /* 右緣漸隱提示尚有內容可捲動（alpha 遮罩，非視覺色彩） */
+    -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent);
+    mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent);
+    padding-right: var(--space-8);
+  }
+}
 .ind-pill {
   flex: 0 0 auto; height: var(--ctrl-sm); padding: 0 var(--space-5);
   font-size: var(--text-sm); display: inline-flex; align-items: center;
