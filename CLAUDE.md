@@ -122,7 +122,7 @@ npm run deploy   # 部署到 Cloudflare Pages
 - **使用者可控**：設定 → 外觀有「Liquid Glass 開關」與「玻璃透明度 0~90%」滑桿（CFG keys：`glassEnabled`/`glassTransparency`）。開關寫入 `html[data-glass="on|off"]`（off 時 token 全面退回實底、mesh 移除）；透明度轉為 `--glass-level` 乘數（1→0.1）由 JS inline 設定，玻璃底色 token 為 `rgb(var(--glass-rgb) / calc(基準α × var(--glass-level)))` 公式，blur/saturate 隨透明度自動加重（iOS 流動玻璃感）。`index.html` 早期 script 與 `app.js applyGlass()` 兩處同步套用，改語意時兩處都要改
 - **小元素（按鈕/pill/badge/table row/日曆格）禁用 backdrop-filter**，只用半透明底（效能）；全檔 blur 使用點上限 20 處
 - 已有 `@supports not (backdrop-filter…)` 彙總 fallback 區塊（退回 `--bg1` 實底），新增玻璃表面時須同步加入
-- 統一按鈕系統：41 個按鈕 class 共用檔尾「統一按鈕基底」（glass 底/600 字重/hover opacity .85/focus-visible accent ring）；變體 = Primary（accent 實底）/Danger（red-soft）/Pill chip/Segmented pill/Ghost icon。**新增按鈕時必須納入基底群組 selector 並選擇變體**，不可另起爐灶
+- 統一按鈕系統：46 個按鈕 class 共用檔尾「統一按鈕基底」（glass 底/600 字重/hover opacity .85/focus-visible accent ring）；變體 = Primary（accent 實底）/Danger（red-soft）/Pill chip/Segmented pill/Ghost icon。**新增按鈕時必須納入基底群組 selector 並選擇變體**，不可另起爐灶
 
 **禁止** 寫死 RGB 或 px 值（除非是極特殊情況有註解說明）。
 
@@ -294,7 +294,7 @@ chub annotate <id> "note"  # 儲存學習筆記
 
 ## Important Notes
 
-- `js/app.js` 約 7,600 行，`js/journal.js` 約 5,100 行，`css/style.css` 約 4,800 行 — 讀取時需分段
+- `js/app.js` 約 8,000 行，`js/journal.js` 約 5,500 行，`css/style.css` 約 5,300 行，`js/industry-data.js` 約 1,000 行 — 讀取時需分段
 - Auth token 存在 `localStorage` key `prism_token`，使用者資訊在 `prism_user_info`
 - 前端在 `file://` 或 `localhost` 時自動將 API 導向 `https://prism-7t8.pages.dev`（雲端模式才有效；本機模式 server.js 直接服務 API）
 - Service Worker 在 localhost 開發時自動取消註冊以避免快取問題

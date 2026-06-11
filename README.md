@@ -73,11 +73,14 @@ Prism 同時支援兩種部署模式：
 ```
 Prism/
 ├── index.html                       # 主頁面結構，所有 tab 的 HTML 骨架
-├── css/style.css                    # 全域樣式 + design tokens + 6 主題 + Liquid Glass (~4,800 行)
+├── css/style.css                    # 全域樣式 + design tokens + 6 主題 + Liquid Glass (~5,300 行)
 ├── js/
 │   ├── ml.js                        # ML 工具：K-Means、Spectral Clustering、Z-score
-│   ├── app.js                       # 計算引擎、即時報價、設定、Guide、Regime 偵測 (~7,600 行)
-│   └── journal.js                   # 交易日誌、Van Tharp 風險工具、modal、CSV 匯入 UI (~5,100 行)
+│   ├── app.js                       # 計算引擎、即時報價、設定、Guide、Regime 偵測 (~8,000 行)
+│   ├── journal.js                   # 交易日誌、Van Tharp 風險工具、modal、CSV 匯入 UI (~5,500 行)
+│   ├── ibsync.js                    # IB Flex Web Service 交易同步（成交解析 → 匯入管線）
+│   ├── industry-data.js             # 台股產業地圖資料庫（14 條產業鏈、252 檔、官方清單驗證）
+│   └── industry.js                  # 產業地圖：treemap 熱力圖、產業鏈視圖、個股資訊卡
 ├── server.js                        # Local-only Node 伺服器 (使用 node:sqlite)
 ├── _worker.js                       # Cloudflare Pages Worker (API 路由、認證、CORS proxy、DB 遷移)
 ├── sw.js                            # Service Worker (stale-while-revalidate)
@@ -87,7 +90,9 @@ Prism/
 ├── wrangler.toml                    # Cloudflare 設定 (D1 binding + 選用 RATE_LIMIT_KV)
 ├── _headers                         # Cloudflare Pages 安全標頭 (HTML 頁面 CSP/HSTS 等)
 ├── scripts/
-│   └── prism-parse-import.mjs       # 券商交易檔解析器 (元大/元富/群益)
+│   ├── prism-parse-import.mjs       # 券商交易檔解析器 (元大/元富/群益)
+│   ├── validate-industry-data.mjs   # 產業地圖資料驗證（比對 TWSE/TPEx openapi）
+│   └── test-ibsync.mjs              # IB Flex 解析單元測試
 └── start.bat                        # Windows 一鍵啟動 local-only 模式
 ```
 
