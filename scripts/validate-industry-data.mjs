@@ -34,26 +34,31 @@ try {
 
 if (!official.size) { console.error('官方清單為空，中止'); process.exit(1); }
 
-let total = 0, bad = 0, dup = new Map();
-for (const ind of data.industries) {
-  for (const st of ind.stages) {
-    for (const g of st.groups) {
-      for (const stock of g.stocks) {
-        total++;
-        const key = `${stock.s}`;
-        dup.set(key, (dup.get(key) || 0) + 1);
-        const off = official.get(stock.s);
-        if (!off) {
-          bad++;
-          console.log(`✗ [${ind.name}/${g.name}] ${stock.s} ${stock.n} — 官方清單查無此代號`);
-        } else if (off.name.replace(/[\s*]/g, '') !== stock.n.replace(/[\s*]/g, '')) {
-          bad++;
-          console.log(`△ [${ind.name}/${g.name}] ${stock.s} 名稱不符：資料=${stock.n} 官方=${off.name}（${off.board}）`);
-        }
-      }
+let total = 0, bad = 0, dup = new Map(), noDesc = 0;
+function checkList(indName, path, stocks) {
+  for (const stock of stocks || []) {
+    total++;
+    dup.set(stock.s, (dup.get(stock.s) || 0) + 1);
+    if (!stock.d) { noDesc++; console.log(`… [${indName}/${path}] ${stock.s} ${stock.n} — 缺 d 說明`); }
+    const off = official.get(stock.s);
+    if (!off) {
+      bad++;
+      console.log(`✗ [${indName}/${path}] ${stock.s} ${stock.n} — 官方清單查無此代號`);
+    } else if (off.name.replace(/[\s*]/g, '').replace(/-創$/, '') !== stock.n.replace(/[\s*]/g, '').replace(/-創$/, '')) {
+      bad++;
+      console.log(`△ [${indName}/${path}] ${stock.s} 名稱不符：資料=${stock.n} 官方=${off.name}（${off.board}）`);
     }
   }
 }
+for (const ind of data.industries) {
+  for (const st of ind.stages) {
+    for (const g of st.groups) {
+      checkList(ind.name, g.name, g.stocks);
+      for (const sub of g.subs || []) checkList(ind.name, `${g.name}/${sub.name}`, sub.stocks);
+    }
+  }
+}
+if (noDesc) console.log(`（${noDesc} 筆缺 d 說明）`);
 const uniq = dup.size;
 console.log(`\n共 ${total} 筆（去重 ${uniq} 檔），問題 ${bad} 筆`);
 process.exit(bad ? 2 : 0);

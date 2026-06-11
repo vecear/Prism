@@ -25,14 +25,23 @@
   };
 
   // ────────── 資料輔助 ──────────
+  // group 可含直屬 stocks 與細分 subs（樹狀第四層）
+  function groupLists(g) {
+    const out = [];
+    if (g.stocks && g.stocks.length) out.push({ sub: null, stocks: g.stocks });
+    for (const sub of g.subs || []) out.push({ sub, stocks: sub.stocks || [] });
+    return out;
+  }
+
   function allStocks() {
     // 去重：同一檔股票回傳第一次出現的定義
     const seen = new Map();
     for (const ind of DATA().industries)
       for (const st of ind.stages)
         for (const g of st.groups)
-          for (const s of g.stocks)
-            if (!seen.has(s.s)) seen.set(s.s, s);
+          for (const list of groupLists(g))
+            for (const s of list.stocks)
+              if (!seen.has(s.s)) seen.set(s.s, s);
     return seen;
   }
 
@@ -40,19 +49,22 @@
     const seen = new Map();
     for (const st of ind.stages)
       for (const g of st.groups)
-        for (const s of g.stocks)
-          if (!seen.has(s.s)) seen.set(s.s, s);
+        for (const list of groupLists(g))
+          for (const s of list.stocks)
+            if (!seen.has(s.s)) seen.set(s.s, s);
     return [...seen.values()];
   }
 
   function stockPositions(code) {
-    // 該股票出現在哪些 產業/環節（用於資訊卡）
+    // 該股票出現在哪些 產業/環節/子環節（含該環節的角色說明 d）
     const out = [];
     for (const ind of DATA().industries)
       for (const st of ind.stages)
         for (const g of st.groups)
-          if (g.stocks.some(s => s.s === code))
-            out.push({ ind, stage: st.name, group: g });
+          for (const list of groupLists(g)) {
+            const hit = list.stocks.find(s => s.s === code);
+            if (hit) out.push({ ind, stage: st.name, group: g, sub: list.sub, peers: list.stocks, d: hit.d || '' });
+          }
     return out;
   }
 
@@ -262,8 +274,10 @@
     const inds = DATA().industries;
 
     // 全域去重：股票只歸入第一個包含它的產業
+    // 歸屬優先序：半導體優先（台積電等權值股依市場慣例歸半導體區），其餘依資料順序
+    const ordered = [...inds.filter(i => i.id === 'semi'), ...inds.filter(i => i.id !== 'semi')];
     const assigned = new Set();
-    const groupsData = inds.map(ind => {
+    const groupsData = ordered.map(ind => {
       const stocks = industryStocks(ind).filter(s => !assigned.has(s.s));
       stocks.forEach(s => assigned.add(s.s));
       return { ind, stocks };
@@ -320,7 +334,7 @@
         const showPct = sr.w >= 46 && sr.h >= 31;
         tiles += `<div class="ind-tile" data-ind-stock="${_e(st.s)}" role="button" tabindex="0"
           style="left:${sr.x.toFixed(1)}px;top:${sr.y.toFixed(1)}px;width:${sr.w.toFixed(1)}px;height:${sr.h.toFixed(1)}px;background:${tileColor(pct)};color:${tileText(pct)}"
-          title="${_e(st.s + ' ' + st.n)} ${q ? fmtPct(pct) : ''}">
+          title="${_e(st.s + ' ' + st.n)} ${q ? fmtPct(pct) : ''}${st.d ? _e('｜' + st.d) : ''}">
           ${showCode ? `<span class="ind-tile-code">${_e(st.n)}</span>` : ''}
           ${showPct ? `<span class="ind-tile-pct">${q ? fmtPct(pct) : '—'}</span>` : ''}
         </div>`;
@@ -362,24 +376,32 @@
       ${sum.bottom && botQ ? `<span class="ind-strip-item" data-ind-stock="${_e(sum.bottom.s)}" role="button" tabindex="0"><span class="ind-strip-label">領跌</span><b class="tr">${_e(sum.bottom.n)} ${fmtPct(botQ.changePct)}</b></span>` : ''}
     </div>`;
 
+    const renderRows = (stocks) => stocks.slice().sort((a, b) => cap(b) - cap(a)).map(s => {
+      const q = state.quotes.get(s.s);
+      return `<div class="ind-row" data-ind-stock="${_e(s.s)}" role="button" tabindex="0"${s.d ? ` title="${_e(s.d)}"` : ''}>
+        <span class="ind-row-id"><span class="ind-row-code">${_e(s.s)}</span><span class="ind-row-name">${_e(s.n)}</span></span>
+        <span class="ind-row-quote" data-ind-q="${_e(s.s)}">${q
+          ? `<span class="ind-row-price">${fmtP(q.price)}</span><span class="ind-row-pct ${pctClass(q.changePct)}">${fmtPct(q.changePct)}</span>`
+          : `<span class="ind-row-price ind-dim">—</span>`}</span>
+      </div>`;
+    }).join('');
+
     const stages = ind.stages.map((st, i) => {
       const groups = st.groups.map(g => {
-        const rows = g.stocks.slice().sort((a, b) => cap(b) - cap(a)).map(s => {
-          const q = state.quotes.get(s.s);
-          return `<div class="ind-row" data-ind-stock="${_e(s.s)}" role="button" tabindex="0">
-            <span class="ind-row-id"><span class="ind-row-code">${_e(s.s)}</span><span class="ind-row-name">${_e(s.n)}</span></span>
-            <span class="ind-row-quote" data-ind-q="${_e(s.s)}">${q
-              ? `<span class="ind-row-price">${fmtP(q.price)}</span><span class="ind-row-pct ${pctClass(q.changePct)}">${fmtPct(q.changePct)}</span>`
-              : `<span class="ind-row-price ind-dim">—</span>`}</span>
-          </div>`;
-        }).join('');
+        const direct = (g.stocks && g.stocks.length) ? renderRows(g.stocks) : '';
+        const subs = (g.subs || []).map(sub => `
+          <div class="ind-sub">
+            <div class="ind-sub-head"><span class="ind-sub-name">${_e(sub.name)}</span>${sub.note ? `<span class="ind-sub-note">${_e(sub.note)}</span>` : ''}</div>
+            ${renderRows(sub.stocks || [])}
+          </div>`).join('');
         return `<div class="ind-group">
           <div class="ind-group-head"><span class="ind-group-name">${_e(g.name)}</span>${g.note ? `<span class="ind-group-note">${_e(g.note)}</span>` : ''}</div>
-          ${rows}
+          ${direct}${subs}
         </div>`;
       }).join('');
       return `<div class="ind-stage">
         <div class="ind-stage-head"><span class="ind-stage-name">${_e(st.name)}</span>${i < ind.stages.length - 1 ? '<span class="ind-stage-arrow" aria-hidden="true">→</span>' : ''}</div>
+        ${st.note ? `<div class="ind-stage-note">${_e(st.note)}</div>` : ''}
         ${groups}
       </div>`;
     }).join('');
@@ -428,12 +450,17 @@
         <span><i>量</i>${fmtVol(q.volume)}</span>${cap(def) ? `<span><i>市值≈</i>${fmtCapE(def)}</span>` : ''}
       </div>` : `<div class="ind-card-quote"><span class="ind-card-price ind-dim">無報價</span></div>`;
 
-    const posHtml = positions.map(p =>
-      `<button class="ind-pos-link" data-goto="${_e(p.ind.id)}">${_e(p.ind.name)} · ${_e(p.stage)} · ${_e(p.group.name)}</button>`).join('');
+    const posHtml = positions.map(p => {
+      const path = [p.ind.name, p.stage, p.group.name, p.sub?.name].filter(Boolean).join(' · ');
+      return `<div class="ind-pos-item">
+        <button class="ind-pos-link" data-goto="${_e(p.ind.id)}">${_e(path)}</button>
+        ${p.d ? `<div class="ind-pos-desc">${_e(p.d)}</div>` : ''}
+      </div>`;
+    }).join('');
 
-    // 同環節競爭對手（第一個 position 的同 group 其他股票）
+    // 同環節競爭對手（第一個 position 的最細層級同儕）
     const peers = positions.length
-      ? positions[0].group.stocks.filter(s => s.s !== code).slice(0, 6)
+      ? positions[0].peers.filter(s => s.s !== code).slice(0, 6)
       : [];
     const peersHtml = peers.length ? `<div class="ind-card-sec-title">同環節個股</div><div class="ind-card-peers">${
       peers.map(p => {

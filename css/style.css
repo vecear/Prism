@@ -4798,11 +4798,17 @@ button.j-dt-nav:hover { background: var(--bg-hover); }
    熱力圖 treemap 與供應鏈視圖；tile/row 為重複元素，禁用 blur
    ═══════════════════════════════════════════════════════════ */
 
+/* ── 版面留白：main-content 為 0 padding，由此容器統一供給 ── */
+#industry-root {
+  padding: var(--space-6) var(--space-8) var(--space-10);
+  max-width: 1600px; margin: 0 auto;
+}
+
 /* ── 產業 pill 導航 ── */
 .ind-nav {
-  display: flex; gap: var(--space-2); margin-bottom: var(--space-4);
+  display: flex; gap: var(--space-2); margin-bottom: var(--space-5);
   overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none;
-  padding-bottom: var(--space-1);
+  padding: var(--space-1) var(--space-1) var(--space-2);
 }
 .ind-nav::-webkit-scrollbar { display: none; }
 .ind-pill {
@@ -4815,7 +4821,7 @@ button.j-dt-nav:hover { background: var(--bg-hover); }
 /* ── meta 列（報價時間 / 估算註記 / 色階） ── */
 .ind-meta {
   display: flex; align-items: center; gap: var(--space-5); flex-wrap: wrap;
-  margin-bottom: var(--space-3); font-size: var(--text-xs); color: var(--t3);
+  margin: 0 var(--space-1) var(--space-4); font-size: var(--text-xs); color: var(--t3);
 }
 .ind-meta-status { font-variant-numeric: tabular-nums; }
 .ind-meta-loading { color: var(--accent); }
@@ -4829,12 +4835,14 @@ button.j-dt-nav:hover { background: var(--bg-hover); }
   position: relative; overflow: hidden;
   border: 1px solid var(--glass-brd-soft); border-radius: var(--radius-lg);
   background: var(--bg1);
+  margin-bottom: var(--space-6);
+  box-shadow: var(--shadow-card);
 }
 .ind-sector { position: absolute; overflow: hidden; }
 .ind-sector-head {
   position: absolute; top: 0; left: 0; right: 0; height: 20px;
   display: flex; align-items: center; gap: var(--space-2);
-  padding: 0 var(--space-2); background: var(--bg1);
+  padding: 0 var(--space-3); background: var(--bg1);
   border-bottom: 1px solid var(--bg0);
   cursor: pointer; z-index: 1; overflow: hidden; white-space: nowrap;
 }
@@ -4846,6 +4854,7 @@ button.j-dt-nav:hover { background: var(--bg-hover); }
   position: absolute; overflow: hidden; cursor: pointer;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   border: 1px solid var(--bg0); gap: 0;
+  padding: var(--space-0);
 }
 .ind-tile:hover { opacity: .85; }
 .ind-tile:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
@@ -4865,9 +4874,9 @@ button.j-dt-nav:hover { background: var(--bg-hover); }
 }
 
 /* ── 產業鏈視圖 ── */
-.ind-chain-head { margin: var(--space-2) 0 var(--space-3); }
-.ind-chain-head h2 { font-size: var(--text-xl); margin: 0 0 var(--space-1); }
-.ind-chain-desc { margin: 0; font-size: var(--text-sm); color: var(--t3); }
+.ind-chain-head { margin: var(--space-3) var(--space-1) var(--space-4); }
+.ind-chain-head h2 { font-size: var(--text-xl); margin: 0 0 var(--space-2); }
+.ind-chain-desc { margin: 0; font-size: var(--text-sm); color: var(--t3); line-height: 1.6; max-width: 72ch; }
 .ind-strip {
   display: flex; gap: var(--space-6); align-items: center;
   padding: var(--space-3) var(--space-5); margin-bottom: var(--space-5);
@@ -4886,24 +4895,35 @@ button.j-dt-nav:hover { background: var(--bg-hover); }
 .ind-stages { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-5); align-items: start; }
 .ind-stage {
   background: var(--bg1); border: 1px solid var(--glass-brd-soft);
-  border-radius: var(--radius-lg); padding: var(--space-4);
+  border-radius: var(--radius-lg); padding: var(--space-5) var(--space-6);
   box-shadow: var(--shadow-card);
 }
 .ind-stage-head {
   display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: var(--space-3); padding-bottom: var(--space-2);
+  margin-bottom: var(--space-2); padding-bottom: var(--space-2);
   border-bottom: 1px solid var(--line-strong, var(--bg3));
 }
 .ind-stage-name { font-size: var(--text-md); font-weight: 700; color: var(--t1); }
 .ind-stage-arrow { color: var(--accent); font-weight: 700; }
-.ind-group { margin-bottom: var(--space-4); }
+.ind-stage-note { font-size: var(--text-xs); color: var(--t3); margin-bottom: var(--space-4); line-height: 1.55; }
+.ind-group { margin-bottom: var(--space-6); }
 .ind-group:last-child { margin-bottom: 0; }
-.ind-group-head { display: flex; align-items: baseline; gap: var(--space-2); margin-bottom: var(--space-1); flex-wrap: wrap; }
+.ind-group-head { display: flex; align-items: baseline; gap: var(--space-2); margin-bottom: var(--space-2); flex-wrap: wrap; }
 .ind-group-name { font-size: var(--text-sm); font-weight: 700; color: var(--accent); }
 .ind-group-note { font-size: var(--text-xs); color: var(--t3); }
+/* 樹狀子環節：左側導引線呈現第四層 */
+.ind-sub {
+  margin: var(--space-2) 0 var(--space-3) var(--space-2);
+  padding-left: var(--space-4);
+  border-left: 2px solid var(--line-strong, var(--bg3));
+}
+.ind-sub:last-child { margin-bottom: 0; }
+.ind-sub-head { display: flex; align-items: baseline; gap: var(--space-2); margin-bottom: var(--space-1); flex-wrap: wrap; }
+.ind-sub-name { font-size: var(--text-xs); font-weight: 700; color: var(--t2); letter-spacing: .02em; }
+.ind-sub-note { font-size: var(--text-xs); color: var(--t3); }
 .ind-row {
   display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
-  padding: var(--space-1) var(--space-2); border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-3); border-radius: var(--radius-sm);
   cursor: pointer; min-height: 30px;
 }
 .ind-row:hover { background: var(--bg-hover); }
@@ -4929,8 +4949,10 @@ button.j-dt-nav:hover { background: var(--bg-hover); }
 }
 .ind-card-ohlc i { font-style: normal; color: var(--t3); font-size: var(--text-xs); margin-right: var(--space-1); }
 .ind-card-sec-title { font-size: var(--text-xs); font-weight: 700; color: var(--t3); margin: var(--space-4) 0 var(--space-2); letter-spacing: .04em; }
-.ind-card-pos { display: flex; flex-direction: column; gap: var(--space-2); align-items: flex-start; }
+.ind-card-pos { display: flex; flex-direction: column; gap: var(--space-3); align-items: stretch; }
+.ind-pos-item { display: flex; flex-direction: column; gap: var(--space-1); align-items: flex-start; }
 .ind-pos-link { font-size: var(--text-sm); padding: var(--space-1) var(--space-4); text-align: left; }
+.ind-pos-desc { font-size: var(--text-xs); color: var(--t2); line-height: 1.55; padding: 0 var(--space-2); }
 .ind-card-peers { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .ind-peer {
   display: inline-flex; align-items: baseline; gap: var(--space-2);
@@ -4947,7 +4969,9 @@ a.ind-act-link { text-decoration: none; font-weight: 600; }
 
 /* ── RWD ── */
 @media (max-width: 768px) {
+  #industry-root { padding: var(--space-4) var(--space-4) var(--space-9); }
   .ind-stages { grid-template-columns: 1fr; }
+  .ind-stage { padding: var(--space-4) var(--space-5); }
   .ind-stage-arrow { display: inline-block; transform: rotate(90deg); }
   .ind-meta-note { margin-left: 0; flex-basis: 100%; }
 }

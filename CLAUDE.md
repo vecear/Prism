@@ -52,7 +52,7 @@ Prism/
 | 指數定義 | `js/app.js` → `INDEX_DEFS` | 12 個指數/幣種的定義 |
 | 設定面板 | `js/app.js` → `renderSettings()` | 報價來源、主題、字體、小數位等 |
 | 交易日誌 UI | `js/journal.js` | IIFE 模組，獨立的 state 管理 |
-| 台股產業地圖 | `js/industry.js` + `js/industry-data.js` | `window.PrismIndustry.onActivate()`；熱力圖（市值平方根加權 squarified treemap）+ 14 條產業鏈視圖 + 個股資訊卡（帶入日誌 `openTradeFormPrefill` / 帶入計算機）；報價走 MIS 批次（25 檔/批、60s 快取），資料更新時跑 `node scripts/validate-industry-data.mjs` 驗證 |
+| 台股產業地圖 | `js/industry.js` + `js/industry-data.js` | `window.PrismIndustry.onActivate()`；熱力圖（市值平方根加權 squarified treemap，歸屬半導體優先）+ 14 條產業鏈四層樹狀視圖（stage→group→sub→stock，各層皆有 note 說明、每檔個股有 `d` 角色說明）+ 個股資訊卡（帶入日誌 `openTradeFormPrefill` / 帶入計算機）；報價走 MIS 批次（25 檔/批、60s 快取），資料更新時跑 `node scripts/validate-industry-data.mjs` 驗證（含官方代號比對與缺 `d` 檢查） |
 | Modal 系統 | `js/journal.js` → `openTradeForm()` / `openTradeDetail()` | 共用 `#j-global-modal` + `#j-global-modal-overlay` |
 | 系統品質（SQN / 期望實現報酬） | `js/journal.js` → `computeStats()` / `sqnGrade()` / `renderStatsPage()` 的 `secSQN` | Van Tharp SQN = √(min(N,100))×平均R÷R標準差 + expectunity |
 | 部位規模計算機 | `js/journal.js` → `openPositionSizer()` | 固定風險百分比模型 + 破產風險表，可「套用到新交易」 |
