@@ -4882,6 +4882,32 @@ button.j-dt-nav:hover { background: var(--bg-hover); }
   border: 1px dashed var(--line-strong, var(--bg3)); border-radius: var(--radius-lg);
 }
 
+/* ── 主題分頁（產業內第二層導航，如 AI 伺服器九大主題） ── */
+.ind-subnav {
+  display: flex; flex-wrap: wrap; gap: var(--space-2);
+  margin: 0 var(--space-1) var(--space-2);
+}
+.ind-subpill {
+  height: var(--ctrl-sm); padding: 0 var(--space-4);
+  font-size: var(--text-sm); display: inline-flex; align-items: center;
+  white-space: nowrap;
+}
+.ind-subpill.active { background: var(--accent); color: var(--on-accent); border-color: transparent; }
+.ind-subnav-note {
+  font-size: var(--text-xs); color: var(--t3); line-height: 1.6;
+  margin: 0 var(--space-1) var(--space-4);
+}
+@media (max-width: 768px) {
+  .ind-subnav {
+    flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none;
+    /* 右緣漸隱提示尚有內容可捲動（alpha 遮罩，非視覺色彩） */
+    -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent);
+    mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent);
+    padding-right: var(--space-8);
+  }
+  .ind-subnav::-webkit-scrollbar { display: none; }
+}
+
 /* ── 產業鏈視圖 ── */
 .ind-chain-head { margin: var(--space-3) var(--space-1) var(--space-4); }
 .ind-chain-head h2 { font-size: var(--text-xl); margin: 0 0 var(--space-2); }
@@ -4902,6 +4928,8 @@ button.j-dt-nav:hover { background: var(--bg-hover); }
   font-family: var(--mono, monospace); font-variant-numeric: tabular-nums;
 }
 .ind-stages { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-5); align-items: start; }
+.ind-stages[data-n="1"] { grid-template-columns: 1fr; max-width: 640px; }
+.ind-stages[data-n="2"] { grid-template-columns: repeat(2, 1fr); }
 .ind-stage {
   background: var(--bg1); border: 1px solid var(--glass-brd-soft);
   border-radius: var(--radius-lg); padding: var(--space-5) var(--space-6);
@@ -4979,7 +5007,7 @@ a.ind-act-link { text-decoration: none; font-weight: 600; }
 /* ── RWD ── */
 @media (max-width: 768px) {
   #industry-root { padding: var(--space-4) var(--space-4) var(--space-9); }
-  .ind-stages { grid-template-columns: 1fr; }
+  .ind-stages, .ind-stages[data-n="1"], .ind-stages[data-n="2"] { grid-template-columns: 1fr; }
   .ind-stage { padding: var(--space-4) var(--space-5); }
   .ind-stage-arrow { display: inline-block; transform: rotate(90deg); }
   .ind-meta-note { margin-left: 0; flex-basis: 100%; }
@@ -5008,7 +5036,7 @@ a.ind-act-link { text-decoration: none; font-weight: 600; }
 .stg-save-btn, .stg-theme-btn, .stg-toggle, .ticker-fill-btn, .ticker-toggle,
 .toggle-btn, .j-rv-dot,
 .jd-filter-btn, .j-diary-load-more, .j-record-btn, .j-toast-btn, .scroll-top-btn,
-.ind-pill, .ind-act-btn, .ind-pos-link, .ind-peer {
+.ind-pill, .ind-subpill, .ind-act-btn, .ind-pos-link, .ind-peer {
   font-family: inherit;
   font-weight: 600;
   cursor: pointer;
@@ -5048,7 +5076,7 @@ button:not([class]), button[class=""] {
 
 /* 3) Pill toggle（chip 類：玻璃底 + 全圓角） */
 .j-tag-btn, .jd-tag-btn, .j-tpl-btn, .j-qf-chip, .j-kpi-more-toggle, .ticker-toggle,
-.jd-filter-btn, .ind-pill, .ind-pos-link, .ind-peer {
+.jd-filter-btn, .ind-pill, .ind-subpill, .ind-pos-link, .ind-peer {
   background: var(--glass-bg-btn);
   border: 1px solid var(--glass-brd-soft);
   border-radius: var(--radius-pill);
@@ -5162,7 +5190,7 @@ button:not([class]), button[class=""] {
 .stg-toggle:hover, .ticker-fill-btn:hover, .ticker-toggle:hover,
 .toggle-btn:hover, .j-rv-dot:hover,
 .jd-filter-btn:hover, .j-diary-load-more:hover, .j-record-btn:hover, .j-toast-btn:hover,
-.ind-pill:hover, .ind-act-btn:hover, .ind-pos-link:hover, .ind-peer:hover {
+.ind-pill:hover, .ind-subpill:hover, .ind-act-btn:hover, .ind-pos-link:hover, .ind-peer:hover {
   opacity: .85;
 }
 .btn:focus-visible, .ch-done-btn:focus-visible, .ch-nav-btn:focus-visible,
@@ -5183,7 +5211,7 @@ button:not([class]), button[class=""] {
 .ticker-toggle:focus-visible, .toggle-btn:focus-visible, .j-rv-dot:focus-visible,
 .jd-filter-btn:focus-visible, .j-diary-load-more:focus-visible,
 .j-record-btn:focus-visible, .j-toast-btn:focus-visible, .scroll-top-btn:focus-visible,
-.ind-pill:focus-visible, .ind-act-btn:focus-visible,
+.ind-pill:focus-visible, .ind-subpill:focus-visible, .ind-act-btn:focus-visible,
 .ind-pos-link:focus-visible, .ind-peer:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;

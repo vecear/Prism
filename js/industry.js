@@ -17,6 +17,7 @@
 
   const state = {
     view: 'heat',                  // 'heat' | industry id
+    chainTab: {},                  // industry id -> 啟用的主題分頁 id（產業含 tabs 時）
     quotes: new Map(),             // code -> {price, prev, changePct, open, high, low, volume, time}
     fetchedAt: 0,
     loading: false,
@@ -33,21 +34,14 @@
     return out;
   }
 
-  function allStocks() {
-    // 去重：同一檔股票回傳第一次出現的定義
-    const seen = new Map();
-    for (const ind of DATA().industries)
-      for (const st of ind.stages)
-        for (const g of st.groups)
-          for (const list of groupLists(g))
-            for (const s of list.stocks)
-              if (!seen.has(s.s)) seen.set(s.s, s);
-    return seen;
+  // 產業可為直接 stages，或含 tabs（主題分頁，各自有 stages）
+  function stagesOf(ind) {
+    return ind.tabs ? ind.tabs.flatMap(t => t.stages) : (ind.stages || []);
   }
 
-  function industryStocks(ind) {
+  function stocksOfStages(stages) {
     const seen = new Map();
-    for (const st of ind.stages)
+    for (const st of stages || [])
       for (const g of st.groups)
         for (const list of groupLists(g))
           for (const s of list.stocks)
@@ -55,16 +49,32 @@
     return [...seen.values()];
   }
 
-  function stockPositions(code) {
-    // 該股票出現在哪些 產業/環節/子環節（含該環節的角色說明 d）
-    const out = [];
+  function allStocks() {
+    // 去重：同一檔股票回傳第一次出現的定義
+    const seen = new Map();
     for (const ind of DATA().industries)
-      for (const st of ind.stages)
-        for (const g of st.groups)
-          for (const list of groupLists(g)) {
-            const hit = list.stocks.find(s => s.s === code);
-            if (hit) out.push({ ind, stage: st.name, group: g, sub: list.sub, peers: list.stocks, d: hit.d || '' });
-          }
+      for (const s of stocksOfStages(stagesOf(ind)))
+        if (!seen.has(s.s)) seen.set(s.s, s);
+    return seen;
+  }
+
+  function industryStocks(ind) {
+    return stocksOfStages(stagesOf(ind));
+  }
+
+  function stockPositions(code) {
+    // 該股票出現在哪些 產業/分頁/環節/子環節（含該環節的角色說明 d）
+    const out = [];
+    for (const ind of DATA().industries) {
+      const sets = ind.tabs ? ind.tabs.map(t => ({ tab: t, stages: t.stages })) : [{ tab: null, stages: ind.stages || [] }];
+      for (const set of sets)
+        for (const st of set.stages)
+          for (const g of st.groups)
+            for (const list of groupLists(g)) {
+              const hit = list.stocks.find(s => s.s === code);
+              if (hit) out.push({ ind, tab: set.tab, stage: st.name, group: g, sub: list.sub, peers: list.stocks, d: hit.d || '' });
+            }
+    }
     return out;
   }
 
@@ -151,8 +161,8 @@
   }
 
   // ────────── 產業統計 ──────────
-  function industrySummary(ind) {
-    const stocks = industryStocks(ind);
+  function industrySummary(ind) { return summaryOf(industryStocks(ind)); }
+  function summaryOf(stocks) {
     let wSum = 0, wPct = 0, top = null, bottom = null, quoted = 0;
     for (const s of stocks) {
       const q = state.quotes.get(s.s);
@@ -219,6 +229,8 @@
         render();
       });
       $('#ind-body').addEventListener('click', e => {
+        const ct = e.target.closest('[data-chaintab]');
+        if (ct) { state.chainTab[state.view] = ct.dataset.chaintab; render(); return; }
         const tile = e.target.closest('[data-ind-stock]');
         if (tile) { openStockCard(tile.dataset.indStock); return; }
         const retry = e.target.closest('#ind-retry');
@@ -365,7 +377,15 @@
     const body = $('#ind-body');
     const ind = DATA().industries.find(i => i.id === id);
     if (!body || !ind) { state.view = 'heat'; renderHeatmap(); return; }
-    const sum = industrySummary(ind);
+    // 主題分頁：產業含 tabs 時渲染啟用分頁的 stages
+    const tabs = ind.tabs || null;
+    let act = null;
+    if (tabs) {
+      act = tabs.find(t => t.id === state.chainTab[id]) || tabs[0];
+      state.chainTab[id] = act.id;
+    }
+    const stageList = act ? act.stages : (ind.stages || []);
+    const sum = summaryOf(stocksOfStages(stageList));
     const topQ = sum.top ? state.quotes.get(sum.top.s) : null;
     const botQ = sum.bottom ? state.quotes.get(sum.bottom.s) : null;
 
@@ -386,7 +406,7 @@
       </div>`;
     }).join('');
 
-    const stages = ind.stages.map((st, i) => {
+    const stages = stageList.map((st, i) => {
       const groups = st.groups.map(g => {
         const direct = (g.stocks && g.stocks.length) ? renderRows(g.stocks) : '';
         const subs = (g.subs || []).map(sub => `
@@ -400,16 +420,21 @@
         </div>`;
       }).join('');
       return `<div class="ind-stage">
-        <div class="ind-stage-head"><span class="ind-stage-name">${_e(st.name)}</span>${i < ind.stages.length - 1 ? '<span class="ind-stage-arrow" aria-hidden="true">→</span>' : ''}</div>
+        <div class="ind-stage-head"><span class="ind-stage-name">${_e(st.name)}</span>${i < stageList.length - 1 ? '<span class="ind-stage-arrow" aria-hidden="true">→</span>' : ''}</div>
         ${st.note ? `<div class="ind-stage-note">${_e(st.note)}</div>` : ''}
         ${groups}
       </div>`;
     }).join('');
 
+    const subnav = tabs ? `<div class="ind-subnav" role="tablist" aria-label="${_e(ind.name)}主題分頁">${tabs.map(t =>
+        `<button class="ind-subpill${t.id === act.id ? ' active' : ''}" data-chaintab="${_e(t.id)}" role="tab" aria-selected="${t.id === act.id}">${_e(t.name)}</button>`).join('')}</div>` +
+      (act.note ? `<div class="ind-subnav-note">${_e(act.note)}</div>` : '') : '';
+
     body.innerHTML = metaBar() +
       `<div class="ind-chain-head"><h2>${_e(ind.name)}產業鏈</h2><p class="ind-chain-desc">${_e(ind.desc)}</p></div>` +
+      subnav +
       strip +
-      `<div class="ind-stages">${stages}</div>`;
+      `<div class="ind-stages" data-n="${stageList.length}">${stages}</div>`;
   }
 
   function updateChainQuotes() {
@@ -451,9 +476,9 @@
       </div>` : `<div class="ind-card-quote"><span class="ind-card-price ind-dim">無報價</span></div>`;
 
     const posHtml = positions.map(p => {
-      const path = [p.ind.name, p.stage, p.group.name, p.sub?.name].filter(Boolean).join(' · ');
+      const path = [p.ind.name, p.tab?.name, p.stage, p.group.name, p.sub?.name].filter(Boolean).join(' · ');
       return `<div class="ind-pos-item">
-        <button class="ind-pos-link" data-goto="${_e(p.ind.id)}">${_e(path)}</button>
+        <button class="ind-pos-link" data-goto="${_e(p.ind.id)}"${p.tab ? ` data-goto-tab="${_e(p.tab.id)}"` : ''}>${_e(path)}</button>
         ${p.d ? `<div class="ind-pos-desc">${_e(p.d)}</div>` : ''}
       </div>`;
     }).join('');
@@ -506,7 +531,9 @@
       if (sym) { sym.value = code; sym.dispatchEvent(new Event('input', { bubbles: true })); sym.dispatchEvent(new Event('change', { bubbles: true })); }
     });
     modal.querySelectorAll('.ind-pos-link').forEach(b => b.addEventListener('click', () => {
-      closeStockCard(); state.view = b.dataset.goto; render();
+      closeStockCard(); state.view = b.dataset.goto;
+      if (b.dataset.gotoTab) state.chainTab[b.dataset.goto] = b.dataset.gotoTab;
+      render();
       document.querySelector('.sidebar-item[data-tab="industry"], .sheet-item[data-tab="industry"]')?.click();
     }));
     modal.querySelectorAll('.ind-peer').forEach(b => b.addEventListener('click', () => openStockCard(b.dataset.peer)));

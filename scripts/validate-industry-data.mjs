@@ -51,10 +51,15 @@ function checkList(indName, path, stocks) {
   }
 }
 for (const ind of data.industries) {
-  for (const st of ind.stages) {
-    for (const g of st.groups) {
-      checkList(ind.name, g.name, g.stocks);
-      for (const sub of g.subs || []) checkList(ind.name, `${g.name}/${sub.name}`, sub.stocks);
+  // 產業可為直接 stages，或含 tabs（分頁，各自有 stages）
+  const stageSets = ind.tabs ? ind.tabs.map(t => ({ prefix: t.name, stages: t.stages })) : [{ prefix: '', stages: ind.stages }];
+  for (const set of stageSets) {
+    for (const st of set.stages) {
+      for (const g of st.groups) {
+        const path = set.prefix ? `${set.prefix}/${g.name}` : g.name;
+        checkList(ind.name, path, g.stocks);
+        for (const sub of g.subs || []) checkList(ind.name, `${path}/${sub.name}`, sub.stocks);
+      }
     }
   }
 }
