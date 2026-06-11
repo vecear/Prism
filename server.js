@@ -169,7 +169,7 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2})?)?$/;
 const num = v => (v == null || v === '') ? null : (Number.isFinite(+v) ? +v : null);
 
 // ── CORS proxy ──
-const PROXY_ALLOWED = ['mis.twse.com.tw', 'mis.taifex.com.tw', 'query1.finance.yahoo.com', 'query2.finance.yahoo.com', 'finnhub.io', 'www.taifex.com.tw', 'openapi.taifex.com.tw', 'openapi.twse.com.tw', 'www.tpex.org.tw', 'www.sec.gov', 'api.nasdaq.com', 'production.dataviz.cnn.io', 'api.binance.com', 'fred.stlouisfed.org', 'squeezemetrics.com'];
+const PROXY_ALLOWED = ['mis.twse.com.tw', 'mis.taifex.com.tw', 'query1.finance.yahoo.com', 'query2.finance.yahoo.com', 'finnhub.io', 'www.taifex.com.tw', 'openapi.taifex.com.tw', 'openapi.twse.com.tw', 'www.tpex.org.tw', 'www.sec.gov', 'api.nasdaq.com', 'production.dataviz.cnn.io', 'api.binance.com', 'fred.stlouisfed.org', 'squeezemetrics.com', 'ndcdyn.interactivebrokers.com'];
 
 async function handleProxy(req, res, searchParams) {
   if (!['GET', 'POST'].includes(req.method)) return jsonErr(res, 405, 'Method not allowed');

@@ -5004,6 +5004,13 @@ button.j-dt-nav:hover { background: var(--bg-hover); }
 .ind-act-primary { background: var(--accent); color: var(--on-accent); border-color: transparent; }
 a.ind-act-link { text-decoration: none; font-weight: 600; }
 
+/* ── IB 同步設定 modal ── */
+.ib-sync-modal { max-width: 560px; width: calc(100vw - var(--space-8)); }
+.ib-help { margin: var(--space-4) 0 0; font-size: var(--text-sm); color: var(--t2); }
+.ib-help summary { cursor: pointer; font-weight: 600; color: var(--accent); }
+.ib-help ol { margin: var(--space-3) 0 0; padding-left: var(--space-8); line-height: 1.8; }
+.ib-note { color: var(--t3); font-size: var(--text-xs); margin: var(--space-3) 0 0; line-height: 1.6; }
+
 /* ── RWD ── */
 @media (max-width: 768px) {
   #industry-root { padding: var(--space-4) var(--space-4) var(--space-9); }

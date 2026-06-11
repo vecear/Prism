@@ -219,7 +219,7 @@ async function getUser(request, env) {
 }
 
 // ── CORS Proxy (migrated from functions/api/proxy.js) ──
-const PROXY_ALLOWED = ['mis.twse.com.tw','mis.taifex.com.tw','query1.finance.yahoo.com','query2.finance.yahoo.com','finnhub.io','www.taifex.com.tw','openapi.taifex.com.tw','openapi.twse.com.tw','www.tpex.org.tw','www.sec.gov','api.nasdaq.com','production.dataviz.cnn.io','api.binance.com','fred.stlouisfed.org','squeezemetrics.com'];
+const PROXY_ALLOWED = ['mis.twse.com.tw','mis.taifex.com.tw','query1.finance.yahoo.com','query2.finance.yahoo.com','finnhub.io','www.taifex.com.tw','openapi.taifex.com.tw','openapi.twse.com.tw','www.tpex.org.tw','www.sec.gov','api.nasdaq.com','production.dataviz.cnn.io','api.binance.com','fred.stlouisfed.org','squeezemetrics.com','ndcdyn.interactivebrokers.com'];
 
 // CSP 於模組載入時算一次（PROXY_ALLOWED 為常數，每回應結果不變）。withCors 直接套用此常數。
 // 注意：此 CSP 僅套用於 API 回應（JSON，不載字體故 style/font-src 不含 Google Fonts）；

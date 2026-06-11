@@ -35,6 +35,7 @@
 - 標籤、帳戶、星級評價、截圖 URL
 - **CSV 匯出**：含已實現損益與 R 倍數欄位，可直接在 Excel 做系統分析
 - **券商檔案匯入**：支援元大台股 CSV、元富 HTML-XLS、群益期貨 XLSX 自動 FIFO 配對
+- **IB 自動同步**：接入 Interactive Brokers Flex Web Service，一鍵拉回美股/期貨/選擇權成交（自動 FIFO 配對、重複跳過；token 唯讀且僅存本機瀏覽器）
 
 ### 風險管理系統（Van Tharp）
 

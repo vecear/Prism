@@ -1805,6 +1805,8 @@ window.PrismJournal = {
   isLoggedIn: () => !!(authToken && currentUser),
   showLogin: showLoginModal,
   doLogout: handleLogout,
+  // 供外部模組（IB 同步等）餵入單腿成交列，重用匯入預覽（FIFO 配對 + 去重）
+  showImportPreview: (parsed) => _showImportPreview(parsed, [], {}),
   // Called by app.js when journal tab is activated — refresh if stale
   _refreshOnTabSwitch() {
     if (!authToken) return;
@@ -2024,6 +2026,7 @@ function renderJournal() {
         <div class="j-csv-btns">
           <button class="j-act-btn" id="j-csv-export" title="匯出 CSV" aria-label="匯出 CSV"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
           <button class="j-act-btn" id="j-csv-import" title="匯入 CSV" aria-label="匯入 CSV"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button>
+          <button class="j-act-btn" id="j-ib-sync" title="同步 IB 交易（Flex Web Service）" aria-label="同步 IB 交易">IB</button>
           <button class="j-act-btn" id="j-export-report" title="匯出報表" aria-label="匯出報表"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></button>
           <button class="j-act-btn ${batchMode?'active':''}" id="j-batch-toggle" title="批次操作" aria-label="批次操作"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg></button>
           <button class="j-act-btn" id="j-pos-sizer" title="部位規模計算機" aria-label="部位規模計算機"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="8" y2="10"/><line x1="12" y1="10" x2="12" y2="10"/><line x1="16" y1="10" x2="16" y2="10"/><line x1="8" y1="14" x2="8" y2="14"/><line x1="12" y1="14" x2="12" y2="14"/><line x1="8" y1="18" x2="16" y2="18"/></svg></button>
@@ -2038,6 +2041,10 @@ function renderJournal() {
   $('#j-add').addEventListener('click', () => openTradeForm(null));
   $('#j-csv-export')?.addEventListener('click', exportCSV);
   $('#j-csv-import')?.addEventListener('click', importCSV);
+  $('#j-ib-sync')?.addEventListener('click', () => {
+    if (!window.PrismIBSync) return;
+    window.PrismIBSync.hasConfig() ? window.PrismIBSync.sync() : window.PrismIBSync.open();
+  });
   $('#j-export-report')?.addEventListener('click', exportReport);
   $('#j-batch-toggle')?.addEventListener('click', toggleBatchMode);
   $('#j-pos-sizer')?.addEventListener('click', () => openPositionSizer());

@@ -23,6 +23,7 @@ Prism/
 │   ├── ml.js                         # ML 工具：K-Means、Spectral Clustering、Z-score、silhouette
 │   ├── app.js                        # 主模組：計算引擎、PriceService、UI 渲染、設定面板、Guide、Regime 偵測
 │   ├── journal.js                    # 交易日誌：CRUD、5 視圖（list/calendar/stats/holdings/diary）、Auth UI、行為分群、Van Tharp 風險工具（SQN/部位計算/投組風險/出場四問/論點）
+│   ├── ibsync.js                     # IB Flex Web Service 交易同步（解析成交 → 餵入 journal 匯入管線）
 │   ├── industry-data.js              # 台股產業地圖靜態資料庫（14 條產業鏈 × 上中下游 × 細分環節；代號/簡稱經官方清單驗證）
 │   └── industry.js                   # 產業地圖模組：squarified treemap 熱力圖、產業鏈視圖、個股資訊卡、TWSE MIS 批次報價
 ├── server.js                         # 本機單機 Node 伺服器（使用 node:sqlite）
@@ -35,7 +36,8 @@ Prism/
 ├── _headers                          # Cloudflare Pages 安全標頭（套用於 HTML 頁面的 CSP/X-Frame-Options/HSTS 等）
 ├── scripts/
 │   ├── prism-parse-import.mjs        # 券商交易檔解析器（元大/元富/群益）
-│   └── validate-industry-data.mjs    # 產業地圖資料驗證（代號/簡稱比對 TWSE/TPEx openapi）
+│   ├── validate-industry-data.mjs    # 產業地圖資料驗證（代號/簡稱比對 TWSE/TPEx openapi）
+│   └── test-ibsync.mjs               # IB Flex 解析單元測試
 └── start.bat                         # Windows 一鍵啟動 local-only 模式
 ```
 
@@ -66,6 +68,7 @@ Prism/
 | DB 自動遷移（雲端） | `_worker.js` → `ensureDB()` | v1~v13 累積遷移（v13 = `thesis` 交易論點欄位）|
 | 密碼雜湊/JWT | `_worker.js` | 內建實作 |
 | 券商交易檔解析 | `scripts/prism-parse-import.mjs` | 元大 CSV / 元富 HTML-XLS / 群益 XLSX → FIFO 配對 |
+| IB 交易同步 | `js/ibsync.js` | Flex Web Service（SendRequest→輪詢 GetStatement→解析 XML 成交），餵入 journal.js `showImportPreview`（重用 FIFO 配對+去重）；設定存 localStorage `prism_ib_flex`（token 唯讀、僅存本機）；IB 網域已加入 PROXY_ALLOWED 三處；測試 `node scripts/test-ibsync.mjs` |
 
 ## Development Commands
 
