@@ -5024,7 +5024,7 @@ function renderSettings() {
       <div class="stg-group">
         <div class="stg-group-title"><span><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>交易前檢查清單</span>${_chevron}</div>
         <div class="stg-group-body">
-          <div id="stg-checklist-items">${(CFG.checklist||[]).map((item,i)=>`<div class="stg-cl-item" data-idx="${i}"><span>${item}</span><button class="stg-cl-del" data-idx="${i}" title="刪除">&times;</button></div>`).join('')}</div>
+          <div id="stg-checklist-items">${(CFG.checklist||[]).map((item,i)=>`<div class="stg-cl-item" data-idx="${i}"><span>${_esc(item)}</span><button class="stg-cl-del" data-idx="${i}" title="刪除">&times;</button></div>`).join('')}</div>
           <div class="stg-cl-add"><input type="text" id="stg-cl-input" placeholder="輸入檢查項目，按 Enter 新增" maxlength="50"><button id="stg-cl-add-btn" class="stg-save-btn" style="padding:5px 12px;font-size:.78rem">新增</button></div>
         </div>
       </div>
@@ -5151,7 +5151,7 @@ function renderSettings() {
     CFG.priceDecCrypto = $('#stg-dec-crypto')?.value || '4';
     CFG.priceDecCryptoRound = $('#stg-dec-crypto-round')?.checked ?? true;
     CFG.priceDecCryptoTrim = $('#stg-dec-crypto-trim')?.checked ?? true;
-    $$('[data-idx]', body).forEach(cb => { CFG.indices[cb.dataset.idx] = cb.checked; });
+    $$('input[data-idx]', body).forEach(cb => { CFG.indices[cb.dataset.idx] = cb.checked; });
     CFG.showVix = $('#stg-show-vix')?.checked ?? true;
     CFG.showVvix = $('#stg-show-vvix')?.checked ?? true;
     CFG.showVix1d = $('#stg-show-vix1d')?.checked ?? true;

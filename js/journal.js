@@ -147,7 +147,7 @@ function currentLossStreak() {
   const closed = trades.filter(t => t.status === 'closed').map(t => ({ ...t, pl: calcPL(t) })).filter(t => t.pl);
   closed.sort((a, b) => (closedAttribDate(a) < closedAttribDate(b) ? 1 : -1));
   let streak = 0;
-  for (const t of closed) { if (t.pl.net < 0) streak++; else break; }
+  for (const t of closed) { if (t.pl.net <= 0) streak++; else break; }
   return streak;
 }
 
@@ -1896,15 +1896,15 @@ window.PrismJournal = {
         trade.symbol = stkInput?.value?.trim() || '';
         trade.name = stkInfo?.textContent?.trim() || '';
       }
-      // Exit price: f-current → f-live-price → 0
-      const exitVal = _gvOrNull('f-current') ?? _gvOrNull('f-live-price') ?? 0;
+      // Exit price: f-current → f-live-price（皆未填則保持未平倉）
+      const exitVal = _gvOrNull('f-current') ?? _gvOrNull('f-live-price');
       if (exitVal != null) trade.exitPrice = String(exitVal);
       // Fee & tax
       const entry = _gv('f-entry'), qty = _gv('f-qty'), mul = _gv('f-mul');
       const fComm = _gv('f-comm');
       const fTaxRate = parseFloat(document.getElementById('f-tax-rate')?.value || '0');
       trade.fee = String(fComm * qty * 2);
-      trade.tax = String(Math.round(entry * mul * qty * fTaxRate) + Math.round(exitVal * mul * qty * fTaxRate));
+      trade.tax = String(Math.round(entry * mul * qty * fTaxRate) + Math.round((exitVal ?? 0) * mul * qty * fTaxRate));
       if (trade.exitPrice) trade.status = 'closed';
     }
     else if (tabType === 'options') {
